@@ -47,6 +47,8 @@ class App {
     this.playbackFormatDisplay = document.getElementById('playback-format');
     this.dateInput = document.getElementById('date-input');
     this.dateLabel = document.getElementById('date-label');
+    this.tcOffsetSelect = document.getElementById('tc-offset');
+    this._tcOffsetHours = 0;
 
     // Annotations
     this.annotations = [];
@@ -59,6 +61,9 @@ class App {
     this._pendingSelection = null; // {start, end} in session time
     this.selectionActions = document.getElementById('selection-actions');
     this.selectionInfo = document.getElementById('selection-info');
+    this.selectionStartInput = document.getElementById('selection-start');
+    this.selectionEndInput = document.getElementById('selection-end');
+    this.selectionDurationPreset = document.getElementById('selection-duration-preset');
 
     // Audio output device and sample rate
     this.audioOutputSelect = document.getElementById('audio-output');
@@ -124,7 +129,8 @@ class App {
       if (this.session?.sessionStartTime !== null && this.session?.sessionStartTime !== undefined) {
         const wallSec = this.session.toWallClock(time);
         if (wallSec !== null) {
-          this.cursorTime.textContent = BWFParser.secondsToTimeString(wallSec);
+          const adjusted = wallSec + (this._tcOffsetHours * 3600);
+          this.cursorTime.textContent = BWFParser.secondsToTimeString(adjusted);
         }
       } else {
         this.cursorTime.textContent = this._formatTimePrecise(time);
@@ -163,6 +169,17 @@ class App {
   _setupEngineCallbacks() {
     this.engine.onTimeUpdate = (time) => {
       this._updateTimeDisplays(time);
+      // Auto-scroll: when cursor reaches right 10% of the view, advance the view
+      if (this.engine.isPlaying && this.spectrogram && !this.engine.loopStart) {
+        const viewDuration = this.spectrogram.viewEnd - this.spectrogram.viewStart;
+        const threshold = this.spectrogram.viewStart + viewDuration * 0.9;
+        if (time > threshold && time < this.spectrogram.totalDuration) {
+          // Scroll forward, keeping cursor at left 10%
+          const newStart = time - viewDuration * 0.1;
+          this.spectrogram.setView(newStart, newStart + viewDuration);
+          this.spectrogram.computeVisible();
+        }
+      }
       this.spectrogram.draw(time);
     };
 
@@ -341,6 +358,38 @@ class App {
       }
     });
 
+    // Precise selection time inputs
+    const applySelectionTime = () => {
+      const startStr = this.selectionStartInput.value.trim();
+      const endStr = this.selectionEndInput.value.trim();
+      const startSec = this._parseFlexibleTime(startStr);
+      const endSec = this._parseFlexibleTime(endStr);
+      if (startSec !== null && endSec !== null && endSec > startSec) {
+        this._applySelection(startSec, endSec);
+      }
+    };
+
+    this.selectionStartInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { applySelectionTime(); e.target.blur(); }
+      if (e.key === 'Escape') e.target.blur();
+    });
+    this.selectionEndInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { applySelectionTime(); e.target.blur(); }
+      if (e.key === 'Escape') e.target.blur();
+    });
+    this.selectionStartInput.addEventListener('change', applySelectionTime);
+    this.selectionEndInput.addEventListener('change', applySelectionTime);
+
+    this.selectionDurationPreset.addEventListener('change', (e) => {
+      const dur = parseFloat(e.target.value);
+      if (!dur || !this._pendingSelection) return;
+      const start = this._pendingSelection.start;
+      this._applySelection(start, start + dur);
+      e.target.value = ''; // Reset selector
+    });
+
     document.getElementById('btn-export-selection').addEventListener('click', () => {
       this._exportSelectionAsWav();
     });
@@ -367,9 +416,19 @@ class App {
       this._setAudioOutputDevice(e.target.value);
     });
 
-    // Output sample rate (decimation for ultrasonic playback)
+    // Timecode offset correction
+    this.tcOffsetSelect.addEventListener('change', (e) => {
+      this._tcOffsetHours = parseInt(e.target.value) || 0;
+      // Update wall clock display immediately
+      this._updateTimeDisplays(this.engine.getCurrentTime());
+      this._setStatus(this._tcOffsetHours === 0
+        ? 'Timecode offset cleared'
+        : `Timecode offset: ${this._tcOffsetHours > 0 ? '+' : ''}${this._tcOffsetHours}h (applied to exports & display)`);
+    });
+
+    // "Play as" sample rate — reinterprets file at a different rate by changing playback speed
     this.outputSampleRateSelect.addEventListener('change', (e) => {
-      this._changeOutputSampleRate(parseInt(e.target.value));
+      this._changePlayAsRate(parseInt(e.target.value));
     });
 
     // Keyboard shortcuts
@@ -600,7 +659,7 @@ class App {
       this._currentDecimationFactor = result.decimationFactor;
       await this.engine.setSource(result.url, session.totalDuration, result.outputSampleRate);
       this.engine.setGainDB(parseFloat(this.audioGainSlider.value));
-      this._populateOutputSampleRateOptions(session.sampleRate, result.outputSampleRate);
+      this._populateOutputSampleRateOptions(session.sampleRate);
     })();
 
     // Compute spectrogram for initial narrow view (fast)
@@ -721,7 +780,8 @@ class App {
     if (this.session?.sessionStartTime !== null && this.session?.sessionStartTime !== undefined) {
       const wallSec = this.session.toWallClock(time);
       if (wallSec !== null) {
-        this.wallTimeDisplay.textContent = BWFParser.secondsToTimeString(wallSec);
+        const adjusted = wallSec + (this._tcOffsetHours * 3600);
+        this.wallTimeDisplay.textContent = BWFParser.secondsToTimeString(adjusted);
       }
     }
   }
@@ -761,6 +821,47 @@ class App {
     return `${m}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
   }
 
+  /**
+   * Parse flexible time string: supports H:MM:SS.cc, M:SS.cc, M:SS, or just seconds.
+   */
+  _parseFlexibleTime(str) {
+    if (!str) return null;
+    str = str.trim();
+    // Try as plain number (seconds)
+    if (/^\d+(\.\d+)?$/.test(str)) return parseFloat(str);
+    // Try M:SS or M:SS.cc
+    const parts = str.split(':');
+    if (parts.length === 2) {
+      const m = parseInt(parts[0], 10);
+      const s = parseFloat(parts[1]);
+      if (!isNaN(m) && !isNaN(s)) return m * 60 + s;
+    }
+    if (parts.length === 3) {
+      const h = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const s = parseFloat(parts[2]);
+      if (!isNaN(h) && !isNaN(m) && !isNaN(s)) return h * 3600 + m * 60 + s;
+    }
+    return null;
+  }
+
+  _applySelection(start, end) {
+    if (!this.session) return;
+    start = Math.max(0, start);
+    end = Math.min(this.session.totalDuration, end);
+    if (end <= start) return;
+
+    this.spectrogram.selectionStart = start;
+    this.spectrogram.selectionEnd = end;
+    this._onSelectionMade(start, end);
+
+    // Zoom to show selection with padding
+    const dur = end - start;
+    const padding = Math.max(2, dur * 0.2);
+    this.spectrogram.setView(start - padding, end + padding);
+    this.spectrogram.computeVisible();
+  }
+
   // ── Annotations ──────────────────────────────────────────────────────
 
   _onSelectionMade(start, end) {
@@ -770,6 +871,10 @@ class App {
     const dur = end - start;
     this.selectionInfo.textContent = this._formatTimePrecise(dur);
     this.selectionActions.style.display = 'flex';
+
+    // Populate precise time inputs
+    this.selectionStartInput.value = this._formatTimePrecise(start);
+    this.selectionEndInput.value = this._formatTimePrecise(end);
 
     // Set up loop playback on the selection
     this.engine.setLoop(start, end);
@@ -803,7 +908,8 @@ class App {
       const wallStart = this.session.toWallClock(startTime);
       const wallEnd = this.session.toWallClock(endTime);
       if (wallStart !== null && wallEnd !== null) {
-        info += `<div class="wall-clock-label">Wall: ${BWFParser.secondsToTimeString(wallStart)} \u2013 ${BWFParser.secondsToTimeString(wallEnd)}</div>`;
+        const offsetSec = (this._tcOffsetHours || 0) * 3600;
+        info += `<div class="wall-clock-label">Wall: ${BWFParser.secondsToTimeString(wallStart + offsetSec)} \u2013 ${BWFParser.secondsToTimeString(wallEnd + offsetSec)}</div>`;
       }
     }
 
@@ -882,6 +988,8 @@ class App {
 
   _wallClockToISO(dateStr, wallSeconds) {
     // dateStr is "YYYY-MM-DD" or "YYYY:MM:DD", wallSeconds is seconds from midnight
+    // Apply timecode offset correction
+    wallSeconds += (this._tcOffsetHours || 0) * 3600;
     const d = dateStr.replace(/:/g, '-');
     let s = wallSeconds;
     let dayOffset = 0;
@@ -1249,28 +1357,25 @@ class App {
 
   // ── Output sample rate (decimation for ultrasonic content) ─────────
 
-  _populateOutputSampleRateOptions(nativeSampleRate, currentOutputRate) {
+  _populateOutputSampleRateOptions(nativeSampleRate) {
     const select = this.outputSampleRateSelect;
     select.innerHTML = '';
 
-    // Standard output rates — only include rates that are integer divisors of native
+    // Offer common sample rates as "play as" options
     const targets = [8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 96000, 192000, 384000];
     const options = [];
 
     for (const rate of targets) {
       if (rate > nativeSampleRate) continue;
-      const factor = nativeSampleRate / rate;
-      // Only integer decimation factors
-      if (Math.abs(factor - Math.round(factor)) > 0.01) continue;
-      const d = Math.round(factor);
+      const ratio = rate / nativeSampleRate;
       const label = rate >= 1000 ? `${rate / 1000}kHz` : `${rate}Hz`;
-      options.push({ rate, d, label });
+      options.push({ rate, ratio, label });
     }
 
-    // Also add the native rate if it's not already in the list
+    // Add the native rate if not already in the list
     if (!options.find(o => o.rate === nativeSampleRate)) {
       const label = nativeSampleRate >= 1000 ? `${nativeSampleRate / 1000}kHz` : `${nativeSampleRate}Hz`;
-      options.push({ rate: nativeSampleRate, d: 1, label });
+      options.push({ rate: nativeSampleRate, ratio: 1, label });
     }
 
     // Sort by rate descending
@@ -1279,47 +1384,30 @@ class App {
     for (const opt of options) {
       const el = document.createElement('option');
       el.value = opt.rate.toString();
-      if (opt.d === 1) {
+      if (opt.ratio === 1) {
         el.textContent = `${opt.label} (native)`;
       } else {
-        el.textContent = `${opt.label} (${opt.d}x dec.)`;
+        el.textContent = `${opt.label} (${opt.ratio.toFixed(2)}x speed)`;
       }
       select.appendChild(el);
     }
 
-    select.value = currentOutputRate.toString();
+    select.value = nativeSampleRate.toString();
+    this._playAsNativeRate = nativeSampleRate;
   }
 
-  async _changeOutputSampleRate(targetRate) {
+  _changePlayAsRate(targetRate) {
     if (!this.session) return;
+    const nativeRate = this._playAsNativeRate || this.session.sampleRate;
+    const ratio = targetRate / nativeRate;
 
-    const wasPlaying = this.engine.isPlaying;
-    const currentTime = this.engine.getCurrentTime();
+    this.engine.setPlaybackRate(ratio);
+    // Also update the Speed selector to reflect the effective speed
+    this.playbackRateSelect.value = '1'; // Reset speed selector since Play-as overrides it
 
-    this._setStatus(`Switching output to ${targetRate >= 1000 ? targetRate / 1000 + 'kHz' : targetRate + 'Hz'}...`);
-
-    // Restart audio server with new output rate
-    const result = await window.electronAPI.setupAudioServer(
-      this.session.getServerFileList(), targetRate
-    );
-    this._currentOutputSampleRate = result.outputSampleRate;
-    this._currentDecimationFactor = result.decimationFactor;
-
-    await this.engine.setSource(result.url, this.session.totalDuration, result.outputSampleRate);
-    this.engine.setGainDB(parseFloat(this.audioGainSlider.value));
-
-    // Restore position and playback state
-    this.engine.seek(currentTime);
-    if (wasPlaying) {
-      this.engine.play();
-      this.btnPlay.textContent = '\u23F8 Pause';
-    }
-
+    const label = targetRate >= 1000 ? `${targetRate / 1000}kHz` : `${targetRate}Hz`;
+    this._setStatus(`Playing as ${label} (${ratio.toFixed(2)}x speed)`);
     this._updatePlaybackFormat();
-
-    const label = result.outputSampleRate >= 1000
-      ? `${result.outputSampleRate / 1000}kHz` : `${result.outputSampleRate}Hz`;
-    this._setStatus(`Output: ${label} (${result.decimationFactor}x decimation from ${this.session.sampleRate}Hz)`);
   }
 
   // ── Annotations sidebar ──────────────────────────────────────────
@@ -1399,10 +1487,12 @@ class App {
     const rateStr = rate >= 1000 ? `${rate / 1000}kHz` : `${rate}Hz`;
     const bits = this.session.bitsPerSample;
     const ch = this.session.channels === 1 ? 'mono' : this.session.channels === 2 ? 'stereo' : `${this.session.channels}ch`;
-    const dec = this._currentDecimationFactor > 1 ? ` (${this._currentDecimationFactor}× dec.)` : '';
-    // Playback is always converted to 16-bit PCM by the server
-    this.playbackFormatDisplay.textContent = `${rateStr}/16bit ${ch}${dec}`;
-    this.playbackFormatDisplay.title = `Source: ${this.session.sampleRate}Hz/${bits}bit — Playback: ${rate}Hz/16bit${dec}`;
+    const playAsRate = parseInt(this.outputSampleRateSelect.value) || this.session.sampleRate;
+    const playAsStr = playAsRate !== this.session.sampleRate
+      ? ` → as ${playAsRate >= 1000 ? playAsRate / 1000 + 'kHz' : playAsRate + 'Hz'}`
+      : '';
+    this.playbackFormatDisplay.textContent = `${rateStr}/16bit ${ch}${playAsStr}`;
+    this.playbackFormatDisplay.title = `Source: ${this.session.sampleRate}Hz/${bits}bit — Server: ${rate}Hz/16bit`;
   }
 
   // ── Date picker for multi-date sessions ─────────────────────────────

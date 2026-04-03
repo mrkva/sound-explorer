@@ -109,7 +109,7 @@ export class SpectrogramRenderer {
       const canvasWidth = this.canvas.width - 60;
 
       // Target: ~2 FFT frames per pixel, capped to keep computation fast
-      const targetFrames = Math.min(canvasWidth * 2, 4000);
+      const targetFrames = Math.max(1, Math.min(canvasWidth * 2, 4000));
 
       // The hop size determines how many samples per FFT frame
       const hopSize = this.hopSize || Math.max(
@@ -126,8 +126,12 @@ export class SpectrogramRenderer {
       const samplesNeeded = targetFrames * hopSize + this.fftSize;
 
       // If we'd need to read way more samples than we need for the target
-      // frames, we should subsample: read small windows spaced apart
-      const needsSubsampling = totalViewSamples > samplesNeeded * 1.5;
+      // frames, we should subsample: read small windows spaced apart.
+      // Also force subsampling if the total view would require too much memory
+      // (more than ~16M samples = 64MB Float32Array).
+      const maxFullModeSamples = 16 * 1024 * 1024;
+      const needsSubsampling = totalViewSamples > samplesNeeded * 1.5 ||
+                               totalViewSamples > maxFullModeSamples;
 
       // Check cache
       const cacheKey = `${startSample}-${endSample}-${this.fftSize}-${targetFrames}`;
@@ -718,12 +722,21 @@ export class SpectrogramRenderer {
     if (playbackTime !== null && playbackTime >= this.viewStart && playbackTime <= this.viewEnd) {
       const spectWidth = width - 60;
       const x = 50 + ((playbackTime - this.viewStart) / (this.viewEnd - this.viewStart)) * spectWidth;
-      this.ctx.strokeStyle = '#ff4444';
+      const cursorColor = this._getCursorColor();
+      this.ctx.strokeStyle = cursorColor;
       this.ctx.lineWidth = 2;
       this.ctx.beginPath();
       this.ctx.moveTo(x, 0);
       this.ctx.lineTo(x, height - 40);
       this.ctx.stroke();
+      // Small triangle marker at bottom
+      this.ctx.fillStyle = cursorColor;
+      this.ctx.beginPath();
+      this.ctx.moveTo(x, height - 40);
+      this.ctx.lineTo(x - 4, height - 34);
+      this.ctx.lineTo(x + 4, height - 34);
+      this.ctx.closePath();
+      this.ctx.fill();
     }
   }
 
@@ -900,30 +913,83 @@ export class SpectrogramRenderer {
     this.ctx.fillStyle = '#0f0f1a';
     this.ctx.fillRect(0, 0, 50, canvasHeight);
     this.ctx.fillStyle = '#aaaacc';
-    this.ctx.font = '10px monospace';
+    this.ctx.font = '9px monospace';
     this.ctx.textAlign = 'right';
+    this.ctx.strokeStyle = 'rgba(170, 170, 204, 0.3)';
+    this.ctx.lineWidth = 1;
 
     const spectHeight = canvasHeight - 40;
 
     if (this.logFrequency) {
-      // Log scale: use nice round frequencies
       const logMin = Math.log(Math.max(this.minFreq, 20));
       const logMax = Math.log(Math.max(this.maxFreq, 21));
-      const niceFreqs = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 40000, 80000];
+      const niceFreqs = [20, 30, 50, 75, 100, 150, 200, 300, 500, 750,
+        1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000, 30000, 50000, 80000];
       for (const freq of niceFreqs) {
         if (freq < this.minFreq || freq > this.maxFreq) continue;
         const ratio = (Math.log(freq) - logMin) / (logMax - logMin);
         const y = (1 - ratio) * spectHeight;
-        let label = freq >= 1000 ? (freq / 1000).toFixed(freq >= 10000 ? 0 : 1) + 'k' : freq.toString();
-        this.ctx.fillText(label, 46, y + 4);
+        // Major vs minor labels
+        const isMajor = [100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000].includes(freq);
+        if (isMajor) {
+          let label = freq >= 1000 ? (freq / 1000).toFixed(freq >= 10000 ? 0 : 1) + 'k' : freq.toString();
+          this.ctx.fillStyle = '#aaaacc';
+          this.ctx.fillText(label, 44, y + 3);
+          // Tick mark
+          this.ctx.beginPath();
+          this.ctx.moveTo(48, y);
+          this.ctx.lineTo(50, y);
+          this.ctx.stroke();
+        } else {
+          // Minor tick
+          this.ctx.beginPath();
+          this.ctx.moveTo(49, y);
+          this.ctx.lineTo(50, y);
+          this.ctx.stroke();
+        }
       }
     } else {
-      const numLabels = 8;
-      for (let i = 0; i <= numLabels; i++) {
-        const freq = this.minFreq + (this.maxFreq - this.minFreq) * (1 - i / numLabels);
-        const y = (i / numLabels) * spectHeight;
-        let label = freq >= 1000 ? (freq / 1000).toFixed(1) + 'k' : Math.round(freq).toString();
-        this.ctx.fillText(label, 46, y + 4);
+      // Linear scale: pick nice intervals based on the frequency range
+      const range = this.maxFreq - this.minFreq;
+      const niceIntervals = [10, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000];
+      // Target: one label per ~40 pixels
+      const targetCount = Math.max(4, Math.floor(spectHeight / 40));
+      const rawInterval = range / targetCount;
+      const interval = niceIntervals.find(i => i >= rawInterval) || 10000;
+
+      // Minor interval for tick marks (half or fifth of major)
+      const minorInterval = interval <= 100 ? interval / 2 :
+                            interval <= 1000 ? interval / 5 : interval / 5;
+
+      const startFreq = Math.ceil(this.minFreq / minorInterval) * minorInterval;
+
+      for (let freq = startFreq; freq <= this.maxFreq; freq += minorInterval) {
+        const ratio = (freq - this.minFreq) / range;
+        const y = (1 - ratio) * spectHeight;
+        const isMajor = Math.abs(freq % interval) < 0.5 || Math.abs(freq % interval - interval) < 0.5;
+
+        if (isMajor) {
+          let label;
+          if (freq >= 10000) {
+            label = (freq / 1000).toFixed(0) + 'k';
+          } else if (freq >= 1000) {
+            label = (freq / 1000).toFixed(1) + 'k';
+          } else {
+            label = Math.round(freq).toString();
+          }
+          this.ctx.fillStyle = '#aaaacc';
+          this.ctx.fillText(label, 44, y + 3);
+          this.ctx.beginPath();
+          this.ctx.moveTo(48, y);
+          this.ctx.lineTo(50, y);
+          this.ctx.stroke();
+        } else {
+          // Minor tick
+          this.ctx.beginPath();
+          this.ctx.moveTo(49, y);
+          this.ctx.lineTo(50, y);
+          this.ctx.stroke();
+        }
       }
     }
   }
@@ -990,6 +1056,21 @@ export class SpectrogramRenderer {
     const s = Math.floor(seconds % 60);
     if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+
+  /**
+   * Get a cursor color that contrasts well with the current colormap.
+   */
+  _getCursorColor() {
+    const contrastColors = {
+      viridis: '#ff4444',    // red contrasts with blue-green-yellow
+      magma: '#00ff88',      // green contrasts with purple-orange
+      inferno: '#00ccff',    // cyan contrasts with red-yellow
+      grayscale: '#ff4444',  // red contrasts with gray
+      green: '#ff44ff',      // magenta contrasts with green
+      hot: '#00ccff'         // cyan contrasts with red-yellow-white
+    };
+    return contrastColors[this.colorPreset] || '#ff4444';
   }
 
   /**

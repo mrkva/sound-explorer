@@ -104,6 +104,32 @@ button.primary:hover { background: #254a6e; }
   color: var(--orange);
 }
 
+.selection-time-input {
+  background: var(--bg-primary);
+  color: var(--orange);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 11px;
+  width: 72px;
+  text-align: center;
+}
+
+.selection-time-input:focus {
+  outline: none;
+  border-color: var(--orange);
+}
+
+#selection-duration-preset {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px;
+  font-size: 11px;
+}
+
 /* Time navigation */
 .time-nav {
   display: flex;
@@ -215,6 +241,16 @@ button.primary:hover { background: #254a6e; }
   font-size: 11px;
 }
 
+#tc-offset {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 10px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+}
+
 /* File info (right side of info strip) */
 .info-strip-right {
   display: flex;
@@ -280,24 +316,22 @@ button.primary:hover { background: #254a6e; }
 /* ── Bottom Bar (spectrogram controls) ────────────────────────────── */
 .bottom-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  padding: 5px 12px;
+  padding: 4px 12px;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
   font-size: 11px;
   flex-shrink: 0;
-  gap: 4px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  min-height: 36px;
+  gap: 2px 4px;
 }
 
 .controls-section {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 0 6px;
-  flex-shrink: 0;
+  gap: 4px 8px;
+  padding: 2px 6px;
 }
 
 .section-label {

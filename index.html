@@ -58,6 +58,28 @@
     <div class="toolbar-separator"></div>
 
     <div class="toolbar-group selection-actions" id="selection-actions" style="display: none;">
+      <div class="control-item">
+        <label>From</label>
+        <input type="text" id="selection-start" class="selection-time-input" placeholder="0:00.00" title="Selection start (click to edit)">
+      </div>
+      <div class="control-item">
+        <label>To</label>
+        <input type="text" id="selection-end" class="selection-time-input" placeholder="0:00.00" title="Selection end (click to edit)">
+      </div>
+      <div class="control-item">
+        <label>Dur</label>
+        <select id="selection-duration-preset" title="Set selection duration">
+          <option value="">--</option>
+          <option value="5">5s</option>
+          <option value="10">10s</option>
+          <option value="15">15s</option>
+          <option value="30">30s</option>
+          <option value="45">45s</option>
+          <option value="60">60s</option>
+          <option value="120">2m</option>
+          <option value="300">5m</option>
+        </select>
+      </div>
       <span class="selection-info" id="selection-info"></span>
       <button id="btn-annotate-selection" class="annotations-btn">Annotate</button>
       <button id="btn-export-selection" title="Export selection as WAV">Export WAV</button>
@@ -93,6 +115,37 @@
       <div class="info-block">
         <span class="info-label">Playback</span>
         <span class="info-value playback-format" id="playback-format">--</span>
+      </div>
+      <div class="info-divider"></div>
+      <div class="info-block">
+        <span class="info-label">TC Offset</span>
+        <select id="tc-offset" title="Timecode offset correction (e.g., fix UTC+2 recording to UTC)">
+          <option value="0">0h</option>
+          <option value="-12">-12h</option>
+          <option value="-11">-11h</option>
+          <option value="-10">-10h</option>
+          <option value="-9">-9h</option>
+          <option value="-8">-8h</option>
+          <option value="-7">-7h</option>
+          <option value="-6">-6h</option>
+          <option value="-5">-5h</option>
+          <option value="-4">-4h</option>
+          <option value="-3">-3h</option>
+          <option value="-2">-2h</option>
+          <option value="-1">-1h</option>
+          <option value="1">+1h</option>
+          <option value="2">+2h</option>
+          <option value="3">+3h</option>
+          <option value="4">+4h</option>
+          <option value="5">+5h</option>
+          <option value="6">+6h</option>
+          <option value="7">+7h</option>
+          <option value="8">+8h</option>
+          <option value="9">+9h</option>
+          <option value="10">+10h</option>
+          <option value="11">+11h</option>
+          <option value="12">+12h</option>
+        </select>
       </div>
     </div>
     <div class="info-strip-right" id="file-info-area">
