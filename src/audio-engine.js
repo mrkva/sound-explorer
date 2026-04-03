@@ -47,9 +47,11 @@ export class AudioEngine {
       this.audioElement = null;
     }
 
-    // Create new context, optionally matching file sample rate
-    const opts = sampleRate ? { sampleRate } : {};
-    this.audioContext = new (window.AudioContext || window.webkitAudioContext)(opts);
+    // Create new context with system default sample rate.
+    // Do NOT force the file's sample rate - the browser/hardware may not
+    // support it (e.g., 96kHz). The <audio> element handles decoding at
+    // any rate, and MediaElementSource resamples to the context rate.
+    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
     // Create audio element for streaming playback
     this.audioElement = document.createElement('audio');

@@ -315,9 +315,11 @@ class App {
       }
     });
 
-    // Selection toolbar actions
+    // Selection toolbar actions - toggle annotation dialog
     document.getElementById('btn-annotate-selection').addEventListener('click', () => {
-      if (this._pendingSelection) {
+      if (this.annotationDialog.style.display !== 'none') {
+        this.annotationDialog.style.display = 'none';
+      } else if (this._pendingSelection) {
         this._showAnnotationDialog(this._pendingSelection.start, this._pendingSelection.end);
       }
     });

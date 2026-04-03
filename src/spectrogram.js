@@ -679,7 +679,8 @@ export class SpectrogramRenderer {
     // File boundaries
     this._drawFileBoundaries(width, height);
 
-    // Annotation markers on timeline
+    // Annotation regions on spectrogram + markers on timeline
+    this._drawAnnotationRegions(width, height);
     this._drawAnnotationMarkers(width, height);
 
     // Selection highlight
@@ -780,6 +781,110 @@ export class SpectrogramRenderer {
         this.ctx.fillText(ann.note, labelX, axisY - 7);
         this.ctx.restore();
       }
+    }
+  }
+
+  _drawAnnotationRegions(canvasWidth, canvasHeight) {
+    if (this.annotations.length === 0) return;
+
+    const spectWidth = canvasWidth - 60;
+    const spectHeight = canvasHeight - 40;
+    const viewDuration = this.viewEnd - this.viewStart;
+
+    // Assign colors to annotations for visual distinction
+    const colors = [
+      [255, 152, 0],   // orange
+      [0, 188, 212],   // cyan
+      [156, 39, 176],  // purple
+      [76, 175, 80],   // green
+      [255, 87, 34],   // deep orange
+      [33, 150, 243],  // blue
+      [255, 235, 59],  // yellow
+      [233, 30, 99],   // pink
+    ];
+
+    // Count overlaps at each annotation to stack labels
+    const visibleAnns = [];
+    for (let i = 0; i < this.annotations.length; i++) {
+      const ann = this.annotations[i];
+      if (ann.sessionEnd < this.viewStart || ann.sessionStart > this.viewEnd) continue;
+
+      const x1 = 50 + Math.max(0, ((ann.sessionStart - this.viewStart) / viewDuration) * spectWidth);
+      const x2 = 50 + Math.min(spectWidth, ((ann.sessionEnd - this.viewStart) / viewDuration) * spectWidth);
+      if (x2 - x1 < 1) continue;
+
+      visibleAnns.push({ ann, x1, x2, colorIdx: i % colors.length });
+    }
+
+    // Draw semi-transparent region overlays
+    for (const { ann, x1, x2, colorIdx } of visibleAnns) {
+      const [r, g, b] = colors[colorIdx];
+      const w = x2 - x1;
+
+      // Fill region with very subtle tint
+      this.ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.08)`;
+      this.ctx.fillRect(x1, 0, w, spectHeight);
+
+      // Draw left/right border lines
+      this.ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.4)`;
+      this.ctx.lineWidth = 1;
+      this.ctx.setLineDash([4, 4]);
+      this.ctx.beginPath();
+      this.ctx.moveTo(x1, 0); this.ctx.lineTo(x1, spectHeight);
+      this.ctx.moveTo(x2, 0); this.ctx.lineTo(x2, spectHeight);
+      this.ctx.stroke();
+      this.ctx.setLineDash([]);
+    }
+
+    // Draw labels - stack overlapping ones vertically
+    // Sort by start position for consistent label stacking
+    visibleAnns.sort((a, b) => a.x1 - b.x1);
+
+    const labelHeight = 16;
+    const usedSlots = []; // [{x1, x2, row}] to detect overlap
+
+    for (const { ann, x1, x2, colorIdx } of visibleAnns) {
+      const [r, g, b] = colors[colorIdx];
+
+      // Find a row that doesn't overlap with existing labels
+      let row = 0;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const conflict = usedSlots.some(s =>
+          s.row === attempt && !(x2 < s.x1 || x1 > s.x2)
+        );
+        if (!conflict) { row = attempt; break; }
+        row = attempt + 1;
+      }
+
+      usedSlots.push({ x1, x2, row });
+
+      const labelY = 4 + row * (labelHeight + 2);
+      if (labelY + labelHeight > spectHeight) continue; // Skip if too many stacked
+
+      // Label background
+      const label = ann.note;
+      this.ctx.font = '10px sans-serif';
+      const textW = Math.min(this.ctx.measureText(label).width + 8, x2 - x1);
+
+      this.ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.7)`;
+      const bw = Math.max(textW, 20);
+      if (this.ctx.roundRect) {
+        this.ctx.beginPath();
+        this.ctx.roundRect(x1, labelY, bw, labelHeight, 2);
+        this.ctx.fill();
+      } else {
+        this.ctx.fillRect(x1, labelY, bw, labelHeight);
+      }
+
+      // Label text
+      this.ctx.fillStyle = '#fff';
+      this.ctx.textAlign = 'left';
+      this.ctx.save();
+      this.ctx.beginPath();
+      this.ctx.rect(x1, labelY, bw - 2, labelHeight);
+      this.ctx.clip();
+      this.ctx.fillText(label, x1 + 3, labelY + 12);
+      this.ctx.restore();
     }
   }
 

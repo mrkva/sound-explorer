@@ -104,8 +104,14 @@ export class BWFParser {
     result.bitsPerSample = view.getUint16(offset + 14, true);
 
     // WAVE_FORMAT_EXTENSIBLE: real format is in SubFormat GUID
+    // IMPORTANT: Do NOT override bitsPerSample with wValidBitsPerSample!
+    // bitsPerSample must remain the container size (e.g., 32) for correct
+    // blockAlign calculation. wValidBitsPerSample (e.g., 24) only tells us
+    // how many bits are meaningful, but each sample still occupies the
+    // container size in the file. Overriding causes byte misalignment and
+    // spectral artifacts (e.g., a bright line at sampleRate/3).
     if (result.format === 0xFFFE && size >= 40) {
-      result.bitsPerSample = view.getUint16(offset + 18, true); // wValidBitsPerSample
+      result.validBitsPerSample = view.getUint16(offset + 18, true);
       result.format = view.getUint16(offset + 24, true);        // SubFormat (1=PCM, 3=float)
     }
   }

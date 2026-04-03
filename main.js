@@ -589,11 +589,13 @@ async function readWavHeader(filePath) {
       result.sampleRate = view.getUint32(chunkData + 4, true);
       result.bitsPerSample = view.getUint16(chunkData + 14, true);
       // WAVE_FORMAT_EXTENSIBLE: real format is in SubFormat GUID
+      // Keep bitsPerSample as the container size for correct byte alignment.
+      // wValidBitsPerSample tells us precision but doesn't change byte layout.
       if (result.format === 0xFFFE && chunkSize >= 40) {
-        result.bitsPerSample = view.getUint16(chunkData + 18, true); // wValidBitsPerSample
+        const validBits = view.getUint16(chunkData + 18, true);
         const subFormat = view.getUint16(chunkData + 24, true);
         result.format = subFormat; // 1=PCM, 3=IEEE float
-        console.log(`WAVE_FORMAT_EXTENSIBLE: subformat=${subFormat}, validBits=${result.bitsPerSample}`);
+        console.log(`WAVE_FORMAT_EXTENSIBLE: subformat=${subFormat}, container=${result.bitsPerSample}-bit, validBits=${validBits}`);
       }
     } else if (chunkId === 'data') {
       result.dataOffset = chunkData;
