@@ -90,6 +90,20 @@ button.primary:hover { background: #254a6e; }
 }
 .annotations-btn:hover { background: rgba(255, 152, 0, 0.15); }
 
+/* Selection actions (appears when a region is selected) */
+.selection-actions {
+  background: rgba(255, 152, 0, 0.1);
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
+.selection-info {
+  font-size: 11px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  color: var(--orange);
+}
+
 /* Time navigation */
 .time-nav {
   display: flex;

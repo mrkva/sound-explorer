@@ -49,6 +49,12 @@
 
     <div class="toolbar-separator"></div>
 
+    <div class="toolbar-group selection-actions" id="selection-actions" style="display: none;">
+      <span class="selection-info" id="selection-info"></span>
+      <button id="btn-annotate-selection" class="annotations-btn">Annotate</button>
+      <button id="btn-export-selection" title="Export selection as WAV">Export WAV</button>
+    </div>
+
     <div class="toolbar-group">
       <button id="btn-annotations" class="annotations-btn">Annotations</button>
     </div>
@@ -211,8 +217,7 @@
       <div class="annotation-time-info" id="annotation-time-info"></div>
       <input type="text" id="annotation-note" placeholder="Note (e.g. wolf howling)" autocomplete="off">
       <div class="annotation-dialog-buttons">
-        <button id="btn-save-annotation" class="primary">Save</button>
-        <button id="btn-export-selection" title="Export selection as WAV file">Export WAV</button>
+        <button id="btn-save-annotation" class="primary">Save Annotation</button>
       </div>
     </div>
   </div>

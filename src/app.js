@@ -53,6 +53,8 @@ class App {
     this.annotationsList = document.getElementById('annotations-list');
     this.annotationCount = document.getElementById('annotation-count');
     this._pendingSelection = null; // {start, end} in session time
+    this.selectionActions = document.getElementById('selection-actions');
+    this.selectionInfo = document.getElementById('selection-info');
 
     this._setupCanvas();
     this._setupSpectrogram();
@@ -119,9 +121,9 @@ class App {
 
     this.spectrogram.onSelectionChange = (start, end) => {
       if (start !== null && end !== null) {
-        this._showAnnotationDialog(start, end);
+        this._onSelectionMade(start, end);
       } else {
-        this.annotationDialog.style.display = 'none';
+        this._onSelectionCleared();
       }
     };
 
@@ -177,6 +179,7 @@ class App {
 
     // Stop
     this.btnStop.addEventListener('click', () => {
+      this.engine.clearLoop();
       this.engine.stop();
       this.btnPlay.textContent = '\u25B6 Play';
       this.spectrogram.draw(0);
@@ -312,16 +315,23 @@ class App {
       }
     });
 
+    // Selection toolbar actions
+    document.getElementById('btn-annotate-selection').addEventListener('click', () => {
+      if (this._pendingSelection) {
+        this._showAnnotationDialog(this._pendingSelection.start, this._pendingSelection.end);
+      }
+    });
+
+    document.getElementById('btn-export-selection').addEventListener('click', () => {
+      this._exportSelectionAsWav();
+    });
+
     document.getElementById('btn-close-annotations').addEventListener('click', () => {
       this.annotationsPanel.style.display = 'none';
     });
 
     document.getElementById('btn-export-annotations').addEventListener('click', () => {
       this._exportAnnotations();
-    });
-
-    document.getElementById('btn-export-selection').addEventListener('click', () => {
-      this._exportSelectionAsWav();
     });
 
     document.getElementById('btn-export-all-wavs').addEventListener('click', () => {
@@ -392,7 +402,7 @@ class App {
           this.spectrogram.selectionStart = null;
           this.spectrogram.selectionEnd = null;
           this.spectrogram.draw();
-          this.annotationDialog.style.display = 'none';
+          this._onSelectionCleared();
           break;
       }
     });
@@ -632,6 +642,31 @@ class App {
   }
 
   // ── Annotations ──────────────────────────────────────────────────────
+
+  _onSelectionMade(start, end) {
+    this._pendingSelection = { start, end };
+
+    // Show selection info + action buttons in toolbar
+    const dur = end - start;
+    this.selectionInfo.textContent = this._formatTimePrecise(dur);
+    this.selectionActions.style.display = 'flex';
+
+    // Set up loop playback on the selection
+    this.engine.setLoop(start, end);
+    this.engine.seek(start);
+    // Auto-play the loop
+    if (!this.engine.isPlaying) {
+      this.engine.play();
+      this.btnPlay.textContent = '\u23F8 Pause';
+    }
+  }
+
+  _onSelectionCleared() {
+    this._pendingSelection = null;
+    this.selectionActions.style.display = 'none';
+    this.annotationDialog.style.display = 'none';
+    this.engine.clearLoop();
+  }
 
   _showAnnotationDialog(startTime, endTime) {
     this._pendingSelection = { start: startTime, end: endTime };

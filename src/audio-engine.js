@@ -18,6 +18,10 @@ export class AudioEngine {
     this.duration = 0;
     this.audioUrl = null;
 
+    // Loop region (null = no loop)
+    this.loopStart = null;
+    this.loopEnd = null;
+
     this.onTimeUpdate = null;
     this.onEnded = null;
     this._animFrame = null;
@@ -204,12 +208,25 @@ export class AudioEngine {
     return { peak, rms: Math.sqrt(sumSq / data.length) };
   }
 
+  setLoop(start, end) {
+    this.loopStart = start;
+    this.loopEnd = end;
+  }
+
+  clearLoop() {
+    this.loopStart = null;
+    this.loopEnd = null;
+  }
+
   _startTimeUpdate() {
     const update = () => {
-      if (this.isPlaying && this.onTimeUpdate) {
-        this.onTimeUpdate(this.getCurrentTime());
-      }
       if (this.isPlaying) {
+        const t = this.getCurrentTime();
+        // Loop region check
+        if (this.loopStart !== null && this.loopEnd !== null && t >= this.loopEnd) {
+          this.audioElement.currentTime = this.loopStart;
+        }
+        if (this.onTimeUpdate) this.onTimeUpdate(this.getCurrentTime());
         this._animFrame = requestAnimationFrame(update);
       }
     };

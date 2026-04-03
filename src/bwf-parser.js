@@ -102,6 +102,12 @@ export class BWFParser {
     result.channels = view.getUint16(offset + 2, true);
     result.sampleRate = view.getUint32(offset + 4, true);
     result.bitsPerSample = view.getUint16(offset + 14, true);
+
+    // WAVE_FORMAT_EXTENSIBLE: real format is in SubFormat GUID
+    if (result.format === 0xFFFE && size >= 40) {
+      result.bitsPerSample = view.getUint16(offset + 18, true); // wValidBitsPerSample
+      result.format = view.getUint16(offset + 24, true);        // SubFormat (1=PCM, 3=float)
+    }
   }
 
   static parseBextChunk(view, offset, size, result) {
