@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Field Recording Explorer</title>
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+  <!-- Top toolbar -->
+  <div class="toolbar">
+    <div class="toolbar-group">
+      <button id="btn-open" class="primary">Open File</button>
+    </div>
+
+    <div class="toolbar-separator"></div>
+
+    <div class="toolbar-group">
+      <button id="btn-play">&#9654; Play</button>
+      <button id="btn-stop">&#9632; Stop</button>
+    </div>
+
+    <div class="toolbar-separator"></div>
+
+    <div class="toolbar-group">
+      <button id="btn-zoom-in">+ Zoom In</button>
+      <button id="btn-zoom-out">- Zoom Out</button>
+      <button id="btn-zoom-fit">Fit</button>
+    </div>
+
+    <div class="toolbar-separator"></div>
+
+    <div class="time-nav">
+      <label for="time-input">Go to time:</label>
+      <input type="text" id="time-input" placeholder="22:35" title="Enter wall-clock time (HH:MM or HH:MM:SS)">
+      <button id="btn-goto">Go</button>
+    </div>
+
+    <div class="toolbar-separator"></div>
+
+    <div class="time-display">
+      <span>
+        <span class="label">Position</span>
+        <span class="value" id="current-time">0:00.00</span>
+      </span>
+      <span class="wall-time">
+        <span class="label">Wall Clock</span>
+        <span class="value" id="wall-time">--:--:--</span>
+      </span>
+      <span>
+        <span class="label">Duration</span>
+        <span class="value" id="duration">0:00</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- File info bar -->
+  <div class="info-bar">
+    <span id="file-info">No file loaded</span>
+  </div>
+
+  <!-- Spectrogram area -->
+  <div class="spectrogram-container">
+    <canvas id="spectrogram"></canvas>
+    <div class="welcome-overlay" id="welcome">
+      <h2>Open a WAV file or drag &amp; drop</h2>
+      <p>Supports Broadcast Wave Format (BWF) with embedded timecode</p>
+      <div class="shortcuts">
+        <kbd>Space</kbd> Play/Pause &nbsp;
+        <kbd>&larr;</kbd><kbd>&rarr;</kbd> Seek &plusmn;1s &nbsp;
+        <kbd>Shift</kbd>+<kbd>&larr;</kbd><kbd>&rarr;</kbd> Seek &plusmn;10s<br>
+        <kbd>+</kbd><kbd>-</kbd> Zoom &nbsp;
+        <kbd>F</kbd> Fit view &nbsp;
+        <kbd>Scroll</kbd> Zoom at cursor &nbsp;
+        <kbd>Drag</kbd> Pan
+      </div>
+    </div>
+  </div>
+
+  <!-- Progress bar -->
+  <div class="progress-container">
+    <div id="progress-bar">
+      <div id="progress-fill"></div>
+    </div>
+  </div>
+
+  <!-- Bottom bar: settings & status -->
+  <div class="bottom-bar">
+    <div class="controls-group">
+      <div class="control-item">
+        <label for="volume">Vol</label>
+        <input type="range" id="volume" min="0" max="1" step="0.01" value="1">
+      </div>
+      <div class="control-item">
+        <label for="fft-size">FFT</label>
+        <select id="fft-size">
+          <option value="512">512</option>
+          <option value="1024">1024</option>
+          <option value="2048" selected>2048</option>
+          <option value="4096">4096</option>
+          <option value="8192">8192</option>
+        </select>
+      </div>
+      <div class="control-item">
+        <label for="dynamic-range">Range</label>
+        <input type="range" id="dynamic-range" min="30" max="120" value="90" step="5">
+        <span id="range-value" style="color: var(--text-secondary); font-size: 11px;">90dB</span>
+      </div>
+      <div class="control-item">
+        <label for="max-freq">Max Hz</label>
+        <input type="number" id="max-freq" value="22050" min="1000" max="96000" step="1000">
+      </div>
+    </div>
+    <span id="status">Ready</span>
+  </div>
+
+  <script type="module" src="src/app.js"></script>
+  <script>
+    // Hide welcome overlay once a file is loaded
+    const origSetStatus = null;
+    document.addEventListener('DOMContentLoaded', () => {
+      const welcome = document.getElementById('welcome');
+      const statusEl = document.getElementById('status');
+      const observer = new MutationObserver(() => {
+        if (statusEl.textContent.startsWith('Computing') || statusEl.textContent.startsWith('Ready')) {
+          welcome.style.display = 'none';
+          observer.disconnect();
+        }
+      });
+      observer.observe(statusEl, { childList: true, characterData: true, subtree: true });
+
+      // Dynamic range display
+      const rangeSlider = document.getElementById('dynamic-range');
+      const rangeValue = document.getElementById('range-value');
+      rangeSlider.addEventListener('input', () => {
+        rangeValue.textContent = rangeSlider.value + 'dB';
+      });
+    });
+  </script>
+</body>
+</html>

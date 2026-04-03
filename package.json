@@ -1,0 +1,36 @@
+{
+  "name": "field-recording-explorer",
+  "version": "1.0.0",
+  "description": "High-resolution spectrogram viewer with BWF timecode navigation for field recordings",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.fieldrecording.explorer",
+    "productName": "Field Recording Explorer",
+    "files": [
+      "main.js",
+      "index.html",
+      "src/**/*",
+      "styles/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.music"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"]
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    }
+  }
+}
