@@ -245,10 +245,14 @@ function convert16bit(srcBuf, numSamples, channels, srcBits, srcFormat, decFacto
       if (srcBits === 16) {
         sample16 = srcBuf.readInt16LE(srcOff);
       } else if (srcBits === 24) {
-        // 24-bit signed: take the top 16 bits
+        // 24-bit signed: reconstruct from 3 bytes, sign-extend MSB
+        const b0 = srcBuf[srcOff];
         const b1 = srcBuf[srcOff + 1];
-        const b2 = srcBuf[srcOff + 2]; // MSB (signed)
-        sample16 = (b2 << 8) | b1;
+        const b2 = srcBuf[srcOff + 2]; // unsigned 0-255
+        // Build 24-bit signed value, then take top 16 bits
+        let val24 = (b2 << 16) | (b1 << 8) | b0;
+        if (val24 >= 0x800000) val24 -= 0x1000000; // sign extend
+        sample16 = Math.max(-32768, Math.min(32767, val24 >> 8));
       } else if (srcBits === 32 && isFloat) {
         // 32-bit IEEE float (-1.0 to +1.0)
         const f = srcBuf.readFloatLE(srcOff);
@@ -307,8 +311,35 @@ function writeString(view, offset, str) {
 
 // ── IPC Handlers ─────────────────────────────────────────────────────────
 
+// Track files to open (from CLI args or OS file association)
+let pendingFilePaths = [];
+
+// Collect file paths from command-line arguments (for file associations)
+const cliFiles = process.argv.slice(1).filter(arg => !arg.startsWith('-') && arg.toLowerCase().endsWith('.wav'));
+if (cliFiles.length > 0) {
+  pendingFilePaths = cliFiles.map(f => path.resolve(f));
+}
+
+// macOS: open-file event fires before and after app is ready
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  if (mainWindow) {
+    mainWindow.webContents.send('open-files', [filePath]);
+  } else {
+    pendingFilePaths.push(filePath);
+  }
+});
+
 app.whenReady().then(async () => {
   createWindow();
+
+  // Send any pending files after window loads
+  if (pendingFilePaths.length > 0) {
+    mainWindow.webContents.on('did-finish-load', () => {
+      mainWindow.webContents.send('open-files', pendingFilePaths);
+      pendingFilePaths = [];
+    });
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -613,8 +644,9 @@ async function readWavHeader(filePath) {
     } else if (chunkId === 'data') {
       result.dataOffset = chunkData;
       result.dataSize = chunkSize;
-      // For files >4GB the data chunk size may be wrong, estimate from file size
-      if (result.dataSize === 0 || result.dataSize > stat.size) {
+      // For files >4GB the data chunk size may be wrong (uint32 wraps),
+      // or may be 0xFFFFFFFF sentinel. Estimate from file size.
+      if (result.dataSize === 0 || result.dataSize === 0xFFFFFFFF || result.dataSize > stat.size - chunkData) {
         result.dataSize = stat.size - chunkData;
       }
     } else if (chunkId === 'bext') {

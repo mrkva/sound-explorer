@@ -271,6 +271,12 @@ button.primary:hover { background: #254a6e; }
   cursor: crosshair;
 }
 
+/* ── Playback format info ─────────────────────────────────────────── */
+.playback-format {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
 /* ── Bottom Bar (spectrogram controls) ────────────────────────────── */
 .bottom-bar {
   display: flex;
@@ -281,6 +287,9 @@ button.primary:hover { background: #254a6e; }
   font-size: 11px;
   flex-shrink: 0;
   gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 36px;
 }
 
 .controls-section {
@@ -288,6 +297,7 @@ button.primary:hover { background: #254a6e; }
   align-items: center;
   gap: 8px;
   padding: 0 6px;
+  flex-shrink: 0;
 }
 
 .section-label {
@@ -719,7 +729,18 @@ button.primary:hover { background: #254a6e; }
   text-overflow: ellipsis;
 }
 
-/* Output sample rate select */
+/* Output sample rate select in toolbar */
 #output-samplerate {
-  min-width: 120px;
+  min-width: 100px;
+}
+
+/* Date selector for multi-date sessions */
+#date-input {
+  background: var(--bg-primary);
+  color: var(--green);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Consolas', monospace;
 }

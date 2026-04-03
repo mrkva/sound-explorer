@@ -25,6 +25,9 @@ export class SpectrogramRenderer {
     this.gainDB = options.gainDB || 0;          // Boost in dB (positive = amplify faint sounds)
     this.dynamicRangeDB = options.dynamicRangeDB || 90;
 
+    // Color preset
+    this.colorPreset = options.colorPreset || 'viridis';
+
     // View state
     this.viewStart = 0;
     this.viewEnd = 10;
@@ -985,22 +988,42 @@ export class SpectrogramRenderer {
   }
 
   /**
-   * Viridis colormap.
+   * Colormap lookup with preset support.
    */
   _colorize(value) {
-    const stops = [
-      [0.0, 68, 1, 84],
-      [0.13, 72, 36, 117],
-      [0.25, 65, 68, 135],
-      [0.38, 53, 95, 141],
-      [0.50, 42, 120, 142],
-      [0.63, 33, 145, 140],
-      [0.75, 34, 168, 132],
-      [0.82, 68, 191, 112],
-      [0.88, 122, 209, 81],
-      [0.94, 189, 223, 38],
-      [1.0, 253, 231, 37]
-    ];
+    const presets = {
+      viridis: [
+        [0.0, 68, 1, 84], [0.13, 72, 36, 117], [0.25, 65, 68, 135],
+        [0.38, 53, 95, 141], [0.50, 42, 120, 142], [0.63, 33, 145, 140],
+        [0.75, 34, 168, 132], [0.82, 68, 191, 112], [0.88, 122, 209, 81],
+        [0.94, 189, 223, 38], [1.0, 253, 231, 37]
+      ],
+      magma: [
+        [0.0, 0, 0, 4], [0.13, 28, 16, 68], [0.25, 79, 18, 123],
+        [0.38, 129, 37, 129], [0.50, 181, 54, 122], [0.63, 229, 89, 100],
+        [0.75, 251, 136, 97], [0.85, 254, 188, 118], [0.94, 254, 228, 152],
+        [1.0, 252, 253, 191]
+      ],
+      inferno: [
+        [0.0, 0, 0, 4], [0.13, 31, 12, 72], [0.25, 85, 15, 109],
+        [0.38, 136, 34, 106], [0.50, 186, 54, 85], [0.63, 227, 89, 51],
+        [0.75, 249, 140, 10], [0.85, 249, 201, 50], [0.94, 240, 249, 33],
+        [1.0, 252, 255, 164]
+      ],
+      grayscale: [
+        [0.0, 0, 0, 0], [1.0, 255, 255, 255]
+      ],
+      green: [
+        [0.0, 0, 0, 0], [0.25, 0, 30, 0], [0.5, 0, 100, 10],
+        [0.75, 30, 200, 30], [1.0, 180, 255, 100]
+      ],
+      hot: [
+        [0.0, 0, 0, 0], [0.33, 180, 0, 0], [0.66, 255, 200, 0],
+        [1.0, 255, 255, 255]
+      ]
+    };
+
+    const stops = presets[this.colorPreset] || presets.viridis;
 
     for (let i = 0; i < stops.length - 1; i++) {
       if (value <= stops[i + 1][0]) {
@@ -1012,7 +1035,8 @@ export class SpectrogramRenderer {
         ];
       }
     }
-    return [253, 231, 37];
+    const last = stops[stops.length - 1];
+    return [last[1], last[2], last[3]];
   }
 
   setView(start, end) {

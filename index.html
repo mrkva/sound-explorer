@@ -20,6 +20,12 @@
       <button id="btn-play" class="transport-btn">&#9654; Play</button>
       <button id="btn-stop" class="transport-btn">&#9632; Stop</button>
       <div class="control-item">
+        <label for="output-samplerate">Play as</label>
+        <select id="output-samplerate" title="Output sample rate (decimation for ultrasonic content)">
+          <option value="0">Native</option>
+        </select>
+      </div>
+      <div class="control-item">
         <label for="playback-rate">Speed</label>
         <select id="playback-rate">
           <option value="0.25">0.25x</option>
@@ -34,14 +40,16 @@
     <div class="toolbar-separator"></div>
 
     <div class="toolbar-group">
-      <button id="btn-zoom-in">+ Zoom In</button>
-      <button id="btn-zoom-out">- Zoom Out</button>
-      <button id="btn-zoom-fit">Fit All</button>
+      <button id="btn-zoom-in">+ Zoom</button>
+      <button id="btn-zoom-out">- Zoom</button>
+      <button id="btn-zoom-fit">Fit</button>
     </div>
 
     <div class="toolbar-separator"></div>
 
     <div class="time-nav">
+      <label for="date-input" id="date-label" style="display:none;">Date:</label>
+      <select id="date-input" style="display:none;" title="Recording date"></select>
       <label for="time-input">Go to:</label>
       <input type="text" id="time-input" placeholder="22:35" title="Wall-clock time (HH:MM or HH:MM:SS)">
       <button id="btn-goto">Go</button>
@@ -60,7 +68,7 @@
     </div>
   </div>
 
-  <!-- Info strip: time displays, cursor info, file info -->
+  <!-- Info strip: time displays, cursor info, playback info, file info -->
   <div class="info-strip">
     <div class="info-strip-left">
       <div class="info-block">
@@ -80,6 +88,11 @@
         <span class="info-label">Cursor</span>
         <span class="cursor-freq" id="cursor-freq">-- Hz</span>
         <span class="cursor-time" id="cursor-time">--:--</span>
+      </div>
+      <div class="info-divider"></div>
+      <div class="info-block">
+        <span class="info-label">Playback</span>
+        <span class="info-value playback-format" id="playback-format">--</span>
       </div>
     </div>
     <div class="info-strip-right" id="file-info-area">
@@ -124,6 +137,9 @@
           <kbd>G</kbd> Focus time input &nbsp;
           <kbd>&uarr;</kbd><kbd>&darr;</kbd> Adjust spectrogram gain
         </div>
+        <p style="margin-top: 16px; font-size: 10px; opacity: 0.4;">
+          Audio playback is converted to 16-bit and limited by browser capabilities. Not for critical listening.
+        </p>
       </div>
     </div>
 
@@ -142,7 +158,7 @@
     </div>
   </div>
 
-  <!-- Bottom bar: spectrogram settings -->
+  <!-- Bottom bar: spectrogram settings (scrollable) -->
   <div class="bottom-bar">
     <div class="controls-section">
       <span class="section-label">Audio</span>
@@ -164,12 +180,6 @@
         <label for="audio-output">Output</label>
         <select id="audio-output" title="Audio output device">
           <option value="">Default</option>
-        </select>
-      </div>
-      <div class="control-item">
-        <label for="output-samplerate">Play as</label>
-        <select id="output-samplerate" title="Output sample rate (decimation for ultrasonic content)">
-          <option value="0">Native</option>
         </select>
       </div>
     </div>
@@ -200,6 +210,17 @@
           <option value="32768">32768</option>
         </select>
       </div>
+      <div class="control-item">
+        <label for="color-preset">Colors</label>
+        <select id="color-preset">
+          <option value="viridis" selected>Viridis</option>
+          <option value="magma">Magma</option>
+          <option value="inferno">Inferno</option>
+          <option value="grayscale">Grayscale</option>
+          <option value="green">Green</option>
+          <option value="hot">Hot</option>
+        </select>
+      </div>
     </div>
 
     <div class="controls-divider"></div>
@@ -218,10 +239,10 @@
         <label for="freq-preset">Preset</label>
         <select id="freq-preset">
           <option value="full">Full</option>
-          <option value="bird">Birds (100-10k)</option>
-          <option value="voice">Voice (80-4k)</option>
-          <option value="low">Low (20-500)</option>
-          <option value="mid">Mid (200-8k)</option>
+          <option value="bird">Birds</option>
+          <option value="voice">Voice</option>
+          <option value="low">Low</option>
+          <option value="mid">Mid</option>
         </select>
       </div>
       <div class="control-item">
@@ -263,9 +284,6 @@
   <script type="module" src="src/app.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      // Welcome overlay is hidden by app.js when a session loads
-
-      // Gain display updates
       const audioGain = document.getElementById('audio-gain');
       const audioGainVal = document.getElementById('audio-gain-value');
       audioGain.addEventListener('input', () => {

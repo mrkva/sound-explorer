@@ -19,9 +19,18 @@
     "productName": "Field Recording Explorer",
     "files": [
       "main.js",
+      "preload.js",
       "index.html",
       "src/**/*",
       "styles/**/*"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "wav",
+        "name": "WAV Audio",
+        "description": "WAV Audio File",
+        "mimeType": "audio/wav"
+      }
     ],
     "mac": {
       "category": "public.app-category.music"

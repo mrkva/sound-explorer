@@ -40,9 +40,13 @@ class App {
     this.freqPresetSelect = document.getElementById('freq-preset');
     this.logFreqCheckbox = document.getElementById('log-freq');
     this.playbackRateSelect = document.getElementById('playback-rate');
+    this.colorPresetSelect = document.getElementById('color-preset');
     this.vuFill = document.getElementById('vu-fill');
     this.fileListPanel = document.getElementById('file-list-panel');
     this.fileListBody = document.getElementById('file-list-body');
+    this.playbackFormatDisplay = document.getElementById('playback-format');
+    this.dateInput = document.getElementById('date-input');
+    this.dateLabel = document.getElementById('date-label');
 
     // Annotations
     this.annotations = [];
@@ -66,6 +70,7 @@ class App {
     this._setupSpectrogram();
     this._setupEventListeners();
     this._setupEngineCallbacks();
+    this._setupDragAndDrop();
     this._startVUMeter();
     this._populateAudioOutputDevices();
   }
@@ -284,6 +289,12 @@ class App {
       this.engine.setPlaybackRate(parseFloat(e.target.value));
     });
 
+    // Color preset
+    this.colorPresetSelect.addEventListener('change', (e) => {
+      this.spectrogram.colorPreset = e.target.value;
+      this.spectrogram.rerender();
+    });
+
     // File info area - toggle file list
     this.fileInfoArea = document.getElementById('file-info-area');
     this.fileInfoHint = document.getElementById('file-info-hint');
@@ -427,6 +438,68 @@ class App {
     });
   }
 
+  _setupDragAndDrop() {
+    // Prevent default browser drag behavior
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    document.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const files = [...e.dataTransfer.files];
+      const wavFiles = files.filter(f => f.name.toLowerCase().endsWith('.wav'));
+
+      if (wavFiles.length === 0) {
+        this._setStatus('No WAV files found in drop');
+        return;
+      }
+
+      try {
+        // Get file paths from dropped files
+        const filePaths = wavFiles.map(f => f.path).filter(p => p);
+        if (filePaths.length === 0) {
+          this._setStatus('Could not read file paths');
+          return;
+        }
+
+        this._setStatus(`Loading ${filePaths.length} dropped file${filePaths.length > 1 ? 's' : ''}...`);
+        this.session = new Session();
+        if (filePaths.length === 1) {
+          await this.session.loadFile(filePaths[0]);
+        } else {
+          await this.session.loadFiles(filePaths);
+        }
+        await this._initSession();
+      } catch (err) {
+        this._setStatus('Error: ' + err.message);
+        console.error(err);
+      }
+    });
+
+    // Handle files opened via OS file association / command line
+    if (window.electronAPI.onOpenFiles) {
+      window.electronAPI.onOpenFiles(async (filePaths) => {
+        if (!filePaths || filePaths.length === 0) return;
+        try {
+          this._setStatus(`Loading ${filePaths.length} file${filePaths.length > 1 ? 's' : ''}...`);
+          this.session = new Session();
+          if (filePaths.length === 1) {
+            await this.session.loadFile(filePaths[0]);
+          } else {
+            await this.session.loadFiles(filePaths);
+          }
+          await this._initSession();
+        } catch (err) {
+          this._setStatus('Error: ' + err.message);
+          console.error(err);
+        }
+      });
+    }
+  }
+
   _adjustSpectGain(delta) {
     const current = parseFloat(this.spectGainSlider.value);
     const newVal = Math.max(0, Math.min(80, current + delta));
@@ -540,8 +613,14 @@ class App {
     } else {
       this.wallTimeGroup.style.display = 'none';
     }
-    this._setStatus(this._readyStatusMessage());
 
+    // Update playback format display
+    this._updatePlaybackFormat();
+
+    // Populate date picker if multi-date session
+    this._populateDatePicker();
+
+    this._setStatus(this._readyStatusMessage());
     this._updateTimeDisplays(0);
   }
 
@@ -579,10 +658,25 @@ class App {
     const timeStr = this.timeInput.value.trim();
     if (!timeStr) return;
 
-    const targetSeconds = BWFParser.parseTimeString(timeStr);
+    let targetSeconds = BWFParser.parseTimeString(timeStr);
     if (targetSeconds === null) {
       this._setStatus('Invalid time format. Use HH:MM or HH:MM:SS');
       return;
+    }
+
+    // If a date is selected in the date picker, adjust wall-clock target for that date
+    if (this.dateInput.style.display !== 'none' && this.dateInput.value && this.session?.sessionDate) {
+      const sessionDate = this.session.sessionDate.replace(/:/g, '-');
+      const selectedDate = this.dateInput.value;
+      if (selectedDate !== sessionDate) {
+        // Calculate day offset: if selected date is the next day, add 86400
+        const sd = new Date(sessionDate);
+        const td = new Date(selectedDate);
+        const dayDiff = Math.round((td - sd) / 86400000);
+        if (dayDiff > 0) {
+          targetSeconds += dayDiff * 86400;
+        }
+      }
     }
 
     if (this.session?.sessionStartTime !== null && this.session?.sessionStartTime !== undefined) {
@@ -1221,6 +1315,8 @@ class App {
       this.btnPlay.textContent = '\u23F8 Pause';
     }
 
+    this._updatePlaybackFormat();
+
     const label = result.outputSampleRate >= 1000
       ? `${result.outputSampleRate / 1000}kHz` : `${result.outputSampleRate}Hz`;
     this._setStatus(`Output: ${label} (${result.decimationFactor}x decimation from ${this.session.sampleRate}Hz)`);
@@ -1289,6 +1385,72 @@ class App {
     } catch (err) {
       console.error('Failed to set audio output device:', err);
       this._setStatus(`Failed to set output device: ${err.message}`);
+    }
+  }
+
+  // ── Playback format display ─────────────────────────────────────────
+
+  _updatePlaybackFormat() {
+    if (!this.session) {
+      this.playbackFormatDisplay.textContent = '--';
+      return;
+    }
+    const rate = this._currentOutputSampleRate;
+    const rateStr = rate >= 1000 ? `${rate / 1000}kHz` : `${rate}Hz`;
+    const bits = this.session.bitsPerSample;
+    const ch = this.session.channels === 1 ? 'mono' : this.session.channels === 2 ? 'stereo' : `${this.session.channels}ch`;
+    const dec = this._currentDecimationFactor > 1 ? ` (${this._currentDecimationFactor}× dec.)` : '';
+    // Playback is always converted to 16-bit PCM by the server
+    this.playbackFormatDisplay.textContent = `${rateStr}/16bit ${ch}${dec}`;
+    this.playbackFormatDisplay.title = `Source: ${this.session.sampleRate}Hz/${bits}bit — Playback: ${rate}Hz/16bit${dec}`;
+  }
+
+  // ── Date picker for multi-date sessions ─────────────────────────────
+
+  _populateDatePicker() {
+    if (!this.session || this.session.files.length === 0) {
+      this.dateInput.style.display = 'none';
+      this.dateLabel.style.display = 'none';
+      return;
+    }
+
+    // Collect unique dates from files
+    const dates = new Set();
+    for (const file of this.session.files) {
+      if (file.originationDate) {
+        // Normalize YYYY:MM:DD → YYYY-MM-DD
+        dates.add(file.originationDate.replace(/:/g, '-'));
+      }
+    }
+
+    // Also check if a midnight crossing creates a second date
+    if (this.session.sessionStartTime !== null && this.session.sessionEndTime !== null) {
+      if (this.session.sessionEndTime > 86400 && this.session.sessionDate) {
+        const baseDate = this.session.sessionDate.replace(/:/g, '-');
+        const parts = baseDate.split('-');
+        const nextDay = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]) + 1);
+        const nextDateStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`;
+        dates.add(nextDateStr);
+      }
+    }
+
+    if (dates.size <= 1) {
+      this.dateInput.style.display = 'none';
+      this.dateLabel.style.display = 'none';
+      return;
+    }
+
+    // Show date picker
+    this.dateLabel.style.display = '';
+    this.dateInput.style.display = '';
+    this.dateInput.innerHTML = '';
+
+    const sortedDates = [...dates].sort();
+    for (const d of sortedDates) {
+      const opt = document.createElement('option');
+      opt.value = d;
+      opt.textContent = d;
+      this.dateInput.appendChild(opt);
     }
   }
 }

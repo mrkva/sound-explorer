@@ -6,6 +6,8 @@ A desktop application for reviewing, navigating, and annotating long-duration fi
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
 
+> **Warning: This application is vibe-coded.** It was developed with AI assistance and has not been rigorously tested across all edge cases. Use at your own risk. Do not rely on it for critical work without verifying results independently. Always keep backups of your original recordings — the app never modifies source files, but exported WAV segments should be spot-checked.
+
 ## What it does
 
 Field Recording Explorer loads WAV files — single files or entire folders of them — and presents them as one continuous, scrollable, zoomable spectrogram. If the files contain Broadcast Wave Format (BWF) metadata with embedded timecodes, they are automatically stitched together in chronological order, with wall-clock time displayed alongside the recording timeline.
@@ -29,7 +31,7 @@ You can visually scan hours of audio for events of interest (bird calls, animal 
 
 | Format | Bit depth | Sample rates | Notes |
 |--------|-----------|-------------|-------|
-| PCM WAV | 16-bit, 24-bit, 32-bit | Any (tested up to 96 kHz) | Standard integer PCM |
+| PCM WAV | 16-bit, 24-bit, 32-bit | Any (tested up to 384 kHz) | Standard integer PCM |
 | IEEE Float WAV | 32-bit | Any | Floating-point samples |
 | WAVE_FORMAT_EXTENSIBLE | All above | Any | Handles container/valid bit mismatch (e.g., 24-bit in 32-bit container) |
 | BWF (Broadcast Wave) | All above | Any | Reads `bext` chunk for timecode and origination metadata |
@@ -192,7 +194,7 @@ All settings are in the bottom bar:
 
 5. **Two-pass rendering** — The FFT data is rendered to an ImageData buffer (frequency-to-pixel mapping with linear interpolation between bins). Gain and dynamic range adjustments re-render from cached FFT data without recomputation.
 
-6. **Viridis colormap** — 11-stop perceptually uniform colormap from dark purple (silence) through blue, green, yellow (loud).
+6. **Color presets** — Six colormaps: Viridis (perceptually uniform, default), Magma, Inferno, Grayscale, Green, and Hot. All use multi-stop interpolation for smooth gradients.
 
 ### How audio playback works
 
@@ -204,6 +206,10 @@ The main process runs a local HTTP server that presents all session files as a s
 - Streams data in chunks to handle multi-gigabyte sessions
 
 The renderer connects an `<audio>` element to this server URL, then routes it through Web Audio API: `MediaElementSource → GainNode → AnalyserNode → destination`. The GainNode provides amplification; the AnalyserNode feeds the VU meter.
+
+For high sample rate files (e.g., 192 kHz ultrasonic recordings), server-side decimation reduces the sample rate to a browser-compatible rate (max 48 kHz). The "Play as" selector in the toolbar lets you choose the output rate — useful for demodulating ultrasonic bat calls by listening at a lower rate.
+
+**Playback quality note:** Audio is always converted to 16-bit PCM for browser playback. This is a limitation of the HTML5 `<audio>` element. The info strip shows the actual playback format (sample rate, bit depth). This application is designed for review, navigation, and annotation — not for critical or audiophile listening. Use a dedicated audio editor for high-fidelity playback.
 
 ### How BWF timecode works
 
