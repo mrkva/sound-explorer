@@ -15,6 +15,7 @@ export class Session {
     this.sampleRate = 0;
     this.channels = 0;
     this.bitsPerSample = 0;
+    this.format = 1;          // 1=PCM, 3=IEEE float
     this.bytesPerSample = 0;
     this.blockAlign = 0;      // bytes per sample frame (all channels)
     this.sessionStartTime = null;  // Seconds from midnight (wall clock)
@@ -55,6 +56,7 @@ export class Session {
     this.sampleRate = ref.sampleRate;
     this.channels = ref.channels;
     this.bitsPerSample = ref.bitsPerSample;
+    this.format = ref.format || 1;
     this.bytesPerSample = ref.bitsPerSample / 8;
     this.blockAlign = this.channels * this.bytesPerSample;
     this.sessionDate = ref.originationDate;
@@ -108,6 +110,7 @@ export class Session {
     this.sampleRate = metadata.sampleRate;
     this.channels = metadata.channels;
     this.bitsPerSample = metadata.bitsPerSample;
+    this.format = metadata.format || 1;
     this.bytesPerSample = metadata.bitsPerSample / 8;
     this.blockAlign = this.channels * this.bytesPerSample;
     this.sessionDate = metadata.originationDate;
@@ -223,7 +226,8 @@ export class Session {
       dataSize: f.dataSize,
       channels: this.channels,
       sampleRate: this.sampleRate,
-      bitsPerSample: this.bitsPerSample
+      bitsPerSample: this.bitsPerSample,
+      format: this.format
     }));
   }
 

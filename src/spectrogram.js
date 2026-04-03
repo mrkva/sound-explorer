@@ -329,11 +329,13 @@ export class SpectrogramRenderer {
 
   /**
    * Decode raw PCM bytes to mono float samples.
+   * Handles 16-bit, 24-bit, 32-bit integer, and 32-bit float.
    */
   _decodePCMToMono(view, bitsPerSample, channels, output, outputOffset, numSamples) {
     const bytesPerSample = bitsPerSample / 8;
     const blockAlign = channels * bytesPerSample;
     const scale = 1 / channels;
+    const isFloat = this.session && this.session.format === 3;
 
     for (let i = 0; i < numSamples; i++) {
       const frameOffset = i * blockAlign;
@@ -351,8 +353,12 @@ export class SpectrogramRenderer {
           const b1 = view.getUint8(sampleOffset + 1);
           const b2 = view.getInt8(sampleOffset + 2); // signed for MSB
           value = (b2 * 65536 + b1 * 256 + b0) / 8388608;
-        } else if (bitsPerSample === 32) {
+        } else if (bitsPerSample === 32 && isFloat) {
+          // IEEE 754 float, already in -1.0 to +1.0 range
           value = view.getFloat32(sampleOffset, true);
+        } else if (bitsPerSample === 32) {
+          // 32-bit integer
+          value = view.getInt32(sampleOffset, true) / 2147483648;
         } else {
           value = 0;
         }

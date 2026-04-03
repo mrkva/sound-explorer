@@ -6,7 +6,11 @@ const http = require('http');
 let mainWindow;
 let audioServer;
 let sessionFiles = []; // [{filePath, dataOffset, dataSize, bytesPerSample, channels, sampleRate}]
-let totalDataBytes = 0;
+let totalDataBytes = 0;    // Total bytes in the *output* (16-bit) stream
+let sessionBitsPerSample = 16;  // Source bits per sample
+let sessionFormat = 1;          // 1=PCM, 3=IEEE float
+let sessionChannels = 2;
+let sessionSampleRate = 48000;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -46,12 +50,12 @@ function startAudioServer() {
       const wavHeaderSize = 44;
       const totalSize = wavHeaderSize + totalDataBytes;
 
-      // Build a virtual WAV header for the stitched file
+      // Always output 16-bit PCM for browser compatibility
       const wavHeader = buildWavHeader(
         totalDataBytes,
         ref.channels,
         ref.sampleRate,
-        ref.bitsPerSample
+        16  // Output is always 16-bit
       );
 
       // Parse Range header
@@ -125,52 +129,136 @@ async function serveBytes(res, wavHeader, start, end) {
 
   if (pos > end) return;
 
-  // Serve from stitched data files
+  // Output is 16-bit PCM. We need to map output byte positions back to
+  // source file positions, handling format conversion.
+  const srcBytesPerSample = sessionBitsPerSample / 8;
+  const srcBlockAlign = sessionChannels * srcBytesPerSample;
+  const outBlockAlign = sessionChannels * 2; // 16-bit output
+
+  // dataPos/dataEnd are in OUTPUT (16-bit) byte space
   let dataPos = pos - headerLen;
   const dataEnd = end - headerLen;
 
-  // Walk through files to find and serve the right bytes
-  let cumulative = 0;
+  // Calculate cumulative output bytes per file
+  let cumOutBytes = 0;
   for (const file of sessionFiles) {
     if (dataPos > dataEnd) break;
 
-    const fileStart = cumulative;
-    const fileEnd = cumulative + file.dataSize;
-    cumulative = fileEnd;
+    const fileSamples = Math.floor(file.dataSize / srcBlockAlign);
+    const fileOutBytes = fileSamples * outBlockAlign;
+    const fileOutEnd = cumOutBytes + fileOutBytes;
 
     // Skip files before our range
-    if (fileEnd <= dataPos) continue;
+    if (fileOutEnd <= dataPos) {
+      cumOutBytes = fileOutEnd;
+      continue;
+    }
 
-    // Calculate what to read from this file
-    const offsetInFile = Math.max(0, dataPos - fileStart);
-    const availableInFile = file.dataSize - offsetInFile;
-    const needed = dataEnd - dataPos + 1;
-    const readLen = Math.min(availableInFile, needed);
+    // Calculate what output bytes to produce from this file
+    const outOffsetInFile = Math.max(0, dataPos - cumOutBytes);
+    const outNeeded = Math.min(dataEnd - dataPos + 1, fileOutEnd - dataPos);
 
-    if (readLen <= 0) continue;
+    if (outNeeded <= 0) {
+      cumOutBytes = fileOutEnd;
+      continue;
+    }
 
-    // Read in reasonable chunks (max 1MB) to avoid huge allocations
-    const MAX_READ = 1024 * 1024;
-    let fileReadOffset = offsetInFile;
-    let remaining = readLen;
+    // Convert output byte offset to sample offset
+    const startSampleInFile = Math.floor(outOffsetInFile / outBlockAlign);
+    const endSampleInFile = Math.ceil((outOffsetInFile + outNeeded) / outBlockAlign);
+    const samplesToRead = endSampleInFile - startSampleInFile;
+
+    // Read source bytes
+    const srcByteOffset = startSampleInFile * srcBlockAlign;
+    const srcByteLen = samplesToRead * srcBlockAlign;
+
+    // Read in chunks (max 1MB source)
+    const MAX_SRC_READ = 1024 * 1024;
+    let srcRead = 0;
+    let outProduced = 0;
 
     const fd = await fs.promises.open(file.filePath, 'r');
     try {
-      while (remaining > 0) {
-        const chunkLen = Math.min(remaining, MAX_READ);
-        const buf = Buffer.alloc(chunkLen);
-        const { bytesRead } = await fd.read(buf, 0, chunkLen, file.dataOffset + fileReadOffset);
+      while (srcRead < srcByteLen) {
+        const chunkSrcLen = Math.min(MAX_SRC_READ, srcByteLen - srcRead);
+        const srcBuf = Buffer.alloc(chunkSrcLen);
+        const { bytesRead } = await fd.read(srcBuf, 0, chunkSrcLen, file.dataOffset + srcByteOffset + srcRead);
         if (bytesRead === 0) break;
         if (!res.writable) break;
-        res.write(bytesRead < chunkLen ? buf.slice(0, bytesRead) : buf);
-        fileReadOffset += bytesRead;
-        remaining -= bytesRead;
-        dataPos += bytesRead;
+
+        // Convert to 16-bit
+        const samplesInChunk = Math.floor(bytesRead / srcBlockAlign);
+        const outBuf = convert16bit(srcBuf, samplesInChunk, sessionChannels, sessionBitsPerSample, sessionFormat);
+
+        // Handle partial start/end within output
+        let outStart = 0;
+        let outEnd = outBuf.length;
+
+        if (outProduced === 0 && outOffsetInFile % outBlockAlign !== 0) {
+          outStart = outOffsetInFile % outBlockAlign;
+        }
+        if (outProduced + outBuf.length - outStart > outNeeded) {
+          outEnd = outStart + (outNeeded - outProduced);
+        }
+
+        res.write(outStart > 0 || outEnd < outBuf.length
+          ? outBuf.slice(outStart, outEnd) : outBuf);
+
+        outProduced += outEnd - outStart;
+        srcRead += bytesRead;
+        dataPos += outEnd - outStart;
       }
     } finally {
       await fd.close();
     }
+
+    cumOutBytes = fileOutEnd;
   }
+}
+
+/**
+ * Convert source PCM buffer to 16-bit PCM.
+ */
+/**
+ * Convert source PCM buffer to 16-bit PCM.
+ * Handles 16-bit, 24-bit, 32-bit integer, and 32-bit float sources.
+ */
+function convert16bit(srcBuf, numSamples, channels, srcBits, srcFormat) {
+  const outBuf = Buffer.alloc(numSamples * channels * 2);
+  const srcBytesPerSample = srcBits / 8;
+  const isFloat = (srcFormat === 3);
+
+  for (let i = 0; i < numSamples; i++) {
+    for (let ch = 0; ch < channels; ch++) {
+      const srcOff = (i * channels + ch) * srcBytesPerSample;
+      const outOff = (i * channels + ch) * 2;
+
+      if (srcOff + srcBytesPerSample > srcBuf.length) break;
+
+      let sample16;
+      if (srcBits === 16) {
+        sample16 = srcBuf.readInt16LE(srcOff);
+      } else if (srcBits === 24) {
+        // 24-bit signed: take the top 16 bits
+        const b1 = srcBuf[srcOff + 1];
+        const b2 = srcBuf[srcOff + 2]; // MSB (signed)
+        sample16 = (b2 << 8) | b1;
+      } else if (srcBits === 32 && isFloat) {
+        // 32-bit IEEE float (-1.0 to +1.0)
+        const f = srcBuf.readFloatLE(srcOff);
+        sample16 = Math.max(-32768, Math.min(32767, Math.round(f * 32767)));
+      } else if (srcBits === 32) {
+        // 32-bit integer: take top 16 bits
+        sample16 = srcBuf.readInt32LE(srcOff) >> 16;
+      } else {
+        sample16 = 0;
+      }
+
+      outBuf.writeInt16LE(sample16, outOff);
+    }
+  }
+
+  return outBuf;
 }
 
 function buildWavHeader(dataSize, channels, sampleRate, bitsPerSample) {
@@ -296,7 +384,24 @@ ipcMain.handle('read-pcm-chunk', async (event, filePath, dataOffset, byteOffset,
 // Set up the audio server for a session and return the URL
 ipcMain.handle('setup-audio-server', async (event, files) => {
   sessionFiles = files;
-  totalDataBytes = files.reduce((sum, f) => sum + f.dataSize, 0);
+  const ref = files[0];
+  sessionBitsPerSample = ref.bitsPerSample;
+  sessionFormat = ref.format || 1;
+  sessionChannels = ref.channels;
+  sessionSampleRate = ref.sampleRate;
+
+  // Calculate total samples across all files
+  const srcBlockAlign = ref.channels * (ref.bitsPerSample / 8);
+  const totalSrcBytes = files.reduce((sum, f) => sum + f.dataSize, 0);
+  const totalSamples = Math.floor(totalSrcBytes / srcBlockAlign);
+
+  // Output is always 16-bit for browser compatibility
+  const outBlockAlign = ref.channels * 2; // 16-bit
+  totalDataBytes = totalSamples * outBlockAlign;
+
+  console.log(`Audio server: ${files.length} files, ${ref.sampleRate}Hz, ${ref.bitsPerSample}-bit ${ref.format === 3 ? 'float' : 'PCM'}, ${ref.channels}ch`);
+  console.log(`Total samples: ${totalSamples}, output size: ${(totalDataBytes / 1e9).toFixed(2)} GB (16-bit)`);
+
   const port = await startAudioServer();
   return `http://127.0.0.1:${port}/audio`;
 });
@@ -334,6 +439,13 @@ async function readWavHeader(filePath) {
       result.channels = view.getUint16(chunkData + 2, true);
       result.sampleRate = view.getUint32(chunkData + 4, true);
       result.bitsPerSample = view.getUint16(chunkData + 14, true);
+      // WAVE_FORMAT_EXTENSIBLE: real format is in SubFormat GUID
+      if (result.format === 0xFFFE && chunkSize >= 40) {
+        result.bitsPerSample = view.getUint16(chunkData + 18, true); // wValidBitsPerSample
+        const subFormat = view.getUint16(chunkData + 24, true);
+        result.format = subFormat; // 1=PCM, 3=IEEE float
+        console.log(`WAVE_FORMAT_EXTENSIBLE: subformat=${subFormat}, validBits=${result.bitsPerSample}`);
+      }
     } else if (chunkId === 'data') {
       result.dataOffset = chunkData;
       result.dataSize = chunkSize;

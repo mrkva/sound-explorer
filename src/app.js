@@ -335,7 +335,13 @@ class App {
 
     // Set up spectrogram
     this._setStatus('Setting up spectrogram...');
-    this.spectrogram.fftSize = parseInt(this.fftSizeSelect.value);
+    // Auto-select FFT size based on sample rate for good frequency resolution
+    let fftSize = parseInt(this.fftSizeSelect.value);
+    if (session.sampleRate > 48000 && fftSize < 4096) {
+      fftSize = 4096;
+      this.fftSizeSelect.value = '4096';
+    }
+    this.spectrogram.fftSize = fftSize;
     this.spectrogram.dynamicRangeDB = parseInt(this.dynamicRangeSlider.value);
     this.spectrogram.maxFreq = Math.min(
       parseInt(this.maxFreqInput.value), session.sampleRate / 2
