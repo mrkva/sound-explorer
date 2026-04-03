@@ -67,6 +67,10 @@ export class SpectrogramRenderer {
     this._window = null;
   }
 
+  // Progress callback: (phase, percent) => void
+  // phase: 'reading' | 'computing' | 'rendering'
+  onProgress = null;
+
   /**
    * Compute and render the spectrogram for the current view.
    */
@@ -80,38 +84,54 @@ export class SpectrogramRenderer {
 
     try {
       const viewDuration = this.viewEnd - this.viewStart;
-      const canvasWidth = this.canvas.width - 60; // Leave space for freq axis
+      const canvasWidth = this.canvas.width - 60;
 
-      // Determine how many FFT frames we want for the visible area
-      // Target: roughly 1-2 frames per pixel for good resolution
-      const targetFrames = Math.min(canvasWidth * 2, 4096);
-      const hopSize = this.hopSize || Math.max(64, Math.floor(
-        (viewDuration * this.session.sampleRate) / targetFrames
-      ));
+      // Target: ~2 FFT frames per pixel, capped to keep computation fast
+      const targetFrames = Math.min(canvasWidth * 2, 4000);
 
-      // Determine sample range
+      // The hop size determines how many samples per FFT frame
+      const hopSize = this.hopSize || Math.max(
+        this.fftSize / 4,
+        Math.floor((viewDuration * this.session.sampleRate) / targetFrames)
+      );
+
+      // Total samples we'd need to read for this view
       const startSample = Math.floor(this.viewStart * this.session.sampleRate);
       const endSample = Math.ceil(this.viewEnd * this.session.sampleRate);
-      const totalSamples = endSample - startSample;
+      const totalViewSamples = endSample - startSample;
+
+      // How many samples we actually need: targetFrames * hopSize + fftSize
+      const samplesNeeded = targetFrames * hopSize + this.fftSize;
+
+      // If we'd need to read way more samples than we need for the target
+      // frames, we should subsample: read small windows spaced apart
+      const needsSubsampling = totalViewSamples > samplesNeeded * 1.5;
 
       // Check cache
-      const cacheKey = `${startSample}-${endSample}-${this.fftSize}-${hopSize}`;
+      const cacheKey = `${startSample}-${endSample}-${this.fftSize}-${targetFrames}`;
       let spectrogramData = this.tileCache.get(cacheKey);
 
       if (!spectrogramData) {
-        // Read PCM data in chunks across files
-        const pcmData = await this._readPCMRange(startSample, totalSamples);
-        if (!pcmData) {
-          this._computing = false;
-          return;
+        if (needsSubsampling) {
+          // SUBSAMPLED MODE: Read small windows spread across the view
+          // Each window is fftSize samples, spaced evenly to get targetFrames
+          spectrogramData = await this._computeSubsampled(
+            startSample, endSample, targetFrames
+          );
+        } else {
+          // FULL MODE: Read all samples and compute FFT continuously
+          this._reportProgress('reading', 0);
+          const pcmData = await this._readPCMRange(startSample, totalViewSamples);
+          if (!pcmData) {
+            this._computing = false;
+            return;
+          }
+          this._reportProgress('computing', 0);
+          spectrogramData = this._computeFFT(pcmData, hopSize);
         }
-
-        // Compute FFT
-        spectrogramData = this._computeFFT(pcmData, hopSize);
 
         // Cache it
         if (this.tileCache.size >= this.maxCacheSize) {
-          // Evict oldest entries
           const keys = [...this.tileCache.keys()];
           for (let i = 0; i < 50 && i < keys.length; i++) {
             this.tileCache.delete(keys[i]);
@@ -120,10 +140,12 @@ export class SpectrogramRenderer {
         this.tileCache.set(cacheKey, spectrogramData);
       }
 
-      // Render to offscreen and draw
+      this._reportProgress('rendering', 0);
       this._renderSpectrogram(spectrogramData);
+      this._reportProgress('done', 100);
     } catch (err) {
       console.error('Spectrogram compute error:', err);
+      this._reportProgress('error', 0);
     }
 
     this._computing = false;
@@ -132,6 +154,121 @@ export class SpectrogramRenderer {
       this._pendingCompute = false;
       this.computeVisible();
     }
+  }
+
+  /**
+   * Subsampled spectrogram for wide views (hours of audio).
+   * Instead of reading all samples, reads chunks and picks evenly-spaced
+   * windows from each chunk. Much faster than one IPC call per frame.
+   */
+  async _computeSubsampled(startSample, endSample, targetFrames) {
+    const N = this.fftSize;
+    const freqBins = N / 2;
+    const totalSpan = endSample - startSample;
+    const step = Math.floor(totalSpan / targetFrames);
+
+    if (!this._window || this._window.length !== N) {
+      this._window = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        this._window[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
+      }
+    }
+
+    const frames = new Array(targetFrames);
+    const session = this.session;
+
+    // Process file by file - one IPC read per file per chunk
+    // For each file, figure out which frames fall within it
+    let framesComputed = 0;
+
+    for (const file of session.files) {
+      const fileStartSample = file.sampleStart;
+      const fileEndSample = file.sampleStart + file.samples;
+
+      // Find frames that start within this file
+      const firstFrame = Math.max(0, Math.ceil((fileStartSample - startSample) / step));
+      const lastFrame = Math.min(targetFrames - 1,
+        Math.floor((fileEndSample - startSample - N) / step));
+
+      if (firstFrame > lastFrame) continue;
+
+      // Read the needed range from this file in one big read
+      // From the first frame's start to the last frame's end
+      const readStartSample = startSample + firstFrame * step;
+      const readEndSample = Math.min(
+        startSample + lastFrame * step + N,
+        fileEndSample
+      );
+      const offsetInFile = readStartSample - fileStartSample;
+      const samplesToRead = readEndSample - readStartSample;
+
+      // Read in chunks of ~4MB of float data (~1M samples)
+      const maxSamplesPerChunk = 1024 * 1024;
+      let chunkStartSample = 0;
+      let chunkData = null;
+      let chunkOffset = 0; // sample offset within the read range that chunkData covers
+
+      for (let i = firstFrame; i <= lastFrame; i++) {
+        const frameSampleInRange = (startSample + i * step) - readStartSample;
+
+        // Check if we need to read a new chunk
+        if (!chunkData ||
+            frameSampleInRange < chunkOffset ||
+            frameSampleInRange + N > chunkOffset + (chunkData ? chunkData.length : 0)) {
+          // Read a new chunk centered around this frame
+          chunkOffset = Math.max(0, frameSampleInRange - N);
+          const chunkSamples = Math.min(maxSamplesPerChunk, samplesToRead - chunkOffset);
+          if (chunkSamples <= 0) break;
+
+          const byteOff = (offsetInFile + chunkOffset) * session.blockAlign;
+          const byteLen = chunkSamples * session.blockAlign;
+
+          const rawBytes = await window.electronAPI.readPcmChunk(
+            file.filePath, file.dataOffset, byteOff, byteLen
+          );
+          chunkData = new Float32Array(Math.floor(rawBytes.byteLength / session.blockAlign));
+          this._decodePCMToMono(
+            new DataView(rawBytes), session.bitsPerSample, session.channels,
+            chunkData, 0, chunkData.length
+          );
+        }
+
+        // Extract the window from chunk
+        const localOffset = frameSampleInRange - chunkOffset;
+        const windowed = new Float32Array(N);
+        for (let j = 0; j < N; j++) {
+          windowed[j] = (chunkData[localOffset + j] || 0) * this._window[j];
+        }
+
+        // FFT
+        const spectrum = this._fft(windowed);
+        const magnitudes = new Float32Array(freqBins);
+        for (let j = 0; j < freqBins; j++) {
+          const re = spectrum[2 * j];
+          const im = spectrum[2 * j + 1];
+          magnitudes[j] = 20 * Math.log10(Math.max(Math.sqrt(re * re + im * im), 1e-10));
+        }
+        frames[i] = magnitudes;
+        framesComputed++;
+
+        // Report progress & yield periodically
+        if (framesComputed % 100 === 0) {
+          this._reportProgress('computing', Math.round((framesComputed / targetFrames) * 100));
+          await new Promise(r => setTimeout(r, 0));
+        }
+      }
+    }
+
+    // Fill any gaps (frames that fell between files)
+    for (let i = 0; i < targetFrames; i++) {
+      if (!frames[i]) frames[i] = new Float32Array(freqBins);
+    }
+
+    return { frames, freqBins, numFrames: targetFrames, hopSize: step };
+  }
+
+  _reportProgress(phase, percent) {
+    if (this.onProgress) this.onProgress(phase, percent);
   }
 
   /**

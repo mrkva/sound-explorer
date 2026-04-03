@@ -79,6 +79,16 @@ class App {
     this.spectrogram.onViewChange = () => {
       // Debounced recompute handled internally by spectrogram
     };
+
+    this.spectrogram.onProgress = (phase, percent) => {
+      if (phase === 'done') {
+        this._setStatus(this._readyStatusMessage());
+      } else if (phase === 'error') {
+        this._setStatus('Spectrogram error');
+      } else {
+        this._setStatus(`${phase === 'reading' ? 'Reading audio' : phase === 'computing' ? 'Computing spectrogram' : 'Rendering'}... ${percent}%`);
+      }
+    };
   }
 
   _setupEngineCallbacks() {
@@ -346,16 +356,10 @@ class App {
     // Show wall clock if available
     if (session.sessionStartTime !== null) {
       this.wallTimeGroup.style.display = '';
-      const startStr = BWFParser.secondsToTimeString(session.sessionStartTime);
-      const endStr = BWFParser.secondsToTimeString(session.sessionEndTime);
-      this._setStatus(
-        `Ready \u2014 ${session.files.length} files, ` +
-        `recording ${startStr}\u2013${endStr}. Type a time to navigate.`
-      );
     } else {
       this.wallTimeGroup.style.display = 'none';
-      this._setStatus('Ready');
     }
+    this._setStatus(this._readyStatusMessage());
 
     this._updateTimeDisplays(0);
   }
@@ -485,6 +489,17 @@ class App {
       return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
     }
     return `${m}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+  }
+
+  _readyStatusMessage() {
+    if (!this.session) return 'Ready';
+    const s = this.session;
+    if (s.sessionStartTime !== null) {
+      const startStr = BWFParser.secondsToTimeString(s.sessionStartTime);
+      const endStr = BWFParser.secondsToTimeString(s.sessionEndTime);
+      return `Ready \u2014 ${s.files.length} file${s.files.length > 1 ? 's' : ''}, ${startStr}\u2013${endStr}. Type a time to navigate.`;
+    }
+    return 'Ready';
   }
 
   _setStatus(text) {
