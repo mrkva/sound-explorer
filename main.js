@@ -359,6 +359,119 @@ ipcMain.handle('read-text-file', async (event, filePath) => {
   return await fs.promises.readFile(filePath, 'utf-8');
 });
 
+// Export a WAV segment: read raw PCM from source file(s) and write a new WAV
+ipcMain.handle('export-wav-segment', async (event, segments, outputPath) => {
+  // segments: [{filePath, dataOffset, startByte, endByte}]
+  // All segments must have the same format (sample rate, channels, bits)
+  const ref = segments[0];
+
+  // Calculate total output data bytes
+  let totalDataBytes = 0;
+  for (const seg of segments) {
+    totalDataBytes += seg.endByte - seg.startByte;
+  }
+
+  // Build WAV header (keep original format - no conversion)
+  const bitsPerSample = ref.bitsPerSample;
+  const channels = ref.channels;
+  const sampleRate = ref.sampleRate;
+  const format = ref.format || 1;
+  const bytesPerSample = bitsPerSample / 8;
+  const blockAlign = channels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+
+  // Use standard WAV header (44 bytes) for PCM, or extended for float
+  const isFloat = (format === 3);
+  const headerSize = isFloat ? 58 : 44;
+
+  const header = Buffer.alloc(headerSize);
+  // RIFF header
+  header.write('RIFF', 0);
+  header.writeUInt32LE(Math.min(totalDataBytes + headerSize - 8, 0xFFFFFFFF), 4);
+  header.write('WAVE', 8);
+
+  // fmt chunk
+  header.write('fmt ', 12);
+  if (isFloat) {
+    header.writeUInt32LE(18, 16); // chunk size for float
+    header.writeUInt16LE(3, 20);  // IEEE float
+  } else {
+    header.writeUInt32LE(16, 16); // chunk size for PCM
+    header.writeUInt16LE(1, 20);  // PCM
+  }
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  if (isFloat) {
+    header.writeUInt16LE(0, 36); // cbSize
+    // fact chunk could go here but most players don't need it
+    header.write('data', 38);
+    header.writeUInt32LE(Math.min(totalDataBytes, 0xFFFFFFFF), 42);
+    // Pad remaining header bytes to 58
+    header.write('data', headerSize - 8);
+    header.writeUInt32LE(Math.min(totalDataBytes, 0xFFFFFFFF), headerSize - 4);
+  } else {
+    header.write('data', 36);
+    header.writeUInt32LE(Math.min(totalDataBytes, 0xFFFFFFFF), 40);
+  }
+
+  // Write the file
+  const outFd = await fs.promises.open(outputPath, 'w');
+  try {
+    // Write header
+    await outFd.write(isFloat ? header.slice(0, 46) : header.slice(0, 44), 0, isFloat ? 46 : 44, 0);
+
+    // Actually, let's keep it simple: always write standard PCM/float header
+    const simpleHeader = Buffer.alloc(44);
+    simpleHeader.write('RIFF', 0);
+    simpleHeader.writeUInt32LE(Math.min(totalDataBytes + 36, 0xFFFFFFFF), 4);
+    simpleHeader.write('WAVE', 8);
+    simpleHeader.write('fmt ', 12);
+    simpleHeader.writeUInt32LE(16, 16);
+    simpleHeader.writeUInt16LE(isFloat ? 3 : 1, 20);
+    simpleHeader.writeUInt16LE(channels, 22);
+    simpleHeader.writeUInt32LE(sampleRate, 24);
+    simpleHeader.writeUInt32LE(byteRate, 28);
+    simpleHeader.writeUInt16LE(blockAlign, 32);
+    simpleHeader.writeUInt16LE(bitsPerSample, 34);
+    simpleHeader.write('data', 36);
+    simpleHeader.writeUInt32LE(Math.min(totalDataBytes, 0xFFFFFFFF), 40);
+
+    let writePos = 0;
+    await outFd.write(simpleHeader, 0, 44, writePos);
+    writePos += 44;
+
+    // Copy raw PCM data from each segment
+    const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB read chunks
+    for (const seg of segments) {
+      const srcFd = await fs.promises.open(seg.filePath, 'r');
+      try {
+        let remaining = seg.endByte - seg.startByte;
+        let srcPos = seg.dataOffset + seg.startByte;
+
+        while (remaining > 0) {
+          const toRead = Math.min(CHUNK_SIZE, remaining);
+          const buf = Buffer.alloc(toRead);
+          const { bytesRead } = await srcFd.read(buf, 0, toRead, srcPos);
+          if (bytesRead === 0) break;
+          await outFd.write(buf, 0, bytesRead, writePos);
+          writePos += bytesRead;
+          srcPos += bytesRead;
+          remaining -= bytesRead;
+        }
+      } finally {
+        await srcFd.close();
+      }
+    }
+  } finally {
+    await outFd.close();
+  }
+
+  return { success: true, outputPath, totalDataBytes };
+});
+
 // Scan folder for WAV files and return their headers
 ipcMain.handle('scan-folder', async (event, folderPath) => {
   const entries = await fs.promises.readdir(folderPath);

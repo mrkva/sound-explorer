@@ -642,6 +642,15 @@ button.primary:hover {
   color: var(--text-secondary);
 }
 
+.annotation-item .ann-actions button.export-btn {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.annotation-item .ann-actions button.export-btn:hover {
+  background: rgba(79, 195, 247, 0.2);
+}
+
 .annotation-item .ann-actions button.delete-btn {
   color: var(--danger);
   border-color: var(--danger);

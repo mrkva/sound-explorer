@@ -115,7 +115,8 @@
         <kbd>Drag</kbd> Pan<br>
         <kbd>G</kbd> Focus time input &nbsp;
         <kbd>&uarr;</kbd><kbd>&darr;</kbd> Adjust spectrogram gain<br>
-        <kbd>Shift</kbd>+<kbd>Drag</kbd> Select time range &nbsp;
+        <kbd>Drag</kbd> Select time range &nbsp;
+        <kbd>Right-drag</kbd> Pan &nbsp;
         <kbd>Esc</kbd> Clear selection
       </div>
     </div>
@@ -219,6 +220,7 @@
       <input type="text" id="annotation-note" placeholder="Note (e.g. wolf howling)" autocomplete="off">
       <div class="annotation-dialog-buttons">
         <button id="btn-save-annotation" class="primary">Save</button>
+        <button id="btn-export-selection" title="Export selection as WAV file">Export WAV</button>
       </div>
     </div>
   </div>
@@ -228,7 +230,8 @@
     <div class="annotations-panel-header">
       <span>Annotations (<span id="annotation-count">0</span>)</span>
       <div class="annotations-panel-actions">
-        <button id="btn-export-annotations" title="Export annotations + cut script">Export</button>
+        <button id="btn-export-all-wavs" title="Export all annotations as WAV files">Export All</button>
+        <button id="btn-export-annotations" title="Save annotations to JSON">Save</button>
         <button id="btn-load-annotations" title="Load annotations from file">Load</button>
         <button id="btn-close-annotations">&times;</button>
       </div>

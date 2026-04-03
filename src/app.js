@@ -318,6 +318,14 @@ class App {
       this._exportAnnotations();
     });
 
+    document.getElementById('btn-export-selection').addEventListener('click', () => {
+      this._exportSelectionAsWav();
+    });
+
+    document.getElementById('btn-export-all-wavs').addEventListener('click', () => {
+      this._exportAllAnnotationsAsWav();
+    });
+
     document.getElementById('btn-load-annotations').addEventListener('click', () => {
       this._loadAnnotations();
     });
@@ -746,6 +754,7 @@ class App {
         <span class="ann-file">${this._escapeHtml(fileStr)}</span>
         <div class="ann-actions">
           <button class="goto-btn" data-index="${i}">Go to</button>
+          <button class="export-btn" data-index="${i}">Export WAV</button>
           <button class="delete-btn" data-index="${i}">Delete</button>
         </div>
       `;
@@ -767,6 +776,14 @@ class App {
         this.spectrogram.computeVisible();
         this.engine.seek(ann.sessionStart);
         this._updateTimeDisplays(ann.sessionStart);
+      });
+    });
+
+    this.annotationsList.querySelectorAll('.export-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.index);
+        this._exportAnnotationAsWav(this.annotations[idx]);
       });
     });
 
@@ -873,6 +890,106 @@ class App {
 
     script += 'echo "Done! Cut files are in $OUTPUT_DIR"\n';
     return script;
+  }
+
+  _buildExportFilename(ann) {
+    let name;
+    if (ann.wallClockStartISO && ann.wallClockEndISO) {
+      name = `${ann.wallClockStartISO}--${ann.wallClockEndISO}_${ann.note}`;
+    } else {
+      name = ann.note;
+    }
+    return name.replace(/[<>:"/\\|?*]/g, '_') + '.wav';
+  }
+
+  _buildExportSegments(ann) {
+    const session = this.session;
+    return ann.segments.map(seg => ({
+      filePath: seg.filePath,
+      dataOffset: session.files.find(f => f.filePath === seg.filePath)?.dataOffset || 0,
+      startByte: Math.floor(seg.startInFile * session.sampleRate) * session.blockAlign,
+      endByte: Math.ceil(seg.endInFile * session.sampleRate) * session.blockAlign,
+      bitsPerSample: session.bitsPerSample,
+      channels: session.channels,
+      sampleRate: session.sampleRate,
+      format: session.format
+    }));
+  }
+
+  async _exportSelectionAsWav() {
+    if (!this._pendingSelection || !this.session) return;
+    const { start, end } = this._pendingSelection;
+    const note = this.annotationNoteInput.value.trim() || 'selection';
+
+    // Build a temporary annotation for the export
+    const segments = this._getSelectionSegments(start, end);
+    let wallClockStartISO = null;
+    let wallClockEndISO = null;
+    if (this.session.sessionStartTime !== null) {
+      const wallStart = this.session.toWallClock(start);
+      const wallEnd = this.session.toWallClock(end);
+      const date = this.session.sessionDate || '2000-01-01';
+      if (wallStart !== null && wallEnd !== null) {
+        wallClockStartISO = this._wallClockToISO(date, wallStart);
+        wallClockEndISO = this._wallClockToISO(date, wallEnd);
+      }
+    }
+
+    const ann = { note, segments, wallClockStartISO, wallClockEndISO };
+    await this._exportAnnotationAsWav(ann);
+  }
+
+  async _exportAnnotationAsWav(ann) {
+    if (!this.session) return;
+
+    const defaultName = this._buildExportFilename(ann);
+    const outputPath = await window.electronAPI.saveFileDialog({
+      title: 'Export WAV',
+      defaultPath: defaultName,
+      filters: [
+        { name: 'WAV Audio', extensions: ['wav'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    if (!outputPath) return;
+
+    try {
+      this._setStatus(`Exporting "${ann.note}"...`);
+      const exportSegments = this._buildExportSegments(ann);
+      const result = await window.electronAPI.exportWavSegment(exportSegments, outputPath);
+      const sizeMB = (result.totalDataBytes / (1024 * 1024)).toFixed(1);
+      this._setStatus(`Exported "${ann.note}" (${sizeMB} MB) to ${outputPath.split(/[/\\]/).pop()}`);
+    } catch (err) {
+      this._setStatus(`Export error: ${err.message}`);
+      console.error('Export error:', err);
+    }
+  }
+
+  async _exportAllAnnotationsAsWav() {
+    if (this.annotations.length === 0 || !this.session) {
+      this._setStatus('No annotations to export');
+      return;
+    }
+
+    // Ask for output directory
+    const dirPath = await window.electronAPI.openFolderDialog();
+    if (!dirPath) return;
+
+    let exported = 0;
+    for (const ann of this.annotations) {
+      try {
+        const fileName = this._buildExportFilename(ann);
+        const outputPath = dirPath + '/' + fileName;
+        this._setStatus(`Exporting ${exported + 1}/${this.annotations.length}: "${ann.note}"...`);
+        const exportSegments = this._buildExportSegments(ann);
+        await window.electronAPI.exportWavSegment(exportSegments, outputPath);
+        exported++;
+      } catch (err) {
+        console.error(`Failed to export "${ann.note}":`, err);
+      }
+    }
+
+    this._setStatus(`Exported ${exported}/${this.annotations.length} annotations to ${dirPath.split(/[/\\]/).pop()}/`);
   }
 
   async _loadAnnotations() {

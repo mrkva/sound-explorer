@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFolderDialog: () => ipcRenderer.invoke('open-folder-dialog'),
   scanFolder: (folderPath) => ipcRenderer.invoke('scan-folder', folderPath),
   scanFiles: (filePaths) => ipcRenderer.invoke('scan-files', filePaths),
+  exportWavSegment: (segments, outputPath) => ipcRenderer.invoke('export-wav-segment', segments, outputPath),
   readFileHeader: (filePath) => ipcRenderer.invoke('read-file-header', filePath),
   readPcmChunk: (filePath, dataOffset, byteOffset, byteLength) =>
     ipcRenderer.invoke('read-pcm-chunk', filePath, dataOffset, byteOffset, byteLength),

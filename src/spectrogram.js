@@ -587,25 +587,26 @@ export class SpectrogramRenderer {
     const maxBin = Math.min(Math.ceil(this.maxFreq / binRes), freqBins - 1);
     const visibleBins = maxBin - minBin;
 
-    // Pre-compute bin lookup table for Y -> frequency bin
-    // Supports both linear and logarithmic frequency scales
-    const binLookup = new Int32Array(spectHeight);
+    // Pre-compute fractional bin lookup table for Y -> frequency
+    // Uses linear interpolation between bins to avoid aliasing artifacts
+    const binLookupLow = new Int32Array(spectHeight);   // Lower bin index
+    const binLookupFrac = new Float32Array(spectHeight); // Fractional position between bins
     const logMinFreq = Math.log(Math.max(this.minFreq, 20)); // 20Hz floor for log
     const logMaxFreq = Math.log(Math.max(this.maxFreq, 21));
 
     for (let y = 0; y < spectHeight; y++) {
       const ratio = (spectHeight - 1 - y) / spectHeight; // 0=bottom, 1=top
-      let bin;
+      let binF;
       if (this.logFrequency) {
-        // Log scale: more pixels for low frequencies
         const logFreq = logMinFreq + ratio * (logMaxFreq - logMinFreq);
         const freq = Math.exp(logFreq);
-        bin = Math.round(freq / binRes);
+        binF = freq / binRes;
       } else {
-        // Linear scale
-        bin = minBin + Math.floor(ratio * visibleBins);
+        binF = minBin + ratio * visibleBins;
       }
-      binLookup[y] = Math.max(minBin, Math.min(bin, maxBin));
+      binF = Math.max(minBin, Math.min(binF, maxBin));
+      binLookupLow[y] = Math.floor(binF);
+      binLookupFrac[y] = binF - Math.floor(binF);
     }
 
     // Create image
@@ -620,12 +621,22 @@ export class SpectrogramRenderer {
       const spectrum = frames[frameIdx];
 
       for (let y = 0; y < spectHeight; y++) {
-        const bin = binLookup[y];
-        let raw = spectrum[bin];
-        // Protect against NaN, undefined, Infinity
-        if (raw === undefined || !isFinite(raw)) raw = -120;
-        const db = raw + this.gainDB;
+        const bin0 = binLookupLow[y];
+        const frac = binLookupFrac[y];
 
+        // Interpolate between adjacent bins
+        let raw0 = spectrum[bin0];
+        if (raw0 === undefined || !isFinite(raw0)) raw0 = -120;
+        let raw;
+        if (frac > 0 && bin0 + 1 <= maxBin) {
+          let raw1 = spectrum[bin0 + 1];
+          if (raw1 === undefined || !isFinite(raw1)) raw1 = -120;
+          raw = raw0 + frac * (raw1 - raw0);
+        } else {
+          raw = raw0;
+        }
+
+        const db = raw + this.gainDB;
         const normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
         const [r, g, b] = this._colorize(normalized);
 
@@ -938,21 +949,24 @@ export class SpectrogramRenderer {
       scheduleCompute();
     });
 
+    // Prevent context menu on right-click (used for panning)
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
     this.canvas.addEventListener('mousedown', (e) => {
-      if (e.button === 0) {
-        if (e.shiftKey) {
-          // Shift+click: start selection
-          this._isSelecting = true;
-          const time = this.canvasXToTime(e.offsetX);
-          this.selectionStart = time;
-          this.selectionEnd = time;
-          this.canvas.style.cursor = 'col-resize';
-        } else {
-          this.isDragging = true;
-          this.dragStartX = e.offsetX;
-          this.dragStartViewStart = this.viewStart;
-          this.canvas.style.cursor = 'grabbing';
-        }
+      if (e.button === 2) {
+        // Right-click: pan mode
+        this.isDragging = true;
+        this.dragStartX = e.offsetX;
+        this.dragStartViewStart = this.viewStart;
+        this.canvas.style.cursor = 'grabbing';
+      } else if (e.button === 0) {
+        // Left-click: selection mode
+        this._isSelecting = true;
+        this._selectStartX = e.offsetX;
+        const time = this.canvasXToTime(e.offsetX);
+        this.selectionStart = time;
+        this.selectionEnd = time;
+        this.canvas.style.cursor = 'col-resize';
       }
     });
 
@@ -986,39 +1000,42 @@ export class SpectrogramRenderer {
       if (this._isSelecting) {
         this._isSelecting = false;
         this.canvas.style.cursor = 'crosshair';
-        // Normalize so start < end
-        if (this.selectionStart > this.selectionEnd) {
-          [this.selectionStart, this.selectionEnd] = [this.selectionEnd, this.selectionStart];
-        }
-        // Only keep selection if it's meaningful (> 0.1s)
-        if (this.selectionEnd - this.selectionStart < 0.1) {
+        // Check if this was a click (no drag) vs a drag selection
+        const wasDrag = Math.abs(e.offsetX - this._selectStartX) > 3;
+        if (wasDrag) {
+          // Normalize so start < end
+          if (this.selectionStart > this.selectionEnd) {
+            [this.selectionStart, this.selectionEnd] = [this.selectionEnd, this.selectionStart];
+          }
+          // Only keep selection if meaningful (> 0.1s)
+          if (this.selectionEnd - this.selectionStart < 0.1) {
+            this.selectionStart = null;
+            this.selectionEnd = null;
+          }
+          this.draw();
+          if (this.onSelectionChange) {
+            this.onSelectionChange(this.selectionStart, this.selectionEnd);
+          }
+        } else {
+          // Click without drag: seek to position, clear selection
           this.selectionStart = null;
           this.selectionEnd = null;
-        }
-        this.draw();
-        if (this.onSelectionChange) {
-          this.onSelectionChange(this.selectionStart, this.selectionEnd);
+          if (this.onSelectionChange) this.onSelectionChange(null, null);
+          const time = this.canvasXToTime(e.offsetX);
+          if (this.onTimeClick && time >= 0 && time <= this.totalDuration) {
+            this.onTimeClick(time);
+          }
         }
         return;
       }
-      if (this.isDragging && Math.abs(e.offsetX - this.dragStartX) < 3) {
-        // Click without drag: clear selection and seek
-        this.selectionStart = null;
-        this.selectionEnd = null;
-        if (this.onSelectionChange) this.onSelectionChange(null, null);
-        const time = this.canvasXToTime(e.offsetX);
-        if (this.onTimeClick && time >= 0 && time <= this.totalDuration) {
-          this.onTimeClick(time);
-        }
+      if (this.isDragging) {
+        this.isDragging = false;
+        this.canvas.style.cursor = 'crosshair';
       }
-      this.isDragging = false;
-      this.canvas.style.cursor = 'crosshair';
     });
 
     this.canvas.addEventListener('mouseleave', () => {
-      if (this._isSelecting) {
-        this._isSelecting = false;
-      }
+      this._isSelecting = false;
       this.isDragging = false;
       this.canvas.style.cursor = 'crosshair';
       if (this.onCursorMove) this.onCursorMove(null, null);
