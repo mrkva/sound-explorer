@@ -301,9 +301,11 @@ class App {
       this.spectrogram.rerender();
     });
 
-    // Playback rate
+    // Playback rate — multiplies with the "Play as" speed
     this.playbackRateSelect.addEventListener('change', (e) => {
-      this.engine.setPlaybackRate(parseFloat(e.target.value));
+      const speedMultiplier = parseFloat(e.target.value);
+      const playAsSpeed = parseFloat(this.outputSampleRateSelect.value) || 1;
+      this.engine.setPlaybackRate(playAsSpeed * speedMultiplier);
     });
 
     // Color preset
@@ -426,9 +428,9 @@ class App {
         : `Timecode offset: ${this._tcOffsetHours > 0 ? '+' : ''}${this._tcOffsetHours}h (applied to exports & display)`);
     });
 
-    // "Play as" sample rate — reinterprets file at a different rate by changing playback speed
+    // "Play as" sample rate — changes playback speed like tape speed / sample rate reinterpretation
     this.outputSampleRateSelect.addEventListener('change', (e) => {
-      this._changePlayAsRate(parseInt(e.target.value));
+      this._changePlayAsRate(parseFloat(e.target.value));
     });
 
     // Keyboard shortcuts
@@ -1361,52 +1363,41 @@ class App {
     const select = this.outputSampleRateSelect;
     select.innerHTML = '';
 
-    // Offer common sample rates as "play as" options
-    const targets = [8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 96000, 192000, 384000];
-    const options = [];
+    // Offer playback speed options as sample rate interpretations.
+    // These are relative to the server output rate (which may differ from
+    // native for high-SR files due to decimation).
+    const serverRate = this._currentOutputSampleRate || nativeSampleRate;
+    const speeds = [0.125, 0.25, 0.5, 1, 2, 4];
 
-    for (const rate of targets) {
-      if (rate > nativeSampleRate) continue;
-      const ratio = rate / nativeSampleRate;
-      const label = rate >= 1000 ? `${rate / 1000}kHz` : `${rate}Hz`;
-      options.push({ rate, ratio, label });
-    }
-
-    // Add the native rate if not already in the list
-    if (!options.find(o => o.rate === nativeSampleRate)) {
-      const label = nativeSampleRate >= 1000 ? `${nativeSampleRate / 1000}kHz` : `${nativeSampleRate}Hz`;
-      options.push({ rate: nativeSampleRate, ratio: 1, label });
-    }
-
-    // Sort by rate descending
-    options.sort((a, b) => b.rate - a.rate);
-
-    for (const opt of options) {
+    for (const speed of speeds) {
+      const interpretedRate = Math.round(nativeSampleRate * speed);
       const el = document.createElement('option');
-      el.value = opt.rate.toString();
-      if (opt.ratio === 1) {
-        el.textContent = `${opt.label} (native)`;
+      el.value = speed.toString();
+      if (speed === 1) {
+        const label = nativeSampleRate >= 1000 ? `${nativeSampleRate / 1000}kHz` : `${nativeSampleRate}Hz`;
+        el.textContent = `${label} (native)`;
       } else {
-        el.textContent = `${opt.label} (${opt.ratio.toFixed(2)}x speed)`;
+        const label = interpretedRate >= 1000 ? `${interpretedRate / 1000}kHz` : `${interpretedRate}Hz`;
+        el.textContent = `${label} (${speed < 1 ? '' : ''}${speed}x)`;
       }
       select.appendChild(el);
     }
 
-    select.value = nativeSampleRate.toString();
-    this._playAsNativeRate = nativeSampleRate;
+    select.value = '1';
   }
 
-  _changePlayAsRate(targetRate) {
+  _changePlayAsRate(speed) {
     if (!this.session) return;
-    const nativeRate = this._playAsNativeRate || this.session.sampleRate;
-    const ratio = targetRate / nativeRate;
+    const speedMultiplier = parseFloat(this.playbackRateSelect.value) || 1;
+    this.engine.setPlaybackRate(speed * speedMultiplier);
 
-    this.engine.setPlaybackRate(ratio);
-    // Also update the Speed selector to reflect the effective speed
-    this.playbackRateSelect.value = '1'; // Reset speed selector since Play-as overrides it
-
-    const label = targetRate >= 1000 ? `${targetRate / 1000}kHz` : `${targetRate}Hz`;
-    this._setStatus(`Playing as ${label} (${ratio.toFixed(2)}x speed)`);
+    if (speed === 1) {
+      this._setStatus('Playback: native speed');
+    } else {
+      const interpretedRate = Math.round(this.session.sampleRate * speed);
+      const label = interpretedRate >= 1000 ? `${interpretedRate / 1000}kHz` : `${interpretedRate}Hz`;
+      this._setStatus(`Playing as ${label} (${speed}x speed)`);
+    }
     this._updatePlaybackFormat();
   }
 
@@ -1487,10 +1478,8 @@ class App {
     const rateStr = rate >= 1000 ? `${rate / 1000}kHz` : `${rate}Hz`;
     const bits = this.session.bitsPerSample;
     const ch = this.session.channels === 1 ? 'mono' : this.session.channels === 2 ? 'stereo' : `${this.session.channels}ch`;
-    const playAsRate = parseInt(this.outputSampleRateSelect.value) || this.session.sampleRate;
-    const playAsStr = playAsRate !== this.session.sampleRate
-      ? ` → as ${playAsRate >= 1000 ? playAsRate / 1000 + 'kHz' : playAsRate + 'Hz'}`
-      : '';
+    const playAsSpeed = parseFloat(this.outputSampleRateSelect.value) || 1;
+    const playAsStr = playAsSpeed !== 1 ? ` @${playAsSpeed}x` : '';
     this.playbackFormatDisplay.textContent = `${rateStr}/16bit ${ch}${playAsStr}`;
     this.playbackFormatDisplay.title = `Source: ${this.session.sampleRate}Hz/${bits}bit — Server: ${rate}Hz/16bit`;
   }
