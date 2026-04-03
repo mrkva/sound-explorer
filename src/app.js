@@ -56,8 +56,11 @@ class App {
     this.selectionActions = document.getElementById('selection-actions');
     this.selectionInfo = document.getElementById('selection-info');
 
-    // Audio output device
+    // Audio output device and sample rate
     this.audioOutputSelect = document.getElementById('audio-output');
+    this.outputSampleRateSelect = document.getElementById('output-samplerate');
+    this._currentOutputSampleRate = 48000;
+    this._currentDecimationFactor = 1;
 
     this._setupCanvas();
     this._setupSpectrogram();
@@ -353,6 +356,11 @@ class App {
       this._setAudioOutputDevice(e.target.value);
     });
 
+    // Output sample rate (decimation for ultrasonic playback)
+    this.outputSampleRateSelect.addEventListener('change', (e) => {
+      this._changeOutputSampleRate(parseInt(e.target.value));
+    });
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
@@ -481,8 +489,9 @@ class App {
     // Build file list
     this._buildFileList();
 
-    // Populate "interpret as sample rate" options
-    this._populateSampleRateOptions(session.sampleRate);
+    // Reset playback speed to 1x
+    this.playbackRateSelect.value = '1';
+    this.engine.setPlaybackRate(1);
 
     // Set up spectrogram
     this._setStatus('Setting up spectrogram...');
@@ -513,9 +522,12 @@ class App {
     // Start audio setup and spectrogram compute in parallel
     this._setStatus('Loading...');
     const audioSetup = (async () => {
-      const audioUrl = await window.electronAPI.setupAudioServer(session.getServerFileList());
-      await this.engine.setSource(audioUrl, session.totalDuration, session.sampleRate);
+      const result = await window.electronAPI.setupAudioServer(session.getServerFileList());
+      this._currentOutputSampleRate = result.outputSampleRate;
+      this._currentDecimationFactor = result.decimationFactor;
+      await this.engine.setSource(result.url, session.totalDuration, result.outputSampleRate);
       this.engine.setGainDB(parseFloat(this.audioGainSlider.value));
+      this._populateOutputSampleRateOptions(session.sampleRate, result.outputSampleRate);
     })();
 
     // Compute spectrogram for initial narrow view (fast)
@@ -1141,39 +1153,77 @@ class App {
     this.statusDisplay.textContent = text;
   }
 
-  // ── Playback sample rate interpretation ───────────────────────────
+  // ── Output sample rate (decimation for ultrasonic content) ─────────
 
-  _populateSampleRateOptions(nativeSampleRate) {
-    const optgroup = document.getElementById('samplerate-optgroup');
-    optgroup.innerHTML = '';
+  _populateOutputSampleRateOptions(nativeSampleRate, currentOutputRate) {
+    const select = this.outputSampleRateSelect;
+    select.innerHTML = '';
 
-    // Standard target sample rates for "interpret as" demodulation
-    const targets = [8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000, 384000];
+    // Standard output rates — only include rates that are integer divisors of native
+    const targets = [8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 96000, 192000, 384000];
+    const options = [];
 
-    for (const target of targets) {
-      // Skip if same as native (that's just 1x)
-      if (target === nativeSampleRate) continue;
-      // The playback rate needed: target / native
-      // e.g., native=192000, target=48000 → rate=0.25 (slows down, shifts ultrasonic → audible)
-      const rate = target / nativeSampleRate;
-      // Only include rates the browser can handle (0.0625x to 16x)
-      if (rate < 0.0625 || rate > 16) continue;
-
-      const opt = document.createElement('option');
-      opt.value = rate.toString();
-      const label = target >= 1000 ? `${target / 1000}kHz` : `${target}Hz`;
-      opt.textContent = `Play as ${label}`;
-      if (rate < 1) {
-        opt.textContent += ` (${rate.toFixed(rate < 0.1 ? 3 : 2)}x — pitch ↓)`;
-      } else if (rate > 1) {
-        opt.textContent += ` (${rate.toFixed(2)}x — pitch ↑)`;
-      }
-      optgroup.appendChild(opt);
+    for (const rate of targets) {
+      if (rate > nativeSampleRate) continue;
+      const factor = nativeSampleRate / rate;
+      // Only integer decimation factors
+      if (Math.abs(factor - Math.round(factor)) > 0.01) continue;
+      const d = Math.round(factor);
+      const label = rate >= 1000 ? `${rate / 1000}kHz` : `${rate}Hz`;
+      options.push({ rate, d, label });
     }
 
-    // Reset to 1x
-    this.playbackRateSelect.value = '1';
-    this.engine.setPlaybackRate(1);
+    // Also add the native rate if it's not already in the list
+    if (!options.find(o => o.rate === nativeSampleRate)) {
+      const label = nativeSampleRate >= 1000 ? `${nativeSampleRate / 1000}kHz` : `${nativeSampleRate}Hz`;
+      options.push({ rate: nativeSampleRate, d: 1, label });
+    }
+
+    // Sort by rate descending
+    options.sort((a, b) => b.rate - a.rate);
+
+    for (const opt of options) {
+      const el = document.createElement('option');
+      el.value = opt.rate.toString();
+      if (opt.d === 1) {
+        el.textContent = `${opt.label} (native)`;
+      } else {
+        el.textContent = `${opt.label} (${opt.d}x dec.)`;
+      }
+      select.appendChild(el);
+    }
+
+    select.value = currentOutputRate.toString();
+  }
+
+  async _changeOutputSampleRate(targetRate) {
+    if (!this.session) return;
+
+    const wasPlaying = this.engine.isPlaying;
+    const currentTime = this.engine.getCurrentTime();
+
+    this._setStatus(`Switching output to ${targetRate >= 1000 ? targetRate / 1000 + 'kHz' : targetRate + 'Hz'}...`);
+
+    // Restart audio server with new output rate
+    const result = await window.electronAPI.setupAudioServer(
+      this.session.getServerFileList(), targetRate
+    );
+    this._currentOutputSampleRate = result.outputSampleRate;
+    this._currentDecimationFactor = result.decimationFactor;
+
+    await this.engine.setSource(result.url, this.session.totalDuration, result.outputSampleRate);
+    this.engine.setGainDB(parseFloat(this.audioGainSlider.value));
+
+    // Restore position and playback state
+    this.engine.seek(currentTime);
+    if (wasPlaying) {
+      this.engine.play();
+      this.btnPlay.textContent = '\u23F8 Pause';
+    }
+
+    const label = result.outputSampleRate >= 1000
+      ? `${result.outputSampleRate / 1000}kHz` : `${result.outputSampleRate}Hz`;
+    this._setStatus(`Output: ${label} (${result.decimationFactor}x decimation from ${this.session.sampleRate}Hz)`);
   }
 
   // ── Annotations sidebar ──────────────────────────────────────────

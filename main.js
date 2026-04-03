@@ -11,6 +11,8 @@ let sessionBitsPerSample = 16;  // Source bits per sample
 let sessionFormat = 1;          // 1=PCM, 3=IEEE float
 let sessionChannels = 2;
 let sessionSampleRate = 48000;
+let outputSampleRate = 48000;   // Rate sent to browser (may differ from source)
+let decimationFactor = 1;       // Source samples per output sample
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -50,11 +52,11 @@ function startAudioServer() {
       const wavHeaderSize = 44;
       const totalSize = wavHeaderSize + totalDataBytes;
 
-      // Always output 16-bit PCM for browser compatibility
+      // Always output 16-bit PCM at the output sample rate for browser compatibility
       const wavHeader = buildWavHeader(
         totalDataBytes,
         ref.channels,
-        ref.sampleRate,
+        outputSampleRate,
         16  // Output is always 16-bit
       );
 
@@ -129,13 +131,14 @@ async function serveBytes(res, wavHeader, start, end) {
 
   if (pos > end) return;
 
-  // Output is 16-bit PCM. We need to map output byte positions back to
-  // source file positions, handling format conversion.
+  // Output is 16-bit PCM, possibly decimated.
+  // With decimation, each output sample corresponds to `decimationFactor` source samples.
   const srcBytesPerSample = sessionBitsPerSample / 8;
   const srcBlockAlign = sessionChannels * srcBytesPerSample;
   const outBlockAlign = sessionChannels * 2; // 16-bit output
+  const D = decimationFactor;
 
-  // dataPos/dataEnd are in OUTPUT (16-bit) byte space
+  // dataPos/dataEnd are in OUTPUT (16-bit, decimated) byte space
   let dataPos = pos - headerLen;
   const dataEnd = end - headerLen;
 
@@ -144,8 +147,9 @@ async function serveBytes(res, wavHeader, start, end) {
   for (const file of sessionFiles) {
     if (dataPos > dataEnd) break;
 
-    const fileSamples = Math.floor(file.dataSize / srcBlockAlign);
-    const fileOutBytes = fileSamples * outBlockAlign;
+    const fileSrcSamples = Math.floor(file.dataSize / srcBlockAlign);
+    const fileOutSamples = Math.floor(fileSrcSamples / D);
+    const fileOutBytes = fileOutSamples * outBlockAlign;
     const fileOutEnd = cumOutBytes + fileOutBytes;
 
     // Skip files before our range
@@ -163,17 +167,19 @@ async function serveBytes(res, wavHeader, start, end) {
       continue;
     }
 
-    // Convert output byte offset to sample offset
-    const startSampleInFile = Math.floor(outOffsetInFile / outBlockAlign);
-    const endSampleInFile = Math.ceil((outOffsetInFile + outNeeded) / outBlockAlign);
-    const samplesToRead = endSampleInFile - startSampleInFile;
+    // Convert output sample offset to source sample offset (accounting for decimation)
+    const startOutSample = Math.floor(outOffsetInFile / outBlockAlign);
+    const endOutSample = Math.ceil((outOffsetInFile + outNeeded) / outBlockAlign);
+    const outSamplesToMake = endOutSample - startOutSample;
 
-    // Read source bytes
-    const srcByteOffset = startSampleInFile * srcBlockAlign;
-    const srcByteLen = samplesToRead * srcBlockAlign;
+    // Source samples: each output sample comes from every D-th source sample
+    const startSrcSample = startOutSample * D;
+    const srcSamplesToRead = outSamplesToMake * D;
+    const srcByteOffset = startSrcSample * srcBlockAlign;
+    const srcByteLen = srcSamplesToRead * srcBlockAlign;
 
-    // Read in chunks (max 1MB source)
-    const MAX_SRC_READ = 1024 * 1024;
+    // Read in chunks (max 2MB source)
+    const MAX_SRC_READ = 2 * 1024 * 1024;
     let srcRead = 0;
     let outProduced = 0;
 
@@ -186,9 +192,9 @@ async function serveBytes(res, wavHeader, start, end) {
         if (bytesRead === 0) break;
         if (!res.writable) break;
 
-        // Convert to 16-bit
-        const samplesInChunk = Math.floor(bytesRead / srcBlockAlign);
-        const outBuf = convert16bit(srcBuf, samplesInChunk, sessionChannels, sessionBitsPerSample, sessionFormat);
+        // Convert to 16-bit with decimation
+        const srcSamplesInChunk = Math.floor(bytesRead / srcBlockAlign);
+        const outBuf = convert16bit(srcBuf, srcSamplesInChunk, sessionChannels, sessionBitsPerSample, sessionFormat, D);
 
         // Handle partial start/end within output
         let outStart = 0;
@@ -217,21 +223,21 @@ async function serveBytes(res, wavHeader, start, end) {
 }
 
 /**
- * Convert source PCM buffer to 16-bit PCM.
- */
-/**
- * Convert source PCM buffer to 16-bit PCM.
+ * Convert source PCM buffer to 16-bit PCM with optional decimation.
  * Handles 16-bit, 24-bit, 32-bit integer, and 32-bit float sources.
+ * When decFactor > 1, takes every decFactor-th sample (simple decimation).
  */
-function convert16bit(srcBuf, numSamples, channels, srcBits, srcFormat) {
-  const outBuf = Buffer.alloc(numSamples * channels * 2);
+function convert16bit(srcBuf, numSamples, channels, srcBits, srcFormat, decFactor = 1) {
+  const outSamples = Math.floor(numSamples / decFactor);
+  const outBuf = Buffer.alloc(outSamples * channels * 2);
   const srcBytesPerSample = srcBits / 8;
   const isFloat = (srcFormat === 3);
 
-  for (let i = 0; i < numSamples; i++) {
+  for (let o = 0; o < outSamples; o++) {
+    const i = o * decFactor; // source sample index
     for (let ch = 0; ch < channels; ch++) {
       const srcOff = (i * channels + ch) * srcBytesPerSample;
-      const outOff = (i * channels + ch) * 2;
+      const outOff = (o * channels + ch) * 2;
 
       if (srcOff + srcBytesPerSample > srcBuf.length) break;
 
@@ -531,7 +537,7 @@ ipcMain.handle('read-pcm-chunk', async (event, filePath, dataOffset, byteOffset,
 });
 
 // Set up the audio server for a session and return the URL
-ipcMain.handle('setup-audio-server', async (event, files) => {
+ipcMain.handle('setup-audio-server', async (event, files, requestedOutputRate) => {
   sessionFiles = files;
   const ref = files[0];
   sessionBitsPerSample = ref.bitsPerSample;
@@ -539,20 +545,27 @@ ipcMain.handle('setup-audio-server', async (event, files) => {
   sessionChannels = ref.channels;
   sessionSampleRate = ref.sampleRate;
 
-  // Calculate total samples across all files
+  // Determine output sample rate and decimation factor
+  const MAX_OUTPUT_RATE = 48000;
+  const targetRate = requestedOutputRate || Math.min(ref.sampleRate, MAX_OUTPUT_RATE);
+  decimationFactor = Math.max(1, Math.round(ref.sampleRate / targetRate));
+  outputSampleRate = Math.round(ref.sampleRate / decimationFactor);
+
+  // Calculate total output samples across all files
   const srcBlockAlign = ref.channels * (ref.bitsPerSample / 8);
   const totalSrcBytes = files.reduce((sum, f) => sum + f.dataSize, 0);
-  const totalSamples = Math.floor(totalSrcBytes / srcBlockAlign);
+  const totalSrcSamples = Math.floor(totalSrcBytes / srcBlockAlign);
+  const totalOutSamples = Math.floor(totalSrcSamples / decimationFactor);
 
   // Output is always 16-bit for browser compatibility
   const outBlockAlign = ref.channels * 2; // 16-bit
-  totalDataBytes = totalSamples * outBlockAlign;
+  totalDataBytes = totalOutSamples * outBlockAlign;
 
   console.log(`Audio server: ${files.length} files, ${ref.sampleRate}Hz, ${ref.bitsPerSample}-bit ${ref.format === 3 ? 'float' : 'PCM'}, ${ref.channels}ch`);
-  console.log(`Total samples: ${totalSamples}, output size: ${(totalDataBytes / 1e9).toFixed(2)} GB (16-bit)`);
+  console.log(`Decimation: ${decimationFactor}x, output: ${outputSampleRate}Hz, ${totalOutSamples} samples, ${(totalDataBytes / 1e6).toFixed(1)} MB (16-bit)`);
 
   const port = await startAudioServer();
-  return `http://127.0.0.1:${port}/audio`;
+  return { url: `http://127.0.0.1:${port}/audio`, outputSampleRate, decimationFactor };
 });
 
 // ── WAV header parser (Node.js side) ─────────────────────────────────────

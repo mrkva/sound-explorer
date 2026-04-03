@@ -22,15 +22,11 @@
       <div class="control-item">
         <label for="playback-rate">Speed</label>
         <select id="playback-rate">
-          <optgroup label="Playback speed">
-            <option value="0.25">0.25x</option>
-            <option value="0.5">0.5x</option>
-            <option value="1" selected>1x (native)</option>
-            <option value="1.5">1.5x</option>
-            <option value="2">2x</option>
-          </optgroup>
-          <optgroup label="Interpret as sample rate" id="samplerate-optgroup">
-          </optgroup>
+          <option value="0.25">0.25x</option>
+          <option value="0.5">0.5x</option>
+          <option value="1" selected>1x</option>
+          <option value="1.5">1.5x</option>
+          <option value="2">2x</option>
         </select>
       </div>
     </div>
@@ -168,6 +164,12 @@
         <label for="audio-output">Output</label>
         <select id="audio-output" title="Audio output device">
           <option value="">Default</option>
+        </select>
+      </div>
+      <div class="control-item">
+        <label for="output-samplerate">Play as</label>
+        <select id="output-samplerate" title="Output sample rate (decimation for ultrasonic content)">
+          <option value="0">Native</option>
         </select>
       </div>
     </div>
