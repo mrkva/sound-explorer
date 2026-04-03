@@ -367,7 +367,9 @@ export class SpectrogramRenderer {
     for (let j = 0; j < freqBins; j++) {
       const re = spectrum[2 * j];
       const im = spectrum[2 * j + 1];
-      magnitudes[j] = 20 * Math.log10(Math.max(Math.sqrt(re * re + im * im), 1e-10));
+      const mag = Math.sqrt(re * re + im * im);
+      const db = 20 * Math.log10(Math.max(mag, 1e-10));
+      magnitudes[j] = isFinite(db) ? db : -120;
     }
     return magnitudes;
   }
@@ -506,7 +508,9 @@ export class SpectrogramRenderer {
       for (let j = 0; j < freqBins; j++) {
         const re = spectrum[2 * j];
         const im = spectrum[2 * j + 1];
-        magnitudes[j] = 20 * Math.log10(Math.max(Math.sqrt(re * re + im * im), 1e-10));
+        const mag = Math.sqrt(re * re + im * im);
+        const db = 20 * Math.log10(Math.max(mag, 1e-10));
+        magnitudes[j] = isFinite(db) ? db : -120;
       }
       frames[i] = magnitudes;
     }
@@ -618,8 +622,8 @@ export class SpectrogramRenderer {
       for (let y = 0; y < spectHeight; y++) {
         const bin = binLookup[y];
         let raw = spectrum[bin];
-        // Protect against NaN, undefined, and exactly-zero-filled gaps
-        if (raw === undefined || raw !== raw || raw === 0) raw = -120;
+        // Protect against NaN, undefined, Infinity
+        if (raw === undefined || !isFinite(raw)) raw = -120;
         const db = raw + this.gainDB;
 
         const normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));

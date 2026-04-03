@@ -28,7 +28,9 @@ self.onmessage = function(e) {
       for (let j = 0; j < freqBins; j++) {
         const re = spectrum[2 * j];
         const im = spectrum[2 * j + 1];
-        magnitudes[j] = 20 * Math.log10(Math.max(Math.sqrt(re * re + im * im), 1e-10));
+        const mag = Math.sqrt(re * re + im * im);
+        const db = 20 * Math.log10(Math.max(mag, 1e-10));
+        magnitudes[j] = isFinite(db) ? db : -120;
       }
       results.push(magnitudes);
     }
