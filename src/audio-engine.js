@@ -22,6 +22,9 @@ export class AudioEngine {
     this.loopStart = null;
     this.loopEnd = null;
 
+    // Selected output device ID (persists across reinit)
+    this._sinkId = '';
+
     this.onTimeUpdate = null;
     this.onEnded = null;
     this._animFrame = null;
@@ -56,6 +59,11 @@ export class AudioEngine {
     // Create audio element for streaming playback
     this.audioElement = document.createElement('audio');
     this.audioElement.preload = 'auto';
+
+    // Restore output device selection if set
+    if (this._sinkId && typeof this.audioElement.setSinkId === 'function') {
+      try { await this.audioElement.setSinkId(this._sinkId); } catch(e) {}
+    }
 
     // Connect through Web Audio API for gain control
     this.sourceNode = this.audioContext.createMediaElementSource(this.audioElement);
@@ -208,6 +216,16 @@ export class AudioEngine {
       sumSq += data[i] * data[i];
     }
     return { peak, rms: Math.sqrt(sumSq / data.length) };
+  }
+
+  /**
+   * Set audio output device by device ID.
+   */
+  async setSinkId(deviceId) {
+    this._sinkId = deviceId;
+    if (this.audioElement && typeof this.audioElement.setSinkId === 'function') {
+      await this.audioElement.setSinkId(deviceId);
+    }
   }
 
   setLoop(start, end) {

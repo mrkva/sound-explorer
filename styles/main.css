@@ -247,12 +247,21 @@ button.primary:hover { background: #254a6e; }
   opacity: 0.6;
 }
 
+/* ── Main content (spectrogram + sidebar) ────────────────────────── */
+.main-content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+
 /* ── Spectrogram container ────────────────────────────────────────── */
 .spectrogram-container {
   flex: 1;
   position: relative;
   overflow: hidden;
   background: var(--bg-primary);
+  min-width: 0;
 }
 
 #spectrogram {
@@ -581,22 +590,25 @@ button.primary:hover { background: #254a6e; }
   gap: 8px;
 }
 
-/* ── Annotations list panel ───────────────────────────────────────── */
-.annotations-panel {
-  position: absolute;
-  top: 70px;
-  right: 12px;
-  width: 450px;
-  max-height: 500px;
+/* ── Annotations sidebar (collapsible) ───────────────────────────── */
+.annotations-sidebar {
+  width: 0;
+  min-width: 0;
   background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  z-index: 100;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+  transition: width 0.2s ease, min-width 0.2s ease;
+  flex-shrink: 0;
 }
 
-.annotations-panel-header {
+.annotations-sidebar.open {
+  width: 340px;
+  min-width: 340px;
+}
+
+.sidebar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -604,21 +616,33 @@ button.primary:hover { background: #254a6e; }
   border-bottom: 1px solid var(--border);
   font-size: 12px;
   font-weight: 600;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.annotations-panel-actions {
+.sidebar-header button {
+  padding: 2px 8px;
+  font-size: 14px;
+}
+
+.sidebar-actions {
   display: flex;
   gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.annotations-panel-actions button {
-  padding: 2px 8px;
+.sidebar-actions button {
+  padding: 3px 8px;
   font-size: 11px;
+  flex: 1;
 }
 
-.annotations-panel-body {
+.sidebar-body {
   overflow-y: auto;
-  max-height: 430px;
+  flex: 1;
   padding: 4px 0;
 }
 
@@ -686,4 +710,11 @@ button.primary:hover { background: #254a6e; }
   color: #fff;
   background: var(--danger);
   border-color: var(--danger);
+}
+
+/* ── Audio output select ─────────────────────────────────────────── */
+#audio-output {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

@@ -88,40 +88,57 @@
     </div>
   </div>
 
-  <!-- Spectrogram area -->
-  <div class="spectrogram-container">
-    <canvas id="spectrogram"></canvas>
+  <!-- Main content area: spectrogram + sidebar -->
+  <div class="main-content">
+    <!-- Spectrogram area -->
+    <div class="spectrogram-container">
+      <canvas id="spectrogram"></canvas>
 
-    <!-- Computing overlay -->
-    <div class="computing-overlay" id="computing-overlay" style="display: none;">
-      <div class="computing-box">
-        <div class="computing-label" id="computing-label">Computing spectrogram...</div>
-        <div class="computing-bar-track">
-          <div class="computing-bar-fill" id="computing-bar-fill"></div>
+      <!-- Computing overlay -->
+      <div class="computing-overlay" id="computing-overlay" style="display: none;">
+        <div class="computing-box">
+          <div class="computing-label" id="computing-label">Computing spectrogram...</div>
+          <div class="computing-bar-track">
+            <div class="computing-bar-fill" id="computing-bar-fill"></div>
+          </div>
+          <div class="computing-percent" id="computing-percent">0%</div>
         </div>
-        <div class="computing-percent" id="computing-percent">0%</div>
+      </div>
+
+      <div class="welcome-overlay" id="welcome">
+        <h2>Open a folder of WAV files or a single file</h2>
+        <p>Supports Broadcast Wave Format (BWF) with embedded timecode</p>
+        <p style="margin-top: 8px; font-size: 12px; opacity: 0.7;">
+          Multiple files from the same session will be stitched together automatically
+        </p>
+        <div class="shortcuts">
+          <kbd>Space</kbd> Play/Pause &nbsp;
+          <kbd>&larr;</kbd><kbd>&rarr;</kbd> Seek &plusmn;1s &nbsp;
+          <kbd>Shift</kbd>+<kbd>&larr;</kbd><kbd>&rarr;</kbd> Seek &plusmn;10s<br>
+          <kbd>+</kbd><kbd>-</kbd> Zoom &nbsp;
+          <kbd>F</kbd> Fit view &nbsp;
+          <kbd>Scroll</kbd> Zoom at cursor<br>
+          <kbd>Drag</kbd> Select time range &nbsp;
+          <kbd>Right-drag</kbd> Pan view &nbsp;
+          <kbd>Esc</kbd> Clear selection<br>
+          <kbd>G</kbd> Focus time input &nbsp;
+          <kbd>&uarr;</kbd><kbd>&darr;</kbd> Adjust spectrogram gain
+        </div>
       </div>
     </div>
 
-    <div class="welcome-overlay" id="welcome">
-      <h2>Open a folder of WAV files or a single file</h2>
-      <p>Supports Broadcast Wave Format (BWF) with embedded timecode</p>
-      <p style="margin-top: 8px; font-size: 12px; opacity: 0.7;">
-        Multiple files from the same session will be stitched together automatically
-      </p>
-      <div class="shortcuts">
-        <kbd>Space</kbd> Play/Pause &nbsp;
-        <kbd>&larr;</kbd><kbd>&rarr;</kbd> Seek &plusmn;1s &nbsp;
-        <kbd>Shift</kbd>+<kbd>&larr;</kbd><kbd>&rarr;</kbd> Seek &plusmn;10s<br>
-        <kbd>+</kbd><kbd>-</kbd> Zoom &nbsp;
-        <kbd>F</kbd> Fit view &nbsp;
-        <kbd>Scroll</kbd> Zoom at cursor<br>
-        <kbd>Drag</kbd> Select time range &nbsp;
-        <kbd>Right-drag</kbd> Pan view &nbsp;
-        <kbd>Esc</kbd> Clear selection<br>
-        <kbd>G</kbd> Focus time input &nbsp;
-        <kbd>&uarr;</kbd><kbd>&darr;</kbd> Adjust spectrogram gain
+    <!-- Annotations sidebar (collapsible) -->
+    <div class="annotations-sidebar" id="annotations-sidebar">
+      <div class="sidebar-header">
+        <span>Annotations (<span id="annotation-count">0</span>)</span>
+        <button id="btn-close-sidebar" title="Close sidebar">&times;</button>
       </div>
+      <div class="sidebar-actions">
+        <button id="btn-export-all-wavs" title="Export all annotations as WAV files">Export All</button>
+        <button id="btn-export-annotations" title="Save annotations to JSON">Save</button>
+        <button id="btn-load-annotations" title="Load annotations from file">Load</button>
+      </div>
+      <div class="sidebar-body" id="annotations-list"></div>
     </div>
   </div>
 
@@ -142,6 +159,12 @@
         <div class="vu-meter">
           <div class="vu-fill" id="vu-fill"></div>
         </div>
+      </div>
+      <div class="control-item">
+        <label for="audio-output">Output</label>
+        <select id="audio-output" title="Audio output device">
+          <option value="">Default</option>
+        </select>
       </div>
     </div>
 
@@ -222,19 +245,6 @@
     </div>
   </div>
 
-  <!-- Annotations list panel -->
-  <div class="annotations-panel" id="annotations-panel" style="display: none;">
-    <div class="annotations-panel-header">
-      <span>Annotations (<span id="annotation-count">0</span>)</span>
-      <div class="annotations-panel-actions">
-        <button id="btn-export-all-wavs" title="Export all annotations as WAV files">Export All</button>
-        <button id="btn-export-annotations" title="Save annotations to JSON">Save</button>
-        <button id="btn-load-annotations" title="Load annotations from file">Load</button>
-        <button id="btn-close-annotations">&times;</button>
-      </div>
-    </div>
-    <div class="annotations-panel-body" id="annotations-list"></div>
-  </div>
 
   <div class="file-list-panel" id="file-list-panel" style="display: none;">
     <div class="file-list-header">

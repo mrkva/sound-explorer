@@ -49,18 +49,22 @@ class App {
     this.annotationDialog = document.getElementById('annotation-dialog');
     this.annotationTimeInfo = document.getElementById('annotation-time-info');
     this.annotationNoteInput = document.getElementById('annotation-note');
-    this.annotationsPanel = document.getElementById('annotations-panel');
+    this.annotationsSidebar = document.getElementById('annotations-sidebar');
     this.annotationsList = document.getElementById('annotations-list');
     this.annotationCount = document.getElementById('annotation-count');
     this._pendingSelection = null; // {start, end} in session time
     this.selectionActions = document.getElementById('selection-actions');
     this.selectionInfo = document.getElementById('selection-info');
 
+    // Audio output device
+    this.audioOutputSelect = document.getElementById('audio-output');
+
     this._setupCanvas();
     this._setupSpectrogram();
     this._setupEventListeners();
     this._setupEngineCallbacks();
     this._startVUMeter();
+    this._populateAudioOutputDevices();
   }
 
   _setupCanvas() {
@@ -292,10 +296,9 @@ class App {
       this.fileListPanel.style.display = 'none';
     });
 
-    // Annotations
+    // Annotations sidebar toggle
     document.getElementById('btn-annotations').addEventListener('click', () => {
-      this.annotationsPanel.style.display =
-        this.annotationsPanel.style.display === 'none' ? 'block' : 'none';
+      this._toggleAnnotationsSidebar();
     });
 
     document.getElementById('btn-close-annotation').addEventListener('click', () => {
@@ -328,8 +331,9 @@ class App {
       this._exportSelectionAsWav();
     });
 
-    document.getElementById('btn-close-annotations').addEventListener('click', () => {
-      this.annotationsPanel.style.display = 'none';
+    document.getElementById('btn-close-sidebar').addEventListener('click', () => {
+      this.annotationsSidebar.classList.remove('open');
+      this._resizeCanvas();
     });
 
     document.getElementById('btn-export-annotations').addEventListener('click', () => {
@@ -342,6 +346,11 @@ class App {
 
     document.getElementById('btn-load-annotations').addEventListener('click', () => {
       this._loadAnnotations();
+    });
+
+    // Audio output device
+    this.audioOutputSelect.addEventListener('change', (e) => {
+      this._setAudioOutputDevice(e.target.value);
     });
 
     // Keyboard shortcuts
@@ -756,8 +765,10 @@ class App {
     this._updateAnnotationsList();
     this._setStatus(`Annotation saved: "${note}"`);
 
-    // Show annotations panel
-    this.annotationsPanel.style.display = 'block';
+    // Show annotations sidebar
+    if (!this.annotationsSidebar.classList.contains('open')) {
+      this._toggleAnnotationsSidebar();
+    }
   }
 
   _wallClockToISO(dateStr, wallSeconds) {
@@ -1103,7 +1114,9 @@ class App {
       }
 
       this._updateAnnotationsList();
-      this.annotationsPanel.style.display = 'block';
+      if (!this.annotationsSidebar.classList.contains('open')) {
+        this._toggleAnnotationsSidebar();
+      }
       this._setStatus(`Loaded ${data.annotations.length} annotations from ${jsonPath.split(/[/\\]/).pop()}`);
     } catch (err) {
       this._setStatus('Error loading annotations: ' + err.message);
@@ -1123,6 +1136,72 @@ class App {
 
   _setStatus(text) {
     this.statusDisplay.textContent = text;
+  }
+
+  // ── Annotations sidebar ──────────────────────────────────────────
+
+  _toggleAnnotationsSidebar() {
+    this.annotationsSidebar.classList.toggle('open');
+    // After the CSS transition finishes, resize the canvas
+    this._resizeCanvas();
+    // Also resize after transition completes (200ms)
+    setTimeout(() => this._resizeCanvas(), 220);
+  }
+
+  _resizeCanvas() {
+    const container = this.canvas.parentElement;
+    this.canvas.width = container.clientWidth;
+    this.canvas.height = container.clientHeight;
+    if (this.spectrogram && this.session) {
+      this.spectrogram.draw(this.engine.getCurrentTime());
+    }
+  }
+
+  // ── Audio output device selection ─────────────────────────────────
+
+  async _populateAudioOutputDevices() {
+    try {
+      // Request permission to enumerate devices (some browsers need this)
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach(t => t.stop());
+        } catch (e) {
+          // Permission denied is ok, we can still try to enumerate
+        }
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+
+      this.audioOutputSelect.innerHTML = '<option value="">Default</option>';
+      for (const device of audioOutputs) {
+        const opt = document.createElement('option');
+        opt.value = device.deviceId;
+        opt.textContent = device.label || `Output ${device.deviceId.slice(0, 8)}...`;
+        this.audioOutputSelect.appendChild(opt);
+      }
+
+      // Listen for device changes (plugging in headphones etc.)
+      navigator.mediaDevices.addEventListener('devicechange', () => {
+        this._populateAudioOutputDevices();
+      });
+    } catch (err) {
+      console.warn('Could not enumerate audio devices:', err);
+    }
+  }
+
+  async _setAudioOutputDevice(deviceId) {
+    try {
+      await this.engine.setSinkId(deviceId);
+      const label = this.audioOutputSelect.selectedOptions[0]?.textContent || 'Default';
+      this._setStatus(`Audio output: ${label}`);
+    } catch (err) {
+      console.error('Failed to set audio output device:', err);
+      this._setStatus(`Failed to set output device: ${err.message}`);
+    }
   }
 }
 
