@@ -185,6 +185,16 @@ export class Session {
     this.blockAlign = this.channels * this.bytesPerSample;
     this.sessionDate = metadata.originationDate;
 
+    // Correct dataSize if the chunk header is wrong (0, 0xFFFFFFFF sentinel,
+    // or exceeds file size). Use actual file size to compute the real data extent.
+    if (metadata.dataOffset > 0) {
+      const maxDataSize = fileSize - metadata.dataOffset;
+      if (metadata.dataSize === 0 || metadata.dataSize === 0xFFFFFFFF ||
+          metadata.dataSize > maxDataSize) {
+        metadata.dataSize = maxDataSize;
+      }
+    }
+
     const fileSamples = Math.floor(metadata.dataSize / this.blockAlign);
     const fileDuration = fileSamples / this.sampleRate;
 

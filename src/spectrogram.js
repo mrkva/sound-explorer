@@ -412,27 +412,32 @@ export class SpectrogramRenderer {
       const byteLength = toRead * blockAlign;
 
       // Read in sub-chunks to avoid huge IPC transfers (max 8MB per chunk)
-      const maxChunkBytes = 8 * 1024 * 1024;
-      let bytesReadSoFar = 0;
+      // IMPORTANT: chunk size must be a multiple of blockAlign to maintain
+      // sample frame alignment across chunk boundaries
+      const maxChunkBytes = Math.floor((8 * 1024 * 1024) / blockAlign) * blockAlign;
+      let samplesDecodedFromFile = 0;
 
-      while (bytesReadSoFar < byteLength) {
-        const chunkLen = Math.min(maxChunkBytes, byteLength - bytesReadSoFar);
+      while (samplesDecodedFromFile < toRead) {
+        const remainingSamples = toRead - samplesDecodedFromFile;
+        const chunkSamples = Math.min(Math.floor(maxChunkBytes / blockAlign), remainingSamples);
+        const chunkByteOffset = (fileOffset + samplesDecodedFromFile) * blockAlign;
+        const chunkByteLen = chunkSamples * blockAlign;
+
         const rawBytes = await window.electronAPI.readPcmChunk(
-          file.filePath, file.dataOffset, byteOffset + bytesReadSoFar, chunkLen
+          file.filePath, file.dataOffset, chunkByteOffset, chunkByteLen
         );
 
-        const samplesInChunk = Math.floor(rawBytes.byteLength / blockAlign);
+        const actualSamples = Math.floor(rawBytes.byteLength / blockAlign);
         this._decodePCMToMono(
           new DataView(rawBytes), session.bitsPerSample, session.channels,
-          mono, samplesRead + bytesReadSoFar / blockAlign, samplesInChunk
+          mono, samplesRead + samplesDecodedFromFile, actualSamples
         );
 
-        bytesReadSoFar += chunkLen;
+        samplesDecodedFromFile += actualSamples || chunkSamples; // avoid infinite loop if read fails
 
         // Report read progress
-        const totalBytesNeeded = numSamples * blockAlign;
-        const totalBytesRead = (samplesRead * blockAlign) + bytesReadSoFar;
-        this._reportProgress('reading', Math.round((totalBytesRead / totalBytesNeeded) * 100));
+        const totalSamplesRead = samplesRead + samplesDecodedFromFile;
+        this._reportProgress('reading', Math.round((totalSamplesRead / numSamples) * 100));
       }
 
       samplesRead += toRead;

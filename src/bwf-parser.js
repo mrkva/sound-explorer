@@ -43,12 +43,18 @@ export class BWFParser {
 
     // Parse chunks
     let offset = 12;
-    const fileSize = Math.min(arrayBuffer.byteLength, view.getUint32(4, true) + 8);
+    // Don't trust RIFF size field — it may be wrong for large files or use
+    // 0xFFFFFFFF sentinel. Scan the entire header buffer instead.
+    const bufSize = arrayBuffer.byteLength;
 
-    while (offset + 8 <= fileSize) {
+    while (offset + 8 <= bufSize) {
       const chunkId = this.readString(view, offset, 4);
       const chunkSize = view.getUint32(offset + 4, true);
       const chunkDataOffset = offset + 8;
+
+      // Validate chunk: ID should be printable ASCII, size should be reasonable
+      const isValidChunk = /^[\x20-\x7E]{4}$/.test(chunkId) && chunkSize < 0xFFFFFFF0;
+      if (!isValidChunk) break; // Corrupt chunk header, stop scanning
 
       switch (chunkId) {
         case 'fmt ':
@@ -68,6 +74,8 @@ export class BWFParser {
       }
 
       // Move to next chunk (chunks are word-aligned)
+      // For the data chunk, skip past it using the declared size
+      // (which may be much larger than our buffer — that's OK, loop will end)
       offset = chunkDataOffset + chunkSize;
       if (offset % 2 !== 0) offset++;
     }

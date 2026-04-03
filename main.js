@@ -546,9 +546,11 @@ ipcMain.handle('scan-files', async (event, filePaths) => {
 // Read WAV file header (first 64KB for BWF metadata)
 ipcMain.handle('read-file-header', async (event, filePath) => {
   const fd = await fs.promises.open(filePath, 'r');
-  const headerBuf = Buffer.alloc(65536);
-  await fd.read(headerBuf, 0, 65536, 0);
   const stat = await fd.stat();
+  // Read up to 1MB to handle files with large metadata before the data chunk
+  const headerSize = Math.min(1024 * 1024, stat.size);
+  const headerBuf = Buffer.alloc(headerSize);
+  await fd.read(headerBuf, 0, headerSize, 0);
   await fd.close();
   return {
     header: headerBuf.buffer.slice(headerBuf.byteOffset, headerBuf.byteOffset + headerBuf.byteLength),
@@ -603,9 +605,11 @@ ipcMain.handle('setup-audio-server', async (event, files, requestedOutputRate) =
 
 async function readWavHeader(filePath) {
   const fd = await fs.promises.open(filePath, 'r');
-  const buf = Buffer.alloc(65536);
-  await fd.read(buf, 0, 65536, 0);
   const stat = await fd.stat();
+  // Read up to 1MB to handle files with large metadata before the data chunk
+  const headerSize = Math.min(1024 * 1024, stat.size);
+  const buf = Buffer.alloc(headerSize);
+  await fd.read(buf, 0, headerSize, 0);
   await fd.close();
 
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
