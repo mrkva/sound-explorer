@@ -486,7 +486,7 @@ class App {
     this._setStatus('Loading...');
     const audioSetup = (async () => {
       const audioUrl = await window.electronAPI.setupAudioServer(session.getServerFileList());
-      await this.engine.setSource(audioUrl, session.totalDuration);
+      await this.engine.setSource(audioUrl, session.totalDuration, session.sampleRate);
       this.engine.setGainDB(parseFloat(this.audioGainSlider.value));
     })();
 

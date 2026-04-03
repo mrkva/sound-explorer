@@ -23,8 +23,29 @@ export class AudioEngine {
     this._animFrame = null;
   }
 
-  async init() {
-    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  async init(sampleRate) {
+    // Tear down previous context if sample rate changed or first init
+    if (this.audioContext) {
+      this._stopTimeUpdate();
+      this.isPlaying = false;
+      if (this.audioElement) {
+        this.audioElement.pause();
+        this.audioElement.removeAttribute('src');
+        this.audioElement.load();
+      }
+      // Disconnect old nodes
+      try { this.sourceNode?.disconnect(); } catch(e) {}
+      try { this.gainNode?.disconnect(); } catch(e) {}
+      try { this.analyserNode?.disconnect(); } catch(e) {}
+      await this.audioContext.close();
+      this.audioContext = null;
+      this.sourceNode = null;
+      this.audioElement = null;
+    }
+
+    // Create new context, optionally matching file sample rate
+    const opts = sampleRate ? { sampleRate } : {};
+    this.audioContext = new (window.AudioContext || window.webkitAudioContext)(opts);
 
     // Create audio element for streaming playback
     this.audioElement = document.createElement('audio');
@@ -61,8 +82,9 @@ export class AudioEngine {
    * can't encode their size in the WAV header, so the browser may
    * not determine duration correctly.
    */
-  async setSource(url, knownDuration) {
-    if (!this.audioContext) await this.init();
+  async setSource(url, knownDuration, sampleRate) {
+    // Always reinit to get a fresh audio element and matching sample rate
+    await this.init(sampleRate);
     this.audioUrl = url;
     this.duration = knownDuration || 0;
     this.audioElement.src = url;
