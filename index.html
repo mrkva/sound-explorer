@@ -90,68 +90,63 @@
     </div>
   </div>
 
-  <!-- Info strip: time displays, cursor info, playback info, file info -->
+  <!-- Info strip: compact status bar with fixed-width values -->
   <div class="info-strip">
-    <div class="info-strip-left">
-      <div class="info-block">
-        <span class="info-label">Position</span>
-        <span class="info-value" id="current-time">0:00.00</span>
-      </div>
-      <div class="info-block wall-time-block" id="wall-time-group">
-        <span class="info-label">Wall Clock</span>
-        <span class="info-value wall-clock-value" id="wall-time">--:--:--</span>
-      </div>
-      <div class="info-block">
-        <span class="info-label">Duration</span>
-        <span class="info-value" id="duration">0:00</span>
-      </div>
-      <div class="info-divider"></div>
-      <div class="info-block cursor-block">
-        <span class="info-label">Cursor</span>
-        <span class="cursor-freq" id="cursor-freq">-- Hz</span>
-        <span class="cursor-time" id="cursor-time">--:--</span>
-      </div>
-      <div class="info-divider"></div>
-      <div class="info-block">
-        <span class="info-label">Playback</span>
-        <span class="info-value playback-format" id="playback-format">--</span>
-      </div>
-      <div class="info-divider"></div>
-      <div class="info-block">
-        <span class="info-label">TC Offset</span>
-        <select id="tc-offset" title="Timecode offset correction (e.g., fix UTC+2 recording to UTC)">
-          <option value="0">0h</option>
-          <option value="-12">-12h</option>
-          <option value="-11">-11h</option>
-          <option value="-10">-10h</option>
-          <option value="-9">-9h</option>
-          <option value="-8">-8h</option>
-          <option value="-7">-7h</option>
-          <option value="-6">-6h</option>
-          <option value="-5">-5h</option>
-          <option value="-4">-4h</option>
-          <option value="-3">-3h</option>
-          <option value="-2">-2h</option>
-          <option value="-1">-1h</option>
-          <option value="1">+1h</option>
-          <option value="2">+2h</option>
-          <option value="3">+3h</option>
-          <option value="4">+4h</option>
-          <option value="5">+5h</option>
-          <option value="6">+6h</option>
-          <option value="7">+7h</option>
-          <option value="8">+8h</option>
-          <option value="9">+9h</option>
-          <option value="10">+10h</option>
-          <option value="11">+11h</option>
-          <option value="12">+12h</option>
-        </select>
-      </div>
-    </div>
-    <div class="info-strip-right" id="file-info-area">
+    <span class="info-cell" title="Playback position">
+      <span class="info-label">POS</span>
+      <span class="info-val mono-fixed" id="current-time">0:00.00</span>
+    </span>
+    <span class="info-cell wall-time-block" id="wall-time-group">
+      <span class="info-label">WALL</span>
+      <span class="info-val wall-val" id="wall-time">--:--:--</span>
+    </span>
+    <span class="info-cell" title="Total duration">
+      <span class="info-label">DUR</span>
+      <span class="info-val mono-fixed" id="duration">0:00</span>
+    </span>
+    <span class="info-cell" title="Cursor position">
+      <span class="info-label">CUR</span>
+      <span class="info-val cursor-freq" id="cursor-freq">-- Hz</span>
+      <span class="info-val cursor-time" id="cursor-time">--:--</span>
+    </span>
+    <span class="info-cell" title="Playback format">
+      <span class="info-label">OUT</span>
+      <span class="info-val dim" id="playback-format">--</span>
+    </span>
+    <span class="info-cell">
+      <span class="info-label">TC</span>
+      <select id="tc-offset" title="Timecode offset correction (e.g., fix UTC+2 recording to UTC)">
+        <option value="0">0h</option>
+        <option value="-12">-12h</option>
+        <option value="-11">-11h</option>
+        <option value="-10">-10h</option>
+        <option value="-9">-9h</option>
+        <option value="-8">-8h</option>
+        <option value="-7">-7h</option>
+        <option value="-6">-6h</option>
+        <option value="-5">-5h</option>
+        <option value="-4">-4h</option>
+        <option value="-3">-3h</option>
+        <option value="-2">-2h</option>
+        <option value="-1">-1h</option>
+        <option value="1">+1h</option>
+        <option value="2">+2h</option>
+        <option value="3">+3h</option>
+        <option value="4">+4h</option>
+        <option value="5">+5h</option>
+        <option value="6">+6h</option>
+        <option value="7">+7h</option>
+        <option value="8">+8h</option>
+        <option value="9">+9h</option>
+        <option value="10">+10h</option>
+        <option value="11">+11h</option>
+        <option value="12">+12h</option>
+      </select>
+    </span>
+    <span class="info-cell info-file-cell" id="file-info-area">
       <span id="file-info">No session loaded</span>
       <span class="file-info-hint" id="file-info-hint"></span>
-    </div>
+    </span>
   </div>
 
   <!-- Main content area: spectrogram + sidebar -->
