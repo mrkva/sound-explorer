@@ -55,23 +55,42 @@ export class AudioEngine {
   /**
    * Set the audio source URL (from local HTTP server).
    */
-  async setSource(url) {
+  /**
+   * Set the audio source URL and known duration.
+   * Duration is provided externally because stitched WAV files >4GB
+   * can't encode their size in the WAV header, so the browser may
+   * not determine duration correctly.
+   */
+  async setSource(url, knownDuration) {
     if (!this.audioContext) await this.init();
     this.audioUrl = url;
+    this.duration = knownDuration || 0;
     this.audioElement.src = url;
-    // Wait for enough data to get duration
+
+    // Wait for the element to be ready enough to play, with a timeout
     return new Promise((resolve) => {
-      const onMeta = () => {
-        this.duration = this.audioElement.duration;
-        this.audioElement.removeEventListener('loadedmetadata', onMeta);
+      let resolved = false;
+      const done = () => {
+        if (resolved) return;
+        resolved = true;
+        // Prefer known duration over what the browser reports
+        if (knownDuration) {
+          this.duration = knownDuration;
+        } else if (this.audioElement.duration && isFinite(this.audioElement.duration)) {
+          this.duration = this.audioElement.duration;
+        }
         resolve();
       };
-      this.audioElement.addEventListener('loadedmetadata', onMeta);
-      // Also handle case where metadata is already loaded
-      if (this.audioElement.readyState >= 1) {
-        this.duration = this.audioElement.duration;
-        resolve();
-      }
+
+      this.audioElement.addEventListener('loadedmetadata', done, { once: true });
+      this.audioElement.addEventListener('canplay', done, { once: true });
+      this.audioElement.addEventListener('error', (e) => {
+        console.error('Audio load error:', e);
+        done();
+      }, { once: true });
+
+      // Timeout after 5 seconds - the audio may still stream fine
+      setTimeout(done, 5000);
     });
   }
 

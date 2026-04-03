@@ -57,19 +57,22 @@ function startAudioServer() {
       // Parse Range header
       const rangeHeader = req.headers.range;
       let start = 0;
-      let end = totalSize - 1;
+      // For non-range requests on huge files, only serve the header + first chunk
+      // to avoid trying to stream 43GB in one response
+      let end = rangeHeader ? totalSize - 1 : Math.min(totalSize - 1, 1024 * 1024);
 
       if (rangeHeader) {
         const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
         if (match) {
           start = parseInt(match[1], 10);
-          end = match[2] ? parseInt(match[2], 10) : totalSize - 1;
+          end = match[2] ? parseInt(match[2], 10) : Math.min(start + 2 * 1024 * 1024, totalSize - 1);
           end = Math.min(end, totalSize - 1);
         }
       }
 
       const chunkSize = end - start + 1;
 
+      // Always respond with 206 Partial Content for range-capable seeking
       if (rangeHeader) {
         res.writeHead(206, {
           'Content-Type': 'audio/wav',
@@ -79,6 +82,8 @@ function startAudioServer() {
           'Access-Control-Allow-Origin': '*'
         });
       } else {
+        // Initial request - report full size but only send a chunk
+        // This tells the browser the total size for seeking
         res.writeHead(200, {
           'Content-Type': 'audio/wav',
           'Content-Length': totalSize,
@@ -91,7 +96,9 @@ function startAudioServer() {
       try {
         await serveBytes(res, wavHeader, start, end);
       } catch (err) {
-        console.error('Stream error:', err.message);
+        if (err.code !== 'ERR_STREAM_DESTROYED') {
+          console.error('Stream error:', err.message);
+        }
       }
       res.end();
     });
@@ -111,7 +118,7 @@ async function serveBytes(res, wavHeader, start, end) {
   // Serve from WAV header if needed
   if (pos < headerLen) {
     const headerEnd = Math.min(end, headerLen - 1);
-    const slice = Buffer.from(wavHeader.slice(pos, headerEnd + 1));
+    const slice = Buffer.from(new Uint8Array(wavHeader).slice(pos, headerEnd + 1));
     res.write(slice);
     pos = headerEnd + 1;
   }
@@ -119,32 +126,50 @@ async function serveBytes(res, wavHeader, start, end) {
   if (pos > end) return;
 
   // Serve from stitched data files
-  let dataPos = pos - headerLen; // position within the concatenated PCM data
+  let dataPos = pos - headerLen;
   const dataEnd = end - headerLen;
 
-  // Find which file and offset
+  // Walk through files to find and serve the right bytes
   let cumulative = 0;
   for (const file of sessionFiles) {
-    const fileDataEnd = cumulative + file.dataSize;
-
-    if (dataPos < fileDataEnd) {
-      // This file contains some of the requested range
-      const fileOffset = dataPos - cumulative;
-      const readEnd = Math.min(dataEnd - cumulative, file.dataSize - 1);
-      const readLen = Math.min(readEnd - fileOffset + 1, dataEnd - dataPos + 1);
-
-      if (readLen > 0) {
-        const buf = Buffer.alloc(readLen);
-        const fd = await fs.promises.open(file.filePath, 'r');
-        await fd.read(buf, 0, readLen, file.dataOffset + fileOffset);
-        await fd.close();
-        res.write(buf);
-        dataPos += readLen;
-      }
-    }
-
-    cumulative = fileDataEnd;
     if (dataPos > dataEnd) break;
+
+    const fileStart = cumulative;
+    const fileEnd = cumulative + file.dataSize;
+    cumulative = fileEnd;
+
+    // Skip files before our range
+    if (fileEnd <= dataPos) continue;
+
+    // Calculate what to read from this file
+    const offsetInFile = Math.max(0, dataPos - fileStart);
+    const availableInFile = file.dataSize - offsetInFile;
+    const needed = dataEnd - dataPos + 1;
+    const readLen = Math.min(availableInFile, needed);
+
+    if (readLen <= 0) continue;
+
+    // Read in reasonable chunks (max 1MB) to avoid huge allocations
+    const MAX_READ = 1024 * 1024;
+    let fileReadOffset = offsetInFile;
+    let remaining = readLen;
+
+    const fd = await fs.promises.open(file.filePath, 'r');
+    try {
+      while (remaining > 0) {
+        const chunkLen = Math.min(remaining, MAX_READ);
+        const buf = Buffer.alloc(chunkLen);
+        const { bytesRead } = await fd.read(buf, 0, chunkLen, file.dataOffset + fileReadOffset);
+        if (bytesRead === 0) break;
+        if (!res.writable) break;
+        res.write(bytesRead < chunkLen ? buf.slice(0, bytesRead) : buf);
+        fileReadOffset += bytesRead;
+        remaining -= bytesRead;
+        dataPos += bytesRead;
+      }
+    } finally {
+      await fd.close();
+    }
   }
 }
 

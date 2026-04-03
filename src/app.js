@@ -336,7 +336,7 @@ class App {
     // Set up audio streaming
     this._setStatus('Setting up audio...');
     const audioUrl = await window.electronAPI.setupAudioServer(session.getServerFileList());
-    await this.engine.setSource(audioUrl);
+    await this.engine.setSource(audioUrl, session.totalDuration);
     this.engine.setGainDB(parseFloat(this.audioGainSlider.value));
 
     // Compute initial spectrogram
