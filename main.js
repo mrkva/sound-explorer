@@ -178,8 +178,8 @@ async function serveBytes(res, wavHeader, start, end) {
     const srcByteOffset = startSrcSample * srcBlockAlign;
     const srcByteLen = srcSamplesToRead * srcBlockAlign;
 
-    // Read in chunks (max 2MB source)
-    const MAX_SRC_READ = 2 * 1024 * 1024;
+    // Read in chunks (max ~2MB source, aligned to source block size)
+    const MAX_SRC_READ = Math.floor((2 * 1024 * 1024) / srcBlockAlign) * srcBlockAlign;
     let srcRead = 0;
     let outProduced = 0;
 
