@@ -165,20 +165,16 @@ class App {
       this.engine.setGainDB(parseFloat(e.target.value));
     });
 
-    // Spectrogram gain (visual)
+    // Spectrogram gain (visual) - instant re-render, no FFT recompute
     this.spectGainSlider.addEventListener('input', (e) => {
-      const gain = parseFloat(e.target.value);
-      this.spectrogram.gainDB = gain;
-      // Re-render from cached data (no recompute needed)
-      this.spectrogram.tileCache.clear();
-      this.spectrogram.computeVisible();
+      this.spectrogram.gainDB = parseFloat(e.target.value);
+      this.spectrogram.rerender();
     });
 
-    // Dynamic range
+    // Dynamic range - instant re-render, no FFT recompute
     this.dynamicRangeSlider.addEventListener('input', (e) => {
       this.spectrogram.dynamicRangeDB = parseInt(e.target.value);
-      this.spectrogram.tileCache.clear();
-      this.spectrogram.computeVisible();
+      this.spectrogram.rerender();
     });
 
     // FFT size

@@ -32,9 +32,12 @@ export class SpectrogramRenderer {
     // Session reference (set by app)
     this.session = null;
 
-    // Tile cache: key = "startSample-endSample-fftSize" -> { imageData, startTime, endTime }
+    // Tile cache: key = "startSample-endSample-fftSize" -> { frames, freqBins, numFrames, hopSize }
     this.tileCache = new Map();
     this.maxCacheSize = 200;
+
+    // Last computed FFT data (kept for instant gain/range re-rendering)
+    this._lastFFTData = null;
 
     // Currently computing
     this._computing = false;
@@ -140,9 +143,11 @@ export class SpectrogramRenderer {
         this.tileCache.set(cacheKey, spectrogramData);
       }
 
+      this._lastFFTData = spectrogramData;
       this._reportProgress('rendering', 0);
       this._renderSpectrogram(spectrogramData);
       this._reportProgress('done', 100);
+      this.draw();
     } catch (err) {
       console.error('Spectrogram compute error:', err);
       this._reportProgress('error', 0);
@@ -706,16 +711,13 @@ export class SpectrogramRenderer {
   }
 
   /**
-   * Update gain and re-render from cached FFT data (instant, no recompute).
+   * Re-render the spectrogram image from cached FFT data (instant).
+   * Use this when gain or dynamic range changes - no FFT recomputation needed.
    */
-  updateGain(gainDB) {
-    this.gainDB = gainDB;
-    // Find cached data for current view and re-render
-    for (const [key, data] of this.tileCache.entries()) {
-      // Re-render with new gain (check if this key matches current view roughly)
-      this._renderSpectrogram(data);
+  rerender() {
+    if (this._lastFFTData) {
+      this._renderSpectrogram(this._lastFFTData);
       this.draw();
-      return;
     }
   }
 
