@@ -66,6 +66,12 @@
 
     <div class="toolbar-separator"></div>
 
+    <div class="toolbar-separator"></div>
+
+    <div class="toolbar-group">
+      <button id="btn-annotations">Annotations</button>
+    </div>
+
     <div class="cursor-info" id="cursor-info">
       <span class="label">Cursor</span>
       <span class="cursor-freq" id="cursor-freq">-- Hz</span>
@@ -108,7 +114,9 @@
         <kbd>Scroll</kbd> Zoom at cursor &nbsp;
         <kbd>Drag</kbd> Pan<br>
         <kbd>G</kbd> Focus time input &nbsp;
-        <kbd>&uarr;</kbd><kbd>&darr;</kbd> Adjust spectrogram gain
+        <kbd>&uarr;</kbd><kbd>&darr;</kbd> Adjust spectrogram gain<br>
+        <kbd>Shift</kbd>+<kbd>Drag</kbd> Select time range &nbsp;
+        <kbd>Esc</kbd> Clear selection
       </div>
     </div>
   </div>
@@ -200,6 +208,34 @@
   </div>
 
   <!-- File list panel (togglable) -->
+  <!-- Annotation dialog (appears on selection) -->
+  <div class="annotation-dialog" id="annotation-dialog" style="display: none;">
+    <div class="annotation-dialog-header">
+      <span>Add Annotation</span>
+      <button id="btn-close-annotation">&times;</button>
+    </div>
+    <div class="annotation-dialog-body">
+      <div class="annotation-time-info" id="annotation-time-info"></div>
+      <input type="text" id="annotation-note" placeholder="Note (e.g. wolf howling)" autocomplete="off">
+      <div class="annotation-dialog-buttons">
+        <button id="btn-save-annotation" class="primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Annotations list panel -->
+  <div class="annotations-panel" id="annotations-panel" style="display: none;">
+    <div class="annotations-panel-header">
+      <span>Annotations (<span id="annotation-count">0</span>)</span>
+      <div class="annotations-panel-actions">
+        <button id="btn-export-annotations" title="Export annotations + cut script">Export</button>
+        <button id="btn-load-annotations" title="Load annotations from file">Load</button>
+        <button id="btn-close-annotations">&times;</button>
+      </div>
+    </div>
+    <div class="annotations-panel-body" id="annotations-list"></div>
+  </div>
+
   <div class="file-list-panel" id="file-list-panel" style="display: none;">
     <div class="file-list-header">
       <span>Session Files</span>

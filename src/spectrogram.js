@@ -52,6 +52,12 @@ export class SpectrogramRenderer {
     this.onTimeClick = null;
     this.onViewChange = null;
     this.onCursorMove = null; // Callback: (time, freq) => void
+    this.onSelectionChange = null; // Callback: (startTime, endTime) => void
+
+    // Selection state
+    this.selectionStart = null; // Time in seconds (unified timeline)
+    this.selectionEnd = null;
+    this._isSelecting = false;
 
     // Hann window (pre-computed)
     this._window = null;
@@ -654,6 +660,29 @@ export class SpectrogramRenderer {
     // File boundaries
     this._drawFileBoundaries(width, height);
 
+    // Selection highlight
+    if (this.selectionStart !== null && this.selectionEnd !== null) {
+      const selStart = Math.max(this.selectionStart, this.viewStart);
+      const selEnd = Math.min(this.selectionEnd, this.viewEnd);
+      if (selStart < selEnd) {
+        const spectWidth = width - 60;
+        const viewDuration = this.viewEnd - this.viewStart;
+        const x1 = 50 + ((selStart - this.viewStart) / viewDuration) * spectWidth;
+        const x2 = 50 + ((selEnd - this.viewStart) / viewDuration) * spectWidth;
+        this.ctx.fillStyle = 'rgba(79, 195, 247, 0.2)';
+        this.ctx.fillRect(x1, 0, x2 - x1, height - 40);
+        // Selection edges
+        this.ctx.strokeStyle = 'rgba(79, 195, 247, 0.7)';
+        this.ctx.lineWidth = 1;
+        this.ctx.setLineDash([3, 3]);
+        this.ctx.beginPath();
+        this.ctx.moveTo(x1, 0); this.ctx.lineTo(x1, height - 40);
+        this.ctx.moveTo(x2, 0); this.ctx.lineTo(x2, height - 40);
+        this.ctx.stroke();
+        this.ctx.setLineDash([]);
+      }
+    }
+
     // Playback cursor
     if (playbackTime !== null && playbackTime >= this.viewStart && playbackTime <= this.viewEnd) {
       const spectWidth = width - 60;
@@ -826,6 +855,7 @@ export class SpectrogramRenderer {
   setView(start, end) {
     this.viewStart = Math.max(0, start);
     this.viewEnd = Math.min(this.totalDuration, end);
+    this.draw(); // Always redraw immediately (axes, cursor, selection)
     if (this.onViewChange) this.onViewChange(this.viewStart, this.viewEnd);
   }
 
@@ -901,28 +931,39 @@ export class SpectrogramRenderer {
         factor = e.deltaY > 0 ? 1.3 : 1 / 1.3;
       }
       this.zoom(time, factor);
-      this.draw();
       scheduleCompute();
     });
 
     this.canvas.addEventListener('mousedown', (e) => {
       if (e.button === 0) {
-        this.isDragging = true;
-        this.dragStartX = e.offsetX;
-        this.dragStartViewStart = this.viewStart;
-        this.canvas.style.cursor = 'grabbing';
+        if (e.shiftKey) {
+          // Shift+click: start selection
+          this._isSelecting = true;
+          const time = this.canvasXToTime(e.offsetX);
+          this.selectionStart = time;
+          this.selectionEnd = time;
+          this.canvas.style.cursor = 'col-resize';
+        } else {
+          this.isDragging = true;
+          this.dragStartX = e.offsetX;
+          this.dragStartViewStart = this.viewStart;
+          this.canvas.style.cursor = 'grabbing';
+        }
       }
     });
 
     this.canvas.addEventListener('mousemove', (e) => {
-      if (this.isDragging) {
+      if (this._isSelecting) {
+        const time = this.canvasXToTime(e.offsetX);
+        this.selectionEnd = time;
+        this.draw();
+      } else if (this.isDragging) {
         const dx = e.offsetX - this.dragStartX;
         const spectWidth = this.canvas.width - 60;
         const timeDelta = -(dx / spectWidth) * (this.viewEnd - this.viewStart);
         const duration = this.viewEnd - this.viewStart;
         const newStart = this.dragStartViewStart + timeDelta;
         this.setView(newStart, newStart + duration);
-        this.draw();
         scheduleCompute();
       }
 
@@ -938,7 +979,29 @@ export class SpectrogramRenderer {
     });
 
     this.canvas.addEventListener('mouseup', (e) => {
+      if (this._isSelecting) {
+        this._isSelecting = false;
+        this.canvas.style.cursor = 'crosshair';
+        // Normalize so start < end
+        if (this.selectionStart > this.selectionEnd) {
+          [this.selectionStart, this.selectionEnd] = [this.selectionEnd, this.selectionStart];
+        }
+        // Only keep selection if it's meaningful (> 0.1s)
+        if (this.selectionEnd - this.selectionStart < 0.1) {
+          this.selectionStart = null;
+          this.selectionEnd = null;
+        }
+        this.draw();
+        if (this.onSelectionChange) {
+          this.onSelectionChange(this.selectionStart, this.selectionEnd);
+        }
+        return;
+      }
       if (this.isDragging && Math.abs(e.offsetX - this.dragStartX) < 3) {
+        // Click without drag: clear selection and seek
+        this.selectionStart = null;
+        this.selectionEnd = null;
+        if (this.onSelectionChange) this.onSelectionChange(null, null);
         const time = this.canvasXToTime(e.offsetX);
         if (this.onTimeClick && time >= 0 && time <= this.totalDuration) {
           this.onTimeClick(time);
@@ -949,6 +1012,9 @@ export class SpectrogramRenderer {
     });
 
     this.canvas.addEventListener('mouseleave', () => {
+      if (this._isSelecting) {
+        this._isSelecting = false;
+      }
       this.isDragging = false;
       this.canvas.style.cursor = 'crosshair';
       if (this.onCursorMove) this.onCursorMove(null, null);

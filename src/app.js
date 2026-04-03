@@ -44,6 +44,16 @@ class App {
     this.fileListPanel = document.getElementById('file-list-panel');
     this.fileListBody = document.getElementById('file-list-body');
 
+    // Annotations
+    this.annotations = [];
+    this.annotationDialog = document.getElementById('annotation-dialog');
+    this.annotationTimeInfo = document.getElementById('annotation-time-info');
+    this.annotationNoteInput = document.getElementById('annotation-note');
+    this.annotationsPanel = document.getElementById('annotations-panel');
+    this.annotationsList = document.getElementById('annotations-list');
+    this.annotationCount = document.getElementById('annotation-count');
+    this._pendingSelection = null; // {start, end} in session time
+
     this._setupCanvas();
     this._setupSpectrogram();
     this._setupEventListeners();
@@ -104,6 +114,14 @@ class App {
         }
       } else {
         this.cursorTime.textContent = this._formatTimePrecise(time);
+      }
+    };
+
+    this.spectrogram.onSelectionChange = (start, end) => {
+      if (start !== null && end !== null) {
+        this._showAnnotationDialog(start, end);
+      } else {
+        this.annotationDialog.style.display = 'none';
       }
     };
 
@@ -269,6 +287,41 @@ class App {
       this.fileListPanel.style.display = 'none';
     });
 
+    // Annotations
+    document.getElementById('btn-annotations').addEventListener('click', () => {
+      this.annotationsPanel.style.display =
+        this.annotationsPanel.style.display === 'none' ? 'block' : 'none';
+    });
+
+    document.getElementById('btn-close-annotation').addEventListener('click', () => {
+      this.annotationDialog.style.display = 'none';
+    });
+
+    document.getElementById('btn-save-annotation').addEventListener('click', () => {
+      this._saveAnnotation();
+    });
+
+    this.annotationNoteInput.addEventListener('keydown', (e) => {
+      e.stopPropagation(); // Prevent keyboard shortcuts while typing
+      if (e.key === 'Enter') this._saveAnnotation();
+      if (e.key === 'Escape') {
+        this.annotationDialog.style.display = 'none';
+        this.annotationNoteInput.blur();
+      }
+    });
+
+    document.getElementById('btn-close-annotations').addEventListener('click', () => {
+      this.annotationsPanel.style.display = 'none';
+    });
+
+    document.getElementById('btn-export-annotations').addEventListener('click', () => {
+      this._exportAnnotations();
+    });
+
+    document.getElementById('btn-load-annotations').addEventListener('click', () => {
+      this._loadAnnotations();
+    });
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
@@ -323,6 +376,13 @@ class App {
         case 'NumpadSubtract':
           e.preventDefault();
           this.btnZoomOut.click();
+          break;
+        case 'Escape':
+          e.preventDefault();
+          this.spectrogram.selectionStart = null;
+          this.spectrogram.selectionEnd = null;
+          this.spectrogram.draw();
+          this.annotationDialog.style.display = 'none';
           break;
       }
     });
@@ -549,6 +609,314 @@ class App {
       return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
     }
     return `${m}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+  }
+
+  // ── Annotations ──────────────────────────────────────────────────────
+
+  _showAnnotationDialog(startTime, endTime) {
+    this._pendingSelection = { start: startTime, end: endTime };
+
+    // Build info text showing file references and wall clock
+    const segments = this._getSelectionSegments(startTime, endTime);
+    let info = '';
+
+    for (const seg of segments) {
+      info += `<div><b>${seg.fileName}</b>  ${this._formatTimePrecise(seg.startInFile)} \u2013 ${this._formatTimePrecise(seg.endInFile)}</div>`;
+    }
+
+    if (this.session?.sessionStartTime !== null) {
+      const wallStart = this.session.toWallClock(startTime);
+      const wallEnd = this.session.toWallClock(endTime);
+      if (wallStart !== null && wallEnd !== null) {
+        info += `<div class="wall-clock-label">Wall: ${BWFParser.secondsToTimeString(wallStart)} \u2013 ${BWFParser.secondsToTimeString(wallEnd)}</div>`;
+      }
+    }
+
+    const duration = endTime - startTime;
+    info += `<div>Duration: ${this._formatTimePrecise(duration)}</div>`;
+
+    this.annotationTimeInfo.innerHTML = info;
+    this.annotationDialog.style.display = 'block';
+    this.annotationNoteInput.value = '';
+    this.annotationNoteInput.focus();
+  }
+
+  _getSelectionSegments(startTime, endTime) {
+    if (!this.session) return [];
+    const segments = [];
+
+    for (const file of this.session.files) {
+      const fileEnd = file.timeStart + file.duration;
+      // Check overlap
+      if (startTime >= fileEnd || endTime <= file.timeStart) continue;
+
+      const segStart = Math.max(startTime, file.timeStart);
+      const segEnd = Math.min(endTime, fileEnd);
+      segments.push({
+        fileName: file.fileName,
+        filePath: file.filePath,
+        startInFile: segStart - file.timeStart,
+        endInFile: segEnd - file.timeStart,
+        wallClockStart: file.wallClockStart !== null ? file.wallClockStart + (segStart - file.timeStart) : null,
+        wallClockEnd: file.wallClockStart !== null ? file.wallClockStart + (segEnd - file.timeStart) : null,
+        originationDate: file.originationDate
+      });
+    }
+    return segments;
+  }
+
+  _saveAnnotation() {
+    if (!this._pendingSelection) return;
+    const { start, end } = this._pendingSelection;
+    const note = this.annotationNoteInput.value.trim() || 'untitled';
+
+    const segments = this._getSelectionSegments(start, end);
+
+    // Build wall clock ISO strings
+    let wallClockStartISO = null;
+    let wallClockEndISO = null;
+    if (this.session?.sessionStartTime !== null) {
+      const wallStart = this.session.toWallClock(start);
+      const wallEnd = this.session.toWallClock(end);
+      const date = this.session.sessionDate || '2000-01-01';
+      if (wallStart !== null && wallEnd !== null) {
+        wallClockStartISO = this._wallClockToISO(date, wallStart);
+        wallClockEndISO = this._wallClockToISO(date, wallEnd);
+      }
+    }
+
+    this.annotations.push({
+      note,
+      sessionStart: start,
+      sessionEnd: end,
+      segments,
+      wallClockStartISO,
+      wallClockEndISO
+    });
+
+    this.annotationDialog.style.display = 'none';
+    this._pendingSelection = null;
+    this._updateAnnotationsList();
+    this._setStatus(`Annotation saved: "${note}"`);
+
+    // Show annotations panel
+    this.annotationsPanel.style.display = 'block';
+  }
+
+  _wallClockToISO(dateStr, wallSeconds) {
+    // dateStr is "YYYY-MM-DD" or "YYYY:MM:DD", wallSeconds is seconds from midnight
+    const d = dateStr.replace(/:/g, '-');
+    let s = wallSeconds;
+    let dayOffset = 0;
+    if (s >= 86400) { s -= 86400; dayOffset = 1; }
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    // Simple day increment for midnight crossing
+    if (dayOffset > 0) {
+      const parts = d.split('-');
+      const dt = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]) + dayOffset);
+      const ds = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+      return `${ds}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    }
+    return `${d}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  }
+
+  _updateAnnotationsList() {
+    this.annotationCount.textContent = this.annotations.length;
+    this.annotationsList.innerHTML = '';
+
+    for (let i = 0; i < this.annotations.length; i++) {
+      const ann = this.annotations[i];
+      const item = document.createElement('div');
+      item.className = 'annotation-item';
+
+      let wallStr = '';
+      if (ann.wallClockStartISO && ann.wallClockEndISO) {
+        wallStr = `${ann.wallClockStartISO} \u2013 ${ann.wallClockEndISO}`;
+      }
+
+      let fileStr = ann.segments.map(s =>
+        `${s.fileName} [${this._formatTimePrecise(s.startInFile)}\u2013${this._formatTimePrecise(s.endInFile)}]`
+      ).join(', ');
+
+      item.innerHTML = `
+        <span class="ann-note">${this._escapeHtml(ann.note)}</span>
+        ${wallStr ? `<span class="ann-wall">${wallStr}</span>` : ''}
+        <span class="ann-file">${this._escapeHtml(fileStr)}</span>
+        <div class="ann-actions">
+          <button class="goto-btn" data-index="${i}">Go to</button>
+          <button class="delete-btn" data-index="${i}">Delete</button>
+        </div>
+      `;
+
+      this.annotationsList.appendChild(item);
+    }
+
+    // Wire up buttons
+    this.annotationsList.querySelectorAll('.goto-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.index);
+        const ann = this.annotations[idx];
+        // Navigate to annotation
+        const padding = Math.max(2, (ann.sessionEnd - ann.sessionStart) * 0.2);
+        this.spectrogram.setView(ann.sessionStart - padding, ann.sessionEnd + padding);
+        this.spectrogram.selectionStart = ann.sessionStart;
+        this.spectrogram.selectionEnd = ann.sessionEnd;
+        this.spectrogram.computeVisible();
+        this.engine.seek(ann.sessionStart);
+        this._updateTimeDisplays(ann.sessionStart);
+      });
+    });
+
+    this.annotationsList.querySelectorAll('.delete-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.index);
+        this.annotations.splice(idx, 1);
+        this._updateAnnotationsList();
+      });
+    });
+  }
+
+  _escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  async _exportAnnotations() {
+    if (this.annotations.length === 0) {
+      this._setStatus('No annotations to export');
+      return;
+    }
+
+    const filePath = await window.electronAPI.saveFileDialog({
+      title: 'Export Annotations',
+      defaultPath: 'annotations.json',
+      filters: [
+        { name: 'JSON', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    if (!filePath) return;
+
+    // Build export data
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      session: this.session ? {
+        files: this.session.files.map(f => f.fileName),
+        sampleRate: this.session.sampleRate,
+        date: this.session.sessionDate,
+        totalDuration: this.session.totalDuration
+      } : null,
+      annotations: this.annotations.map(ann => ({
+        note: ann.note,
+        wallClockStart: ann.wallClockStartISO,
+        wallClockEnd: ann.wallClockEndISO,
+        sessionStart: ann.sessionStart,
+        sessionEnd: ann.sessionEnd,
+        segments: ann.segments.map(s => ({
+          file: s.fileName,
+          filePath: s.filePath,
+          startInFile: s.startInFile,
+          endInFile: s.endInFile,
+          originationDate: s.originationDate
+        }))
+      }))
+    };
+
+    await window.electronAPI.writeFile(filePath, JSON.stringify(exportData, null, 2));
+
+    // Also generate a cut script alongside
+    const scriptPath = filePath.replace(/\.json$/, '') + '_cut.sh';
+    const script = this._generateCutScript(exportData);
+    await window.electronAPI.writeFile(scriptPath, script);
+
+    this._setStatus(`Exported ${this.annotations.length} annotations to ${filePath}`);
+  }
+
+  _generateCutScript(exportData) {
+    let script = '#!/bin/bash\n';
+    script += '# Auto-generated by Field Recording Explorer\n';
+    script += `# ${exportData.exportedAt}\n`;
+    script += '# Requires: ffmpeg\n\n';
+    script += 'set -e\n\n';
+    script += 'OUTPUT_DIR="./cuts"\n';
+    script += 'mkdir -p "$OUTPUT_DIR"\n\n';
+
+    for (const ann of exportData.annotations) {
+      // Build output filename: ISO range + note
+      let outputName;
+      if (ann.wallClockStart && ann.wallClockEnd) {
+        outputName = `${ann.wallClockStart}--${ann.wallClockEnd}_${ann.note}`;
+      } else {
+        outputName = ann.note;
+      }
+      // Sanitize filename
+      outputName = outputName.replace(/[<>:"/\\|?*]/g, '_');
+
+      script += `# ${ann.note}\n`;
+
+      for (const seg of ann.segments) {
+        const startSec = seg.startInFile.toFixed(3);
+        const duration = (seg.endInFile - seg.startInFile).toFixed(3);
+        const srcFile = seg.filePath;
+
+        // If multiple segments, append file index
+        const suffix = ann.segments.length > 1
+          ? `_${seg.file.replace(/\.[^.]+$/, '')}` : '';
+
+        script += `ffmpeg -i "${srcFile}" -ss ${startSec} -t ${duration} -c copy "$OUTPUT_DIR/${outputName}${suffix}.wav"\n`;
+      }
+      script += '\n';
+    }
+
+    script += 'echo "Done! Cut files are in $OUTPUT_DIR"\n';
+    return script;
+  }
+
+  async _loadAnnotations() {
+    const filePaths = await window.electronAPI.openFileDialog();
+    if (!filePaths || filePaths.length === 0) return;
+
+    // Find the .json file
+    const jsonPath = filePaths.find(p => p.endsWith('.json')) || filePaths[0];
+
+    try {
+      const content = await window.electronAPI.readTextFile(jsonPath);
+      const data = JSON.parse(content);
+
+      if (!data.annotations || !Array.isArray(data.annotations)) {
+        this._setStatus('Invalid annotations file');
+        return;
+      }
+
+      // Convert loaded annotations to internal format
+      for (const ann of data.annotations) {
+        this.annotations.push({
+          note: ann.note,
+          sessionStart: ann.sessionStart,
+          sessionEnd: ann.sessionEnd,
+          segments: ann.segments.map(s => ({
+            fileName: s.file,
+            filePath: s.filePath,
+            startInFile: s.startInFile,
+            endInFile: s.endInFile,
+            originationDate: s.originationDate,
+            wallClockStart: null,
+            wallClockEnd: null
+          })),
+          wallClockStartISO: ann.wallClockStart,
+          wallClockEndISO: ann.wallClockEnd
+        });
+      }
+
+      this._updateAnnotationsList();
+      this.annotationsPanel.style.display = 'block';
+      this._setStatus(`Loaded ${data.annotations.length} annotations from ${jsonPath.split(/[/\\]/).pop()}`);
+    } catch (err) {
+      this._setStatus('Error loading annotations: ' + err.message);
+    }
   }
 
   _readyStatusMessage() {

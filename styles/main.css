@@ -488,3 +488,165 @@ button.primary:hover {
   color: var(--text-secondary);
   font-size: 10px;
 }
+
+/* Annotation dialog */
+.annotation-dialog {
+  position: absolute;
+  top: 70px;
+  right: 12px;
+  width: 380px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  overflow: hidden;
+}
+
+.annotation-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.annotation-dialog-header button {
+  padding: 2px 8px;
+  font-size: 14px;
+}
+
+.annotation-dialog-body {
+  padding: 10px 12px;
+}
+
+.annotation-time-info {
+  font-size: 11px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+
+.annotation-time-info .wall-clock-label {
+  color: var(--green);
+}
+
+#annotation-note {
+  width: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+#annotation-note:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.annotation-dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Annotations list panel */
+.annotations-panel {
+  position: absolute;
+  top: 70px;
+  right: 12px;
+  width: 450px;
+  max-height: 500px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  overflow: hidden;
+}
+
+.annotations-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.annotations-panel-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.annotations-panel-actions button {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.annotations-panel-body {
+  overflow-y: auto;
+  max-height: 430px;
+  padding: 4px 0;
+}
+
+.annotation-item {
+  padding: 8px 12px;
+  font-size: 11px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(51, 51, 85, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.annotation-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.annotation-item .ann-note {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.annotation-item .ann-wall {
+  color: var(--green);
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 10px;
+}
+
+.annotation-item .ann-file {
+  color: var(--text-secondary);
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 10px;
+}
+
+.annotation-item .ann-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.annotation-item .ann-actions button {
+  padding: 1px 6px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.annotation-item .ann-actions button.delete-btn {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.annotation-item .ann-actions button.delete-btn:hover {
+  background: rgba(255, 68, 68, 0.2);
+}

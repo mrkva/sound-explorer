@@ -337,6 +337,28 @@ ipcMain.handle('open-file-dialog', async () => {
   return result.filePaths;
 });
 
+// Save file dialog
+ipcMain.handle('save-file-dialog', async (event, options) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: options.title || 'Save File',
+    defaultPath: options.defaultPath || '',
+    filters: options.filters || [{ name: 'All Files', extensions: ['*'] }]
+  });
+  if (result.canceled) return null;
+  return result.filePath;
+});
+
+// Write a text file
+ipcMain.handle('write-file', async (event, filePath, content) => {
+  await fs.promises.writeFile(filePath, content, 'utf-8');
+  return true;
+});
+
+// Read a text file
+ipcMain.handle('read-text-file', async (event, filePath) => {
+  return await fs.promises.readFile(filePath, 'utf-8');
+});
+
 // Scan folder for WAV files and return their headers
 ipcMain.handle('scan-folder', async (event, folderPath) => {
   const entries = await fs.promises.readdir(folderPath);
