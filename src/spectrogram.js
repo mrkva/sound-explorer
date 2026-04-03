@@ -111,9 +111,12 @@ export class SpectrogramRenderer {
       // Target: ~2 FFT frames per pixel, capped to keep computation fast
       const targetFrames = Math.max(1, Math.min(canvasWidth * 2, 4000));
 
-      // The hop size determines how many samples per FFT frame
+      // The hop size determines how many samples per FFT frame.
+      // Allow heavy overlap for large FFT sizes to avoid pixelation —
+      // hop is driven by pixel density, with a small minimum to avoid
+      // degenerate cases.
       const hopSize = this.hopSize || Math.max(
-        this.fftSize / 4,
+        64,
         Math.floor((viewDuration * this.session.sampleRate) / targetFrames)
       );
 

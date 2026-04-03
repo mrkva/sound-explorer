@@ -264,6 +264,8 @@ class App {
     this.fftSizeSelect.addEventListener('change', (e) => {
       this.spectrogram.fftSize = parseInt(e.target.value);
       this.spectrogram.tileCache.clear();
+      this.spectrogram._lastFFTData = null;
+      this.spectrogram._computing = false; // Cancel any in-progress compute
       this.spectrogram.computeVisible();
     });
 
@@ -804,14 +806,18 @@ class App {
   }
 
   _formatTimePrecise(seconds) {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds % 1) * 100);
+    // Round to nearest centisecond first to avoid floating-point truncation
+    // (e.g. 30.0 stored as 29.9999... would otherwise show as 0:29.99)
+    const totalCs = Math.round(seconds * 100);
+    const cs = totalCs % 100;
+    const totalSec = Math.floor(totalCs / 100);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
     if (h > 0) {
-      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${cs.toString().padStart(2, '0')}`;
     }
-    return `${m}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+    return `${m}:${s.toString().padStart(2, '0')}.${cs.toString().padStart(2, '0')}`;
   }
 
   /**
