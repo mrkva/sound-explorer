@@ -1,122 +1,166 @@
 /**
- * Audio playback engine using Web Audio API.
- * Handles loading, decoding, playback, and seeking.
+ * Streaming audio engine.
+ *
+ * Uses an <audio> element pointed at a local HTTP server that serves
+ * the stitched WAV data. Web Audio API is used for gain amplification
+ * to hear faint sounds.
  */
 
 export class AudioEngine {
   constructor() {
     this.audioContext = null;
-    this.audioBuffer = null;
+    this.audioElement = null;
     this.sourceNode = null;
     this.gainNode = null;
+    this.analyserNode = null;
 
     this.isPlaying = false;
-    this.startTime = 0;        // AudioContext time when playback started
-    this.startOffset = 0;      // Offset into the buffer when playback started
+    this.duration = 0;
+    this.audioUrl = null;
 
-    this.onTimeUpdate = null;  // Callback: (currentTime) => void
-    this.onEnded = null;       // Callback: () => void
+    this.onTimeUpdate = null;
+    this.onEnded = null;
     this._animFrame = null;
   }
 
   async init() {
     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Create audio element for streaming playback
+    this.audioElement = document.createElement('audio');
+    this.audioElement.preload = 'auto';
+
+    // Connect through Web Audio API for gain control
+    this.sourceNode = this.audioContext.createMediaElementSource(this.audioElement);
     this.gainNode = this.audioContext.createGain();
-    this.gainNode.connect(this.audioContext.destination);
+    this.analyserNode = this.audioContext.createAnalyser();
+    this.analyserNode.fftSize = 256;
+
+    this.sourceNode.connect(this.gainNode);
+    this.gainNode.connect(this.analyserNode);
+    this.analyserNode.connect(this.audioContext.destination);
+
+    // Events
+    this.audioElement.addEventListener('ended', () => {
+      this.isPlaying = false;
+      this._stopTimeUpdate();
+      if (this.onEnded) this.onEnded();
+    });
+
+    this.audioElement.addEventListener('loadedmetadata', () => {
+      this.duration = this.audioElement.duration;
+    });
   }
 
-  async loadArrayBuffer(arrayBuffer) {
+  /**
+   * Set the audio source URL (from local HTTP server).
+   */
+  async setSource(url) {
     if (!this.audioContext) await this.init();
-
-    this.stop();
-    // Make a copy since decodeAudioData detaches the buffer
-    const copy = arrayBuffer.slice(0);
-    this.audioBuffer = await this.audioContext.decodeAudioData(copy);
-    return this.audioBuffer;
+    this.audioUrl = url;
+    this.audioElement.src = url;
+    // Wait for enough data to get duration
+    return new Promise((resolve) => {
+      const onMeta = () => {
+        this.duration = this.audioElement.duration;
+        this.audioElement.removeEventListener('loadedmetadata', onMeta);
+        resolve();
+      };
+      this.audioElement.addEventListener('loadedmetadata', onMeta);
+      // Also handle case where metadata is already loaded
+      if (this.audioElement.readyState >= 1) {
+        this.duration = this.audioElement.duration;
+        resolve();
+      }
+    });
   }
 
-  play(offset = null) {
-    if (!this.audioBuffer) return;
-    if (this.isPlaying) this.stop();
-
+  play() {
+    if (!this.audioElement) return;
     if (this.audioContext.state === 'suspended') {
       this.audioContext.resume();
     }
-
-    this.sourceNode = this.audioContext.createBufferSource();
-    this.sourceNode.buffer = this.audioBuffer;
-    this.sourceNode.connect(this.gainNode);
-
-    const playOffset = offset !== null ? offset : this.startOffset;
-    this.startOffset = Math.max(0, Math.min(playOffset, this.audioBuffer.duration));
-    this.startTime = this.audioContext.currentTime;
-
-    this.sourceNode.start(0, this.startOffset);
+    this.audioElement.play();
     this.isPlaying = true;
-
-    this.sourceNode.onended = () => {
-      if (this.isPlaying) {
-        this.isPlaying = false;
-        this.startOffset = 0;
-        if (this.onEnded) this.onEnded();
-      }
-    };
-
     this._startTimeUpdate();
   }
 
   pause() {
-    if (!this.isPlaying) return;
-    this.startOffset = this.getCurrentTime();
-    this._stopPlayback();
+    if (!this.audioElement) return;
+    this.audioElement.pause();
+    this.isPlaying = false;
+    this._stopTimeUpdate();
   }
 
   stop() {
-    this.startOffset = 0;
-    this._stopPlayback();
-  }
-
-  _stopPlayback() {
-    if (this.sourceNode) {
-      this.isPlaying = false;
-      try { this.sourceNode.stop(); } catch (e) { /* ignore */ }
-      this.sourceNode.disconnect();
-      this.sourceNode = null;
-    }
+    if (!this.audioElement) return;
+    this.audioElement.pause();
+    this.audioElement.currentTime = 0;
+    this.isPlaying = false;
     this._stopTimeUpdate();
   }
 
   seek(time) {
-    const wasPlaying = this.isPlaying;
-    if (wasPlaying) {
-      this._stopPlayback();
-    }
-    this.startOffset = Math.max(0, Math.min(time, this.audioBuffer ? this.audioBuffer.duration : 0));
-    if (wasPlaying) {
-      this.play(this.startOffset);
-    }
+    if (!this.audioElement) return;
+    this.audioElement.currentTime = Math.max(0, Math.min(time, this.duration || 0));
     if (this.onTimeUpdate) {
-      this.onTimeUpdate(this.startOffset);
+      this.onTimeUpdate(this.audioElement.currentTime);
     }
   }
 
   getCurrentTime() {
-    if (!this.audioBuffer) return 0;
-    if (this.isPlaying) {
-      const elapsed = this.audioContext.currentTime - this.startTime;
-      return Math.min(this.startOffset + elapsed, this.audioBuffer.duration);
-    }
-    return this.startOffset;
+    return this.audioElement ? this.audioElement.currentTime : 0;
   }
 
   getDuration() {
-    return this.audioBuffer ? this.audioBuffer.duration : 0;
+    return this.duration || 0;
   }
 
+  /**
+   * Set volume (0-1 range, normal volume).
+   */
   setVolume(value) {
-    if (this.gainNode) {
-      this.gainNode.gain.value = Math.max(0, Math.min(1, value));
+    if (this.audioElement) {
+      this.audioElement.volume = Math.max(0, Math.min(1, value));
     }
+  }
+
+  /**
+   * Set gain amplification in dB.
+   * 0 dB = normal, +20 dB = 10x amplification, +40 dB = 100x.
+   * This is how you hear faint wolf howls!
+   */
+  setGainDB(db) {
+    if (this.gainNode) {
+      this.gainNode.gain.value = Math.pow(10, db / 20);
+    }
+  }
+
+  /**
+   * Set playback speed.
+   */
+  setPlaybackRate(rate) {
+    if (this.audioElement) {
+      this.audioElement.playbackRate = rate;
+    }
+  }
+
+  /**
+   * Get current audio levels for a VU meter (peak values 0-1).
+   */
+  getLevels() {
+    if (!this.analyserNode) return { peak: 0, rms: 0 };
+    const data = new Float32Array(this.analyserNode.fftSize);
+    this.analyserNode.getFloatTimeDomainData(data);
+
+    let peak = 0;
+    let sumSq = 0;
+    for (let i = 0; i < data.length; i++) {
+      const abs = Math.abs(data[i]);
+      if (abs > peak) peak = abs;
+      sumSq += data[i] * data[i];
+    }
+    return { peak, rms: Math.sqrt(sumSq / data.length) };
   }
 
   _startTimeUpdate() {

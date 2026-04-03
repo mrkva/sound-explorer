@@ -1,140 +1,284 @@
 /**
- * High-resolution spectrogram renderer using Web Audio API + Canvas.
+ * On-demand spectrogram renderer.
  *
- * Computes FFT offline for the full file, renders to a large canvas,
- * and supports zooming/scrolling.
+ * Instead of computing the entire spectrogram upfront, this reads PCM chunks
+ * from the session files and computes FFT only for the visible time range.
+ * Computed tiles are cached for fast scrolling.
+ *
+ * Supports adjustable gain/contrast for seeing faint sounds.
  */
 
 export class SpectrogramRenderer {
   constructor(canvas, options = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+
+    // FFT settings
     this.fftSize = options.fftSize || 2048;
-    this.hopSize = options.hopSize || 512;
+    this.hopSize = options.hopSize || null; // auto-calculated
     this.minFreq = options.minFreq || 0;
     this.maxFreq = options.maxFreq || 22050;
-    this.colorMap = options.colorMap || 'viridis';
-    this.dynamicRangeDB = options.dynamicRangeDB || 90;
-    this.referenceDB = options.referenceDB || 0;
 
-    this.spectrogramData = null;  // 2D array of magnitude values
-    this.sampleRate = 44100;
-    this.imageData = null;
-    this.offscreenCanvas = null;
+    // Gain/contrast controls
+    this.gainDB = options.gainDB || 0;          // Boost in dB (positive = amplify faint sounds)
+    this.dynamicRangeDB = options.dynamicRangeDB || 90;
+    this.floorDB = options.floorDB || -90;       // Noise floor
 
     // View state
-    this.viewStart = 0;  // Start time in seconds
-    this.viewEnd = 10;   // End time in seconds
+    this.viewStart = 0;
+    this.viewEnd = 10;
     this.totalDuration = 0;
+
+    // Session reference (set by app)
+    this.session = null;
+
+    // Tile cache: key = "startSample-endSample-fftSize" -> { imageData, startTime, endTime }
+    this.tileCache = new Map();
+    this.maxCacheSize = 200;
+
+    // Currently computing
+    this._computing = false;
+    this._pendingCompute = false;
 
     // Interaction
     this.isDragging = false;
     this.dragStartX = 0;
     this.dragStartViewStart = 0;
 
-    this.onTimeClick = null;  // Callback: (timeInSeconds) => void
-    this.onViewChange = null; // Callback: (viewStart, viewEnd) => void
+    this.onTimeClick = null;
+    this.onViewChange = null;
+
+    // Hann window (pre-computed)
+    this._window = null;
 
     this._setupInteraction();
   }
 
   /**
-   * Compute spectrogram from an AudioBuffer.
+   * Initialize with a session.
    */
-  async compute(audioBuffer) {
-    this.sampleRate = audioBuffer.sampleRate;
-    this.totalDuration = audioBuffer.duration;
-    this.maxFreq = Math.min(this.maxFreq, this.sampleRate / 2);
-
-    // Mix to mono
-    const monoData = this._mixToMono(audioBuffer);
-    const numFrames = Math.floor((monoData.length - this.fftSize) / this.hopSize) + 1;
-
-    // Compute FFT frames
-    this.spectrogramData = new Array(numFrames);
-    const frequencyBins = this.fftSize / 2;
-    const window = this._hannWindow(this.fftSize);
-
-    // Use OfflineAudioContext for FFT computation
-    // Actually, compute manually for full control
-    for (let i = 0; i < numFrames; i++) {
-      const startSample = i * this.hopSize;
-      const frame = new Float32Array(this.fftSize);
-      for (let j = 0; j < this.fftSize; j++) {
-        frame[j] = (monoData[startSample + j] || 0) * window[j];
-      }
-
-      const spectrum = this._fft(frame);
-      this.spectrogramData[i] = new Float32Array(frequencyBins);
-      for (let j = 0; j < frequencyBins; j++) {
-        const re = spectrum[2 * j];
-        const im = spectrum[2 * j + 1];
-        const magnitude = Math.sqrt(re * re + im * im);
-        // Convert to dB
-        const db = 20 * Math.log10(Math.max(magnitude, 1e-10));
-        this.spectrogramData[i][j] = db;
-      }
-
-      // Yield to UI every 1000 frames
-      if (i % 1000 === 0 && i > 0) {
-        await new Promise(r => setTimeout(r, 0));
-      }
-    }
-
-    // Render to offscreen canvas
-    this._renderOffscreen();
-
-    // Set initial view to full duration
+  setSession(session) {
+    this.session = session;
+    this.totalDuration = session.totalDuration;
+    this.maxFreq = Math.min(this.maxFreq, session.sampleRate / 2);
     this.viewStart = 0;
     this.viewEnd = this.totalDuration;
-    this.draw();
-  }
-
-  _mixToMono(audioBuffer) {
-    const length = audioBuffer.length;
-    const mono = new Float32Array(length);
-    const numChannels = audioBuffer.numberOfChannels;
-
-    if (numChannels === 1) {
-      audioBuffer.copyFromChannel(mono, 0);
-    } else {
-      const scale = 1 / numChannels;
-      for (let ch = 0; ch < numChannels; ch++) {
-        const channelData = audioBuffer.getChannelData(ch);
-        for (let i = 0; i < length; i++) {
-          mono[i] += channelData[i] * scale;
-        }
-      }
-    }
-    return mono;
-  }
-
-  _hannWindow(size) {
-    const window = new Float32Array(size);
-    for (let i = 0; i < size; i++) {
-      window[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (size - 1)));
-    }
-    return window;
+    this.tileCache.clear();
+    this._window = null;
   }
 
   /**
-   * Cooley-Tukey FFT (radix-2, in-place).
-   * Input: real-valued array of length N (must be power of 2).
-   * Returns: Float32Array of length 2*N (interleaved real, imag).
+   * Compute and render the spectrogram for the current view.
+   */
+  async computeVisible() {
+    if (!this.session || this._computing) {
+      this._pendingCompute = true;
+      return;
+    }
+
+    this._computing = true;
+
+    try {
+      const viewDuration = this.viewEnd - this.viewStart;
+      const canvasWidth = this.canvas.width - 60; // Leave space for freq axis
+
+      // Determine how many FFT frames we want for the visible area
+      // Target: roughly 1-2 frames per pixel for good resolution
+      const targetFrames = Math.min(canvasWidth * 2, 4096);
+      const hopSize = this.hopSize || Math.max(64, Math.floor(
+        (viewDuration * this.session.sampleRate) / targetFrames
+      ));
+
+      // Determine sample range
+      const startSample = Math.floor(this.viewStart * this.session.sampleRate);
+      const endSample = Math.ceil(this.viewEnd * this.session.sampleRate);
+      const totalSamples = endSample - startSample;
+
+      // Check cache
+      const cacheKey = `${startSample}-${endSample}-${this.fftSize}-${hopSize}`;
+      let spectrogramData = this.tileCache.get(cacheKey);
+
+      if (!spectrogramData) {
+        // Read PCM data in chunks across files
+        const pcmData = await this._readPCMRange(startSample, totalSamples);
+        if (!pcmData) {
+          this._computing = false;
+          return;
+        }
+
+        // Compute FFT
+        spectrogramData = this._computeFFT(pcmData, hopSize);
+
+        // Cache it
+        if (this.tileCache.size >= this.maxCacheSize) {
+          // Evict oldest entries
+          const keys = [...this.tileCache.keys()];
+          for (let i = 0; i < 50 && i < keys.length; i++) {
+            this.tileCache.delete(keys[i]);
+          }
+        }
+        this.tileCache.set(cacheKey, spectrogramData);
+      }
+
+      // Render to offscreen and draw
+      this._renderSpectrogram(spectrogramData);
+    } catch (err) {
+      console.error('Spectrogram compute error:', err);
+    }
+
+    this._computing = false;
+
+    if (this._pendingCompute) {
+      this._pendingCompute = false;
+      this.computeVisible();
+    }
+  }
+
+  /**
+   * Read PCM samples from session files for the given sample range.
+   * Handles reading across multiple files.
+   */
+  async _readPCMRange(startSample, numSamples) {
+    const session = this.session;
+    const blockAlign = session.blockAlign;
+    const mono = new Float32Array(numSamples);
+    let samplesRead = 0;
+
+    for (const file of session.files) {
+      if (samplesRead >= numSamples) break;
+
+      const fileEndSample = file.sampleStart + file.samples;
+      const readStart = startSample + samplesRead;
+
+      // Check if this file overlaps our range
+      if (readStart >= fileEndSample) continue;
+      if (readStart + (numSamples - samplesRead) <= file.sampleStart) continue;
+
+      // Calculate the overlap
+      const fileOffset = Math.max(0, readStart - file.sampleStart);
+      const remainingInFile = file.samples - fileOffset;
+      const toRead = Math.min(numSamples - samplesRead, remainingInFile);
+
+      if (toRead <= 0) continue;
+
+      // Read raw bytes
+      const byteOffset = fileOffset * blockAlign;
+      const byteLength = toRead * blockAlign;
+
+      // Read in sub-chunks to avoid huge IPC transfers (max 8MB per chunk)
+      const maxChunkBytes = 8 * 1024 * 1024;
+      let bytesReadSoFar = 0;
+
+      while (bytesReadSoFar < byteLength) {
+        const chunkLen = Math.min(maxChunkBytes, byteLength - bytesReadSoFar);
+        const rawBytes = await window.electronAPI.readPcmChunk(
+          file.filePath, file.dataOffset, byteOffset + bytesReadSoFar, chunkLen
+        );
+
+        const samplesInChunk = Math.floor(rawBytes.byteLength / blockAlign);
+        this._decodePCMToMono(
+          new DataView(rawBytes), session.bitsPerSample, session.channels,
+          mono, samplesRead + bytesReadSoFar / blockAlign, samplesInChunk
+        );
+
+        bytesReadSoFar += chunkLen;
+      }
+
+      samplesRead += toRead;
+    }
+
+    return mono;
+  }
+
+  /**
+   * Decode raw PCM bytes to mono float samples.
+   */
+  _decodePCMToMono(view, bitsPerSample, channels, output, outputOffset, numSamples) {
+    const bytesPerSample = bitsPerSample / 8;
+    const blockAlign = channels * bytesPerSample;
+    const scale = 1 / channels;
+
+    for (let i = 0; i < numSamples; i++) {
+      const frameOffset = i * blockAlign;
+      if (frameOffset + blockAlign > view.byteLength) break;
+
+      let monoValue = 0;
+      for (let ch = 0; ch < channels; ch++) {
+        const sampleOffset = frameOffset + ch * bytesPerSample;
+
+        let value;
+        if (bitsPerSample === 16) {
+          value = view.getInt16(sampleOffset, true) / 32768;
+        } else if (bitsPerSample === 24) {
+          const b0 = view.getUint8(sampleOffset);
+          const b1 = view.getUint8(sampleOffset + 1);
+          const b2 = view.getInt8(sampleOffset + 2); // signed for MSB
+          value = (b2 * 65536 + b1 * 256 + b0) / 8388608;
+        } else if (bitsPerSample === 32) {
+          value = view.getFloat32(sampleOffset, true);
+        } else {
+          value = 0;
+        }
+
+        monoValue += value * scale;
+      }
+
+      output[outputOffset + i] = monoValue;
+    }
+  }
+
+  /**
+   * Compute FFT frames from mono PCM data.
+   */
+  _computeFFT(monoData, hopSize) {
+    const N = this.fftSize;
+    const numFrames = Math.max(1, Math.floor((monoData.length - N) / hopSize) + 1);
+    const freqBins = N / 2;
+
+    // Ensure Hann window is ready
+    if (!this._window || this._window.length !== N) {
+      this._window = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        this._window[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
+      }
+    }
+
+    const frames = new Array(numFrames);
+
+    for (let i = 0; i < numFrames; i++) {
+      const start = i * hopSize;
+      const frame = new Float32Array(N);
+      for (let j = 0; j < N; j++) {
+        frame[j] = (monoData[start + j] || 0) * this._window[j];
+      }
+
+      const spectrum = this._fft(frame);
+      const magnitudes = new Float32Array(freqBins);
+      for (let j = 0; j < freqBins; j++) {
+        const re = spectrum[2 * j];
+        const im = spectrum[2 * j + 1];
+        magnitudes[j] = 20 * Math.log10(Math.max(Math.sqrt(re * re + im * im), 1e-10));
+      }
+      frames[i] = magnitudes;
+    }
+
+    return { frames, freqBins, numFrames, hopSize };
+  }
+
+  /**
+   * Cooley-Tukey FFT (radix-2).
    */
   _fft(input) {
     const N = input.length;
+    const logN = Math.log2(N);
     const output = new Float32Array(2 * N);
 
-    // Bit-reversal permutation
     for (let i = 0; i < N; i++) {
-      const j = this._bitReverse(i, Math.log2(N));
+      const j = this._bitReverse(i, logN);
       output[2 * j] = input[i];
-      output[2 * j + 1] = 0;
     }
 
-    // Butterfly stages
-    for (let s = 1; s <= Math.log2(N); s++) {
+    for (let s = 1; s <= logN; s++) {
       const m = 1 << s;
       const halfM = m >> 1;
       const wRe = Math.cos(-2 * Math.PI / m);
@@ -143,20 +287,19 @@ export class SpectrogramRenderer {
       for (let k = 0; k < N; k += m) {
         let curRe = 1, curIm = 0;
         for (let j = 0; j < halfM; j++) {
-          const tRe = curRe * output[2 * (k + j + halfM)] - curIm * output[2 * (k + j + halfM) + 1];
-          const tIm = curRe * output[2 * (k + j + halfM) + 1] + curIm * output[2 * (k + j + halfM)];
+          const idx1 = 2 * (k + j);
+          const idx2 = 2 * (k + j + halfM);
+          const tRe = curRe * output[idx2] - curIm * output[idx2 + 1];
+          const tIm = curRe * output[idx2 + 1] + curIm * output[idx2];
 
-          const uRe = output[2 * (k + j)];
-          const uIm = output[2 * (k + j) + 1];
+          output[idx2] = output[idx1] - tRe;
+          output[idx2 + 1] = output[idx1 + 1] - tIm;
+          output[idx1] += tRe;
+          output[idx1 + 1] += tIm;
 
-          output[2 * (k + j)] = uRe + tRe;
-          output[2 * (k + j) + 1] = uIm + tIm;
-          output[2 * (k + j + halfM)] = uRe - tRe;
-          output[2 * (k + j + halfM) + 1] = uIm - tIm;
-
-          const newCurRe = curRe * wRe - curIm * wIm;
+          const newRe = curRe * wRe - curIm * wIm;
           curIm = curRe * wIm + curIm * wRe;
-          curRe = newCurRe;
+          curRe = newRe;
         }
       }
     }
@@ -174,49 +317,43 @@ export class SpectrogramRenderer {
   }
 
   /**
-   * Render full spectrogram to offscreen canvas for fast scrolling.
+   * Render spectrogram data to the canvas.
    */
-  _renderOffscreen() {
-    if (!this.spectrogramData || this.spectrogramData.length === 0) return;
+  _renderSpectrogram(data) {
+    const { width, height } = this.canvas;
+    const spectWidth = width - 60;
+    const spectHeight = height - 40;
 
-    const numFrames = this.spectrogramData.length;
-    const freqBins = this.spectrogramData[0].length;
+    if (spectWidth <= 0 || spectHeight <= 0) return;
 
-    // Determine visible frequency range in bins
-    const binResolution = this.sampleRate / this.fftSize;
-    const minBin = Math.floor(this.minFreq / binResolution);
-    const maxBin = Math.min(Math.ceil(this.maxFreq / binResolution), freqBins);
+    const { frames, freqBins, numFrames } = data;
+
+    // Frequency range in bins
+    const binRes = this.session.sampleRate / this.fftSize;
+    const minBin = Math.floor(this.minFreq / binRes);
+    const maxBin = Math.min(Math.ceil(this.maxFreq / binRes), freqBins);
     const visibleBins = maxBin - minBin;
 
-    // Create offscreen canvas (limit width for memory)
-    const maxWidth = Math.min(numFrames, 16384);
-    const height = Math.min(visibleBins, 1024);
-
-    this.offscreenCanvas = document.createElement('canvas');
-    this.offscreenCanvas.width = maxWidth;
-    this.offscreenCanvas.height = height;
-    const offCtx = this.offscreenCanvas.getContext('2d');
-    const imageData = offCtx.createImageData(maxWidth, height);
+    // Create image
+    const imageData = this.ctx.createImageData(spectWidth, spectHeight);
     const pixels = imageData.data;
 
-    const frameStep = Math.max(1, Math.floor(numFrames / maxWidth));
+    // Effective gain-adjusted floor and ceiling
+    const ceiling = this.gainDB;
+    const floor = ceiling - this.dynamicRangeDB;
 
-    for (let x = 0; x < maxWidth; x++) {
-      const frameIdx = Math.min(Math.floor(x * numFrames / maxWidth), numFrames - 1);
-      const spectrum = this.spectrogramData[frameIdx];
+    for (let x = 0; x < spectWidth; x++) {
+      const frameIdx = Math.min(Math.floor(x * numFrames / spectWidth), numFrames - 1);
+      const spectrum = frames[frameIdx];
 
-      for (let y = 0; y < height; y++) {
-        // Flip y so low frequencies are at bottom
-        const bin = minBin + Math.floor((height - 1 - y) * visibleBins / height);
-        const db = spectrum[bin] || -120;
+      for (let y = 0; y < spectHeight; y++) {
+        const bin = minBin + Math.floor((spectHeight - 1 - y) * visibleBins / spectHeight);
+        const db = (spectrum[bin] || -120) + this.gainDB;
 
-        // Normalize to 0-1 range
-        const normalized = Math.max(0, Math.min(1,
-          (db - (this.referenceDB - this.dynamicRangeDB)) / this.dynamicRangeDB
-        ));
-
+        const normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
         const [r, g, b] = this._colorize(normalized);
-        const idx = (y * maxWidth + x) * 4;
+
+        const idx = (y * spectWidth + x) * 4;
         pixels[idx] = r;
         pixels[idx + 1] = g;
         pixels[idx + 2] = b;
@@ -224,19 +361,160 @@ export class SpectrogramRenderer {
       }
     }
 
-    offCtx.putImageData(imageData, 0, 0);
+    // Store for redrawing with cursor
+    this._spectImage = imageData;
+    this._spectWidth = spectWidth;
+    this._spectHeight = spectHeight;
   }
 
   /**
-   * Viridis-inspired colormap: dark purple -> blue -> teal -> green -> yellow.
+   * Draw the spectrogram + axes + cursor to the visible canvas.
    */
-  _colorize(value) {
-    if (this.colorMap === 'grayscale') {
-      const v = Math.floor(value * 255);
-      return [v, v, v];
+  draw(playbackTime = null) {
+    const { width, height } = this.canvas;
+    this.ctx.fillStyle = '#0f0f1a';
+    this.ctx.fillRect(0, 0, width, height);
+
+    if (this._spectImage) {
+      this.ctx.putImageData(this._spectImage, 50, 0);
     }
 
-    // Viridis approximation
+    // Frequency axis
+    this._drawFrequencyAxis(height);
+
+    // Time axis
+    this._drawTimeAxis(width, height);
+
+    // File boundaries
+    this._drawFileBoundaries(width, height);
+
+    // Playback cursor
+    if (playbackTime !== null && playbackTime >= this.viewStart && playbackTime <= this.viewEnd) {
+      const spectWidth = width - 60;
+      const x = 50 + ((playbackTime - this.viewStart) / (this.viewEnd - this.viewStart)) * spectWidth;
+      this.ctx.strokeStyle = '#ff4444';
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      this.ctx.moveTo(x, 0);
+      this.ctx.lineTo(x, height - 40);
+      this.ctx.stroke();
+    }
+  }
+
+  _drawFileBoundaries(canvasWidth, canvasHeight) {
+    if (!this.session || this.session.files.length <= 1) return;
+
+    const spectWidth = canvasWidth - 60;
+    const spectHeight = canvasHeight - 40;
+    const viewDuration = this.viewEnd - this.viewStart;
+
+    this.ctx.strokeStyle = 'rgba(255, 255, 100, 0.3)';
+    this.ctx.lineWidth = 1;
+    this.ctx.setLineDash([4, 4]);
+
+    for (const file of this.session.files) {
+      if (file.timeStart > this.viewStart && file.timeStart < this.viewEnd) {
+        const x = 50 + ((file.timeStart - this.viewStart) / viewDuration) * spectWidth;
+        this.ctx.beginPath();
+        this.ctx.moveTo(x, 0);
+        this.ctx.lineTo(x, spectHeight);
+        this.ctx.stroke();
+
+        // File label
+        this.ctx.fillStyle = 'rgba(255, 255, 100, 0.5)';
+        this.ctx.font = '9px monospace';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText(file.fileName, x + 3, 12);
+      }
+    }
+    this.ctx.setLineDash([]);
+  }
+
+  _drawFrequencyAxis(canvasHeight) {
+    this.ctx.fillStyle = '#0f0f1a';
+    this.ctx.fillRect(0, 0, 50, canvasHeight);
+    this.ctx.fillStyle = '#aaaacc';
+    this.ctx.font = '10px monospace';
+    this.ctx.textAlign = 'right';
+
+    const spectHeight = canvasHeight - 40;
+    const numLabels = 8;
+    for (let i = 0; i <= numLabels; i++) {
+      const freq = this.minFreq + (this.maxFreq - this.minFreq) * (1 - i / numLabels);
+      const y = (i / numLabels) * spectHeight;
+      let label = freq >= 1000 ? (freq / 1000).toFixed(1) + 'k' : Math.round(freq).toString();
+      this.ctx.fillText(label, 46, y + 4);
+    }
+  }
+
+  _drawTimeAxis(canvasWidth, canvasHeight) {
+    const axisY = canvasHeight - 40;
+    this.ctx.fillStyle = '#0f0f1a';
+    this.ctx.fillRect(0, axisY, canvasWidth, 40);
+    this.ctx.fillStyle = '#aaaacc';
+    this.ctx.font = '11px monospace';
+    this.ctx.textAlign = 'center';
+
+    const viewDuration = this.viewEnd - this.viewStart;
+    const spectWidth = canvasWidth - 60;
+
+    const targetTicks = 10;
+    const rawInterval = viewDuration / targetTicks;
+    const niceIntervals = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
+    const interval = niceIntervals.find(i => i >= rawInterval) || 3600;
+
+    const startTick = Math.ceil(this.viewStart / interval) * interval;
+    const hasWallClock = this.session && this.session.sessionStartTime !== null;
+
+    for (let t = startTick; t <= this.viewEnd; t += interval) {
+      const x = 50 + ((t - this.viewStart) / viewDuration) * spectWidth;
+
+      this.ctx.strokeStyle = '#333355';
+      this.ctx.beginPath();
+      this.ctx.moveTo(x, axisY);
+      this.ctx.lineTo(x, axisY + 5);
+      this.ctx.stroke();
+
+      // Show wall-clock time if available, otherwise file position
+      if (hasWallClock) {
+        const wallSec = this.session.toWallClock(t);
+        if (wallSec !== null) {
+          this.ctx.fillStyle = '#66ff88';
+          this.ctx.fillText(this._formatWallTime(wallSec), x, axisY + 18);
+        }
+        // Also show file position below
+        this.ctx.fillStyle = '#777799';
+        this.ctx.font = '9px monospace';
+        this.ctx.fillText(this._formatDuration(t), x, axisY + 32);
+        this.ctx.font = '11px monospace';
+      } else {
+        this.ctx.fillStyle = '#aaaacc';
+        this.ctx.fillText(this._formatDuration(t), x, axisY + 20);
+      }
+    }
+  }
+
+  _formatWallTime(seconds) {
+    // Handle times > 24h (next day)
+    const s = ((seconds % 86400) + 86400) % 86400;
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  _formatDuration(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+
+  /**
+   * Viridis colormap.
+   */
+  _colorize(value) {
     const stops = [
       [0.0, 68, 1, 84],
       [0.13, 72, 36, 117],
@@ -264,154 +542,55 @@ export class SpectrogramRenderer {
     return [253, 231, 37];
   }
 
-  /**
-   * Draw the visible portion of the spectrogram to the display canvas.
-   */
-  draw(playbackTime = null) {
-    if (!this.offscreenCanvas) return;
-
-    const { width, height } = this.canvas;
-    this.ctx.fillStyle = '#1a1a2e';
-    this.ctx.fillRect(0, 0, width, height);
-
-    // Map view range to offscreen canvas coordinates
-    const srcX = (this.viewStart / this.totalDuration) * this.offscreenCanvas.width;
-    const srcW = ((this.viewEnd - this.viewStart) / this.totalDuration) * this.offscreenCanvas.width;
-
-    if (srcW > 0) {
-      this.ctx.drawImage(
-        this.offscreenCanvas,
-        srcX, 0, srcW, this.offscreenCanvas.height,
-        50, 0, width - 60, height - 40  // Leave space for axes
-      );
-    }
-
-    // Draw frequency axis (left)
-    this._drawFrequencyAxis(height);
-
-    // Draw time axis (bottom)
-    this._drawTimeAxis(width, height);
-
-    // Draw playback cursor
-    if (playbackTime !== null && playbackTime >= this.viewStart && playbackTime <= this.viewEnd) {
-      const x = 50 + ((playbackTime - this.viewStart) / (this.viewEnd - this.viewStart)) * (width - 60);
-      this.ctx.strokeStyle = '#ff4444';
-      this.ctx.lineWidth = 2;
-      this.ctx.beginPath();
-      this.ctx.moveTo(x, 0);
-      this.ctx.lineTo(x, height - 40);
-      this.ctx.stroke();
-    }
-  }
-
-  _drawFrequencyAxis(canvasHeight) {
-    this.ctx.fillStyle = '#1a1a2e';
-    this.ctx.fillRect(0, 0, 50, canvasHeight);
-    this.ctx.fillStyle = '#aaaacc';
-    this.ctx.font = '10px monospace';
-    this.ctx.textAlign = 'right';
-
-    const spectrogramHeight = canvasHeight - 40;
-    const numLabels = 8;
-    for (let i = 0; i <= numLabels; i++) {
-      const freq = this.minFreq + (this.maxFreq - this.minFreq) * (1 - i / numLabels);
-      const y = (i / numLabels) * spectrogramHeight;
-      let label;
-      if (freq >= 1000) {
-        label = (freq / 1000).toFixed(1) + 'k';
-      } else {
-        label = Math.round(freq).toString();
-      }
-      this.ctx.fillText(label, 46, y + 4);
-    }
-  }
-
-  _drawTimeAxis(canvasWidth, canvasHeight) {
-    const axisY = canvasHeight - 40;
-    this.ctx.fillStyle = '#1a1a2e';
-    this.ctx.fillRect(0, axisY, canvasWidth, 40);
-    this.ctx.fillStyle = '#aaaacc';
-    this.ctx.font = '11px monospace';
-    this.ctx.textAlign = 'center';
-
-    const viewDuration = this.viewEnd - this.viewStart;
-    const spectrogramWidth = canvasWidth - 60;
-
-    // Choose nice tick interval
-    const targetTicks = 10;
-    const rawInterval = viewDuration / targetTicks;
-    const niceIntervals = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
-    const interval = niceIntervals.find(i => i >= rawInterval) || 3600;
-
-    const startTick = Math.ceil(this.viewStart / interval) * interval;
-    for (let t = startTick; t <= this.viewEnd; t += interval) {
-      const x = 50 + ((t - this.viewStart) / viewDuration) * spectrogramWidth;
-
-      // Tick mark
-      this.ctx.strokeStyle = '#555577';
-      this.ctx.beginPath();
-      this.ctx.moveTo(x, axisY);
-      this.ctx.lineTo(x, axisY + 5);
-      this.ctx.stroke();
-
-      // Time label
-      this.ctx.fillText(this._formatAxisTime(t), x, axisY + 20);
-    }
-  }
-
-  _formatAxisTime(seconds) {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds % 1) * 10);
-
-    if (seconds < 60) {
-      return `${s}.${ms}s`;
-    } else if (seconds < 3600) {
-      return `${m}:${s.toString().padStart(2, '0')}`;
-    } else {
-      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    }
-  }
-
-  /**
-   * Set visible time range.
-   */
   setView(start, end) {
     this.viewStart = Math.max(0, start);
     this.viewEnd = Math.min(this.totalDuration, end);
-    if (this.onViewChange) {
-      this.onViewChange(this.viewStart, this.viewEnd);
-    }
-    this.draw();
+    if (this.onViewChange) this.onViewChange(this.viewStart, this.viewEnd);
   }
 
-  /**
-   * Zoom centered on a time position.
-   */
   zoom(centerTime, factor) {
     const currentDuration = this.viewEnd - this.viewStart;
-    const newDuration = Math.max(0.1, Math.min(this.totalDuration, currentDuration * factor));
+    const newDuration = Math.max(0.5, Math.min(this.totalDuration, currentDuration * factor));
     const ratio = (centerTime - this.viewStart) / currentDuration;
     const newStart = centerTime - ratio * newDuration;
     this.setView(newStart, newStart + newDuration);
   }
 
-  /**
-   * Convert canvas x-coordinate to time in seconds.
-   */
   canvasXToTime(x) {
-    const spectrogramWidth = this.canvas.width - 60;
-    const ratio = (x - 50) / spectrogramWidth;
+    const spectWidth = this.canvas.width - 60;
+    const ratio = (x - 50) / spectWidth;
     return this.viewStart + ratio * (this.viewEnd - this.viewStart);
   }
 
+  /**
+   * Update gain and re-render from cached FFT data (instant, no recompute).
+   */
+  updateGain(gainDB) {
+    this.gainDB = gainDB;
+    // Find cached data for current view and re-render
+    for (const [key, data] of this.tileCache.entries()) {
+      // Re-render with new gain (check if this key matches current view roughly)
+      this._renderSpectrogram(data);
+      this.draw();
+      return;
+    }
+  }
+
   _setupInteraction() {
+    let computeTimeout = null;
+
+    const scheduleCompute = () => {
+      clearTimeout(computeTimeout);
+      computeTimeout = setTimeout(() => this.computeVisible(), 150);
+    };
+
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       const time = this.canvasXToTime(e.offsetX);
-      const factor = e.deltaY > 0 ? 1.2 : 1 / 1.2;
+      const factor = e.deltaY > 0 ? 1.3 : 1 / 1.3;
       this.zoom(time, factor);
+      this.draw();
+      scheduleCompute();
     });
 
     this.canvas.addEventListener('mousedown', (e) => {
@@ -426,17 +605,18 @@ export class SpectrogramRenderer {
     this.canvas.addEventListener('mousemove', (e) => {
       if (this.isDragging) {
         const dx = e.offsetX - this.dragStartX;
-        const spectrogramWidth = this.canvas.width - 60;
-        const timeDelta = -(dx / spectrogramWidth) * (this.viewEnd - this.viewStart);
-        const newStart = this.dragStartViewStart + timeDelta;
+        const spectWidth = this.canvas.width - 60;
+        const timeDelta = -(dx / spectWidth) * (this.viewEnd - this.viewStart);
         const duration = this.viewEnd - this.viewStart;
+        const newStart = this.dragStartViewStart + timeDelta;
         this.setView(newStart, newStart + duration);
+        this.draw();
+        scheduleCompute();
       }
     });
 
     this.canvas.addEventListener('mouseup', (e) => {
       if (this.isDragging && Math.abs(e.offsetX - this.dragStartX) < 3) {
-        // It was a click, not a drag
         const time = this.canvasXToTime(e.offsetX);
         if (this.onTimeClick && time >= 0 && time <= this.totalDuration) {
           this.onTimeClick(time);

@@ -10,7 +10,8 @@
   <!-- Top toolbar -->
   <div class="toolbar">
     <div class="toolbar-group">
-      <button id="btn-open" class="primary">Open File</button>
+      <button id="btn-open-folder" class="primary">Open Folder</button>
+      <button id="btn-open-file">Open File</button>
     </div>
 
     <div class="toolbar-separator"></div>
@@ -18,6 +19,16 @@
     <div class="toolbar-group">
       <button id="btn-play">&#9654; Play</button>
       <button id="btn-stop">&#9632; Stop</button>
+      <div class="control-item">
+        <label for="playback-rate">Speed</label>
+        <select id="playback-rate">
+          <option value="0.25">0.25x</option>
+          <option value="0.5">0.5x</option>
+          <option value="1" selected>1x</option>
+          <option value="1.5">1.5x</option>
+          <option value="2">2x</option>
+        </select>
+      </div>
     </div>
 
     <div class="toolbar-separator"></div>
@@ -25,14 +36,14 @@
     <div class="toolbar-group">
       <button id="btn-zoom-in">+ Zoom In</button>
       <button id="btn-zoom-out">- Zoom Out</button>
-      <button id="btn-zoom-fit">Fit</button>
+      <button id="btn-zoom-fit">Fit All</button>
     </div>
 
     <div class="toolbar-separator"></div>
 
     <div class="time-nav">
       <label for="time-input">Go to time:</label>
-      <input type="text" id="time-input" placeholder="22:35" title="Enter wall-clock time (HH:MM or HH:MM:SS)">
+      <input type="text" id="time-input" placeholder="22:35" title="Wall-clock time (HH:MM or HH:MM:SS)">
       <button id="btn-goto">Go</button>
     </div>
 
@@ -43,7 +54,7 @@
         <span class="label">Position</span>
         <span class="value" id="current-time">0:00.00</span>
       </span>
-      <span class="wall-time">
+      <span class="wall-time" id="wall-time-group">
         <span class="label">Wall Clock</span>
         <span class="value" id="wall-time">--:--:--</span>
       </span>
@@ -56,15 +67,18 @@
 
   <!-- File info bar -->
   <div class="info-bar">
-    <span id="file-info">No file loaded</span>
+    <span id="file-info">No session loaded</span>
   </div>
 
   <!-- Spectrogram area -->
   <div class="spectrogram-container">
     <canvas id="spectrogram"></canvas>
     <div class="welcome-overlay" id="welcome">
-      <h2>Open a WAV file or drag &amp; drop</h2>
+      <h2>Open a folder of WAV files or a single file</h2>
       <p>Supports Broadcast Wave Format (BWF) with embedded timecode</p>
+      <p style="margin-top: 8px; font-size: 12px; opacity: 0.7;">
+        Multiple files from the same session will be stitched together automatically
+      </p>
       <div class="shortcuts">
         <kbd>Space</kbd> Play/Pause &nbsp;
         <kbd>&larr;</kbd><kbd>&rarr;</kbd> Seek &plusmn;1s &nbsp;
@@ -72,7 +86,9 @@
         <kbd>+</kbd><kbd>-</kbd> Zoom &nbsp;
         <kbd>F</kbd> Fit view &nbsp;
         <kbd>Scroll</kbd> Zoom at cursor &nbsp;
-        <kbd>Drag</kbd> Pan
+        <kbd>Drag</kbd> Pan<br>
+        <kbd>G</kbd> Focus time input &nbsp;
+        <kbd>&uarr;</kbd><kbd>&darr;</kbd> Adjust spectrogram gain
       </div>
     </div>
   </div>
@@ -84,13 +100,38 @@
     </div>
   </div>
 
-  <!-- Bottom bar: settings & status -->
+  <!-- Bottom bar: gain controls, spectrogram settings, status -->
   <div class="bottom-bar">
     <div class="controls-group">
+      <!-- Audio gain (amplification) -->
+      <div class="control-item gain-control">
+        <label for="audio-gain">Audio Gain</label>
+        <input type="range" id="audio-gain" min="0" max="60" value="0" step="1">
+        <span id="audio-gain-value" class="gain-value">0 dB</span>
+      </div>
+
+      <div class="toolbar-separator" style="height: 20px;"></div>
+
+      <!-- Spectrogram gain (visual) -->
+      <div class="control-item gain-control">
+        <label for="spect-gain">Spect Gain</label>
+        <input type="range" id="spect-gain" min="0" max="80" value="0" step="1">
+        <span id="spect-gain-value" class="gain-value">0 dB</span>
+      </div>
+
+      <div class="control-item">
+        <label for="dynamic-range">Range</label>
+        <input type="range" id="dynamic-range" min="30" max="140" value="90" step="5">
+        <span id="range-value">90 dB</span>
+      </div>
+
+      <div class="toolbar-separator" style="height: 20px;"></div>
+
       <div class="control-item">
         <label for="volume">Vol</label>
         <input type="range" id="volume" min="0" max="1" step="0.01" value="1">
       </div>
+
       <div class="control-item">
         <label for="fft-size">FFT</label>
         <select id="fft-size">
@@ -101,39 +142,65 @@
           <option value="8192">8192</option>
         </select>
       </div>
-      <div class="control-item">
-        <label for="dynamic-range">Range</label>
-        <input type="range" id="dynamic-range" min="30" max="120" value="90" step="5">
-        <span id="range-value" style="color: var(--text-secondary); font-size: 11px;">90dB</span>
-      </div>
+
       <div class="control-item">
         <label for="max-freq">Max Hz</label>
-        <input type="number" id="max-freq" value="22050" min="1000" max="96000" step="1000">
+        <input type="number" id="max-freq" value="22050" min="500" max="96000" step="500">
+      </div>
+
+      <!-- VU meter -->
+      <div class="control-item vu-meter-container">
+        <label>Level</label>
+        <div class="vu-meter">
+          <div class="vu-fill" id="vu-fill"></div>
+        </div>
       </div>
     </div>
     <span id="status">Ready</span>
   </div>
 
+  <!-- File list panel (togglable) -->
+  <div class="file-list-panel" id="file-list-panel" style="display: none;">
+    <div class="file-list-header">
+      <span>Session Files</span>
+      <button id="btn-close-filelist">&times;</button>
+    </div>
+    <div class="file-list-body" id="file-list-body"></div>
+  </div>
+
   <script type="module" src="src/app.js"></script>
   <script>
-    // Hide welcome overlay once a file is loaded
-    const origSetStatus = null;
     document.addEventListener('DOMContentLoaded', () => {
+      // Hide welcome overlay when computing starts
       const welcome = document.getElementById('welcome');
       const statusEl = document.getElementById('status');
       const observer = new MutationObserver(() => {
-        if (statusEl.textContent.startsWith('Computing') || statusEl.textContent.startsWith('Ready')) {
+        if (statusEl.textContent.startsWith('Computing') ||
+            statusEl.textContent.startsWith('Ready —') ||
+            statusEl.textContent.startsWith('Ready \u2014')) {
           welcome.style.display = 'none';
           observer.disconnect();
         }
       });
       observer.observe(statusEl, { childList: true, characterData: true, subtree: true });
 
-      // Dynamic range display
+      // Gain display updates
+      const audioGain = document.getElementById('audio-gain');
+      const audioGainVal = document.getElementById('audio-gain-value');
+      audioGain.addEventListener('input', () => {
+        audioGainVal.textContent = `+${audioGain.value} dB`;
+      });
+
+      const spectGain = document.getElementById('spect-gain');
+      const spectGainVal = document.getElementById('spect-gain-value');
+      spectGain.addEventListener('input', () => {
+        spectGainVal.textContent = `+${spectGain.value} dB`;
+      });
+
       const rangeSlider = document.getElementById('dynamic-range');
       const rangeValue = document.getElementById('range-value');
       rangeSlider.addEventListener('input', () => {
-        rangeValue.textContent = rangeSlider.value + 'dB';
+        rangeValue.textContent = rangeSlider.value + ' dB';
       });
     });
   </script>

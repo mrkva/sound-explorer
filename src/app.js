@@ -1,20 +1,22 @@
 /**
- * Main application - wires together BWF parser, spectrogram, and audio engine.
+ * Main application - wires session, spectrogram, and audio engine together.
  */
 
 import { BWFParser } from './bwf-parser.js';
 import { SpectrogramRenderer } from './spectrogram.js';
 import { AudioEngine } from './audio-engine.js';
+import { Session } from './session.js';
 
 class App {
   constructor() {
     this.engine = new AudioEngine();
     this.spectrogram = null;
-    this.metadata = null;
+    this.session = null;
 
     // DOM elements
     this.canvas = document.getElementById('spectrogram');
-    this.btnOpen = document.getElementById('btn-open');
+    this.btnOpenFolder = document.getElementById('btn-open-folder');
+    this.btnOpenFile = document.getElementById('btn-open-file');
     this.btnPlay = document.getElementById('btn-play');
     this.btnStop = document.getElementById('btn-stop');
     this.btnZoomIn = document.getElementById('btn-zoom-in');
@@ -24,40 +26,48 @@ class App {
     this.btnGoTo = document.getElementById('btn-goto');
     this.currentTimeDisplay = document.getElementById('current-time');
     this.wallTimeDisplay = document.getElementById('wall-time');
+    this.wallTimeGroup = document.getElementById('wall-time-group');
     this.durationDisplay = document.getElementById('duration');
     this.fileInfoDisplay = document.getElementById('file-info');
     this.statusDisplay = document.getElementById('status');
-    this.volumeSlider = document.getElementById('volume');
-    this.fftSizeSelect = document.getElementById('fft-size');
-    this.dynamicRangeSlider = document.getElementById('dynamic-range');
-    this.maxFreqInput = document.getElementById('max-freq');
     this.progressBar = document.getElementById('progress-bar');
     this.progressFill = document.getElementById('progress-fill');
+    this.volumeSlider = document.getElementById('volume');
+    this.audioGainSlider = document.getElementById('audio-gain');
+    this.spectGainSlider = document.getElementById('spect-gain');
+    this.dynamicRangeSlider = document.getElementById('dynamic-range');
+    this.fftSizeSelect = document.getElementById('fft-size');
+    this.maxFreqInput = document.getElementById('max-freq');
+    this.playbackRateSelect = document.getElementById('playback-rate');
+    this.vuFill = document.getElementById('vu-fill');
+    this.fileListPanel = document.getElementById('file-list-panel');
+    this.fileListBody = document.getElementById('file-list-body');
 
     this._setupCanvas();
     this._setupSpectrogram();
     this._setupEventListeners();
     this._setupEngineCallbacks();
+    this._startVUMeter();
   }
 
   _setupCanvas() {
-    const resizeCanvas = () => {
+    const resize = () => {
       const container = this.canvas.parentElement;
       this.canvas.width = container.clientWidth;
       this.canvas.height = container.clientHeight;
-      if (this.spectrogram) {
+      if (this.spectrogram && this.session) {
         this.spectrogram.draw(this.engine.getCurrentTime());
       }
     };
-    window.addEventListener('resize', resizeCanvas);
-    resizeCanvas();
+    window.addEventListener('resize', resize);
+    resize();
   }
 
   _setupSpectrogram() {
     this.spectrogram = new SpectrogramRenderer(this.canvas, {
-      fftSize: parseInt(this.fftSizeSelect?.value || '2048'),
-      dynamicRangeDB: parseInt(this.dynamicRangeSlider?.value || '90'),
-      maxFreq: parseInt(this.maxFreqInput?.value || '22050')
+      fftSize: parseInt(this.fftSizeSelect.value),
+      dynamicRangeDB: parseInt(this.dynamicRangeSlider.value),
+      maxFreq: parseInt(this.maxFreqInput.value)
     });
 
     this.spectrogram.onTimeClick = (time) => {
@@ -67,8 +77,7 @@ class App {
     };
 
     this.spectrogram.onViewChange = () => {
-      // Redraw with current playback position
-      this.spectrogram.draw(this.engine.getCurrentTime());
+      // Debounced recompute handled internally by spectrogram
     };
   }
 
@@ -86,8 +95,11 @@ class App {
   }
 
   _setupEventListeners() {
-    // Open file
-    this.btnOpen.addEventListener('click', () => this._openFile());
+    // Open folder
+    this.btnOpenFolder.addEventListener('click', () => this._openFolder());
+
+    // Open single file
+    this.btnOpenFile.addEventListener('click', () => this._openFile());
 
     // Play/Pause
     this.btnPlay.addEventListener('click', () => {
@@ -113,15 +125,18 @@ class App {
     this.btnZoomIn.addEventListener('click', () => {
       const center = (this.spectrogram.viewStart + this.spectrogram.viewEnd) / 2;
       this.spectrogram.zoom(center, 0.5);
+      this.spectrogram.computeVisible();
     });
 
     this.btnZoomOut.addEventListener('click', () => {
       const center = (this.spectrogram.viewStart + this.spectrogram.viewEnd) / 2;
       this.spectrogram.zoom(center, 2);
+      this.spectrogram.computeVisible();
     });
 
     this.btnZoomFit.addEventListener('click', () => {
       this.spectrogram.setView(0, this.spectrogram.totalDuration);
+      this.spectrogram.computeVisible();
     });
 
     // Go to time
@@ -131,12 +146,55 @@ class App {
     });
 
     // Volume
-    this.volumeSlider?.addEventListener('input', (e) => {
+    this.volumeSlider.addEventListener('input', (e) => {
       this.engine.setVolume(parseFloat(e.target.value));
     });
 
+    // Audio gain (amplification)
+    this.audioGainSlider.addEventListener('input', (e) => {
+      this.engine.setGainDB(parseFloat(e.target.value));
+    });
+
+    // Spectrogram gain (visual)
+    this.spectGainSlider.addEventListener('input', (e) => {
+      const gain = parseFloat(e.target.value);
+      this.spectrogram.gainDB = gain;
+      // Re-render from cached data (no recompute needed)
+      this.spectrogram.tileCache.clear();
+      this.spectrogram.computeVisible();
+    });
+
+    // Dynamic range
+    this.dynamicRangeSlider.addEventListener('input', (e) => {
+      this.spectrogram.dynamicRangeDB = parseInt(e.target.value);
+      this.spectrogram.tileCache.clear();
+      this.spectrogram.computeVisible();
+    });
+
+    // FFT size
+    this.fftSizeSelect.addEventListener('change', (e) => {
+      this.spectrogram.fftSize = parseInt(e.target.value);
+      this.spectrogram.tileCache.clear();
+      this.spectrogram.computeVisible();
+    });
+
+    // Max frequency
+    this.maxFreqInput.addEventListener('change', (e) => {
+      this.spectrogram.maxFreq = Math.min(
+        parseInt(e.target.value),
+        this.session ? this.session.sampleRate / 2 : 22050
+      );
+      this.spectrogram.tileCache.clear();
+      this.spectrogram.computeVisible();
+    });
+
+    // Playback rate
+    this.playbackRateSelect.addEventListener('change', (e) => {
+      this.engine.setPlaybackRate(parseFloat(e.target.value));
+    });
+
     // Progress bar click
-    this.progressBar?.addEventListener('click', (e) => {
+    this.progressBar.addEventListener('click', (e) => {
       const rect = this.progressBar.getBoundingClientRect();
       const ratio = (e.clientX - rect.left) / rect.width;
       const time = ratio * this.engine.getDuration();
@@ -145,9 +203,25 @@ class App {
       this._updateTimeDisplays(time);
     });
 
+    // File info bar - toggle file list
+    this.fileInfoDisplay.parentElement.addEventListener('click', () => {
+      if (this.session && this.session.files.length > 1) {
+        this.fileListPanel.style.display =
+          this.fileListPanel.style.display === 'none' ? 'block' : 'none';
+      }
+    });
+
+    document.getElementById('btn-close-filelist').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.fileListPanel.style.display = 'none';
+    });
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
+        if (e.key === 'Escape') e.target.blur();
+        return;
+      }
 
       switch (e.code) {
         case 'Space':
@@ -162,6 +236,14 @@ class App {
           e.preventDefault();
           this.engine.seek(this.engine.getCurrentTime() + (e.shiftKey ? 10 : 1));
           break;
+        case 'ArrowUp':
+          e.preventDefault();
+          this._adjustSpectGain(5);
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          this._adjustSpectGain(-5);
+          break;
         case 'Home':
           e.preventDefault();
           this.engine.seek(0);
@@ -173,6 +255,11 @@ class App {
         case 'KeyF':
           e.preventDefault();
           this.btnZoomFit.click();
+          break;
+        case 'KeyG':
+          e.preventDefault();
+          this.timeInput.focus();
+          this.timeInput.select();
           break;
         case 'Equal':
         case 'NumpadAdd':
@@ -186,24 +273,29 @@ class App {
           break;
       }
     });
+  }
 
-    // Drag-and-drop
-    document.body.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-      document.body.classList.add('drag-over');
-    });
+  _adjustSpectGain(delta) {
+    const current = parseFloat(this.spectGainSlider.value);
+    const newVal = Math.max(0, Math.min(80, current + delta));
+    this.spectGainSlider.value = newVal;
+    this.spectGainSlider.dispatchEvent(new Event('input'));
+    document.getElementById('spect-gain-value').textContent = `+${newVal} dB`;
+  }
 
-    document.body.addEventListener('dragleave', () => {
-      document.body.classList.remove('drag-over');
-    });
+  async _openFolder() {
+    try {
+      const folderPath = await window.electronAPI.openFolderDialog();
+      if (!folderPath) return;
 
-    document.body.addEventListener('drop', (e) => {
-      e.preventDefault();
-      document.body.classList.remove('drag-over');
-      const file = e.dataTransfer.files[0];
-      if (file) this._loadFileFromDrop(file);
-    });
+      this._setStatus('Scanning folder...');
+      this.session = new Session();
+      await this.session.loadFolder(folderPath);
+      await this._initSession();
+    } catch (err) {
+      this._setStatus('Error: ' + err.message);
+      console.error(err);
+    }
   }
 
   async _openFile() {
@@ -212,78 +304,90 @@ class App {
       if (!filePath) return;
 
       this._setStatus('Loading file...');
-      const arrayBuffer = await window.electronAPI.readFile(filePath);
-      await this._processFile(arrayBuffer, filePath.split(/[/\\]/).pop());
+      this.session = new Session();
+      await this.session.loadFile(filePath);
+      await this._initSession();
     } catch (err) {
       this._setStatus('Error: ' + err.message);
       console.error(err);
     }
   }
 
-  async _loadFileFromDrop(file) {
-    try {
-      this._setStatus('Loading file...');
-      const arrayBuffer = await file.arrayBuffer();
-      await this._processFile(arrayBuffer, file.name);
-    } catch (err) {
-      this._setStatus('Error: ' + err.message);
-      console.error(err);
-    }
-  }
+  async _initSession() {
+    const session = this.session;
 
-  async _processFile(arrayBuffer, fileName) {
-    // Parse BWF metadata
-    this._setStatus('Parsing metadata...');
-    try {
-      this.metadata = BWFParser.parse(arrayBuffer);
-    } catch (err) {
-      console.warn('BWF parse warning:', err.message);
-      this.metadata = null;
-    }
+    // Display info
+    this.fileInfoDisplay.textContent = session.getSummary();
+    this.durationDisplay.textContent = this._formatTime(session.totalDuration);
 
-    // Display file info
-    this._displayFileInfo(fileName);
+    // Build file list
+    this._buildFileList();
 
-    // Decode audio
-    this._setStatus('Decoding audio...');
-    const audioBuffer = await this.engine.loadArrayBuffer(arrayBuffer);
-
-    // Compute spectrogram
-    this._setStatus('Computing spectrogram... (this may take a moment for long files)');
+    // Set up spectrogram
+    this._setStatus('Setting up spectrogram...');
+    this.spectrogram.fftSize = parseInt(this.fftSizeSelect.value);
+    this.spectrogram.dynamicRangeDB = parseInt(this.dynamicRangeSlider.value);
     this.spectrogram.maxFreq = Math.min(
-      parseInt(this.maxFreqInput?.value || '22050'),
-      audioBuffer.sampleRate / 2
+      parseInt(this.maxFreqInput.value), session.sampleRate / 2
     );
-    this.spectrogram.fftSize = parseInt(this.fftSizeSelect?.value || '2048');
-    this.spectrogram.dynamicRangeDB = parseInt(this.dynamicRangeSlider?.value || '90');
+    this.spectrogram.gainDB = parseFloat(this.spectGainSlider.value);
+    this.spectrogram.setSession(session);
 
-    await this.spectrogram.compute(audioBuffer);
+    // Set up audio streaming
+    this._setStatus('Setting up audio...');
+    const audioUrl = await window.electronAPI.setupAudioServer(session.getServerFileList());
+    await this.engine.setSource(audioUrl);
+    this.engine.setGainDB(parseFloat(this.audioGainSlider.value));
 
-    this._setStatus('Ready');
-    this.durationDisplay.textContent = this._formatTime(audioBuffer.duration);
-    this._updateTimeDisplays(0);
+    // Compute initial spectrogram
+    this._setStatus('Computing spectrogram...');
+    await this.spectrogram.computeVisible();
 
-    // If we have a timecode, show hint
-    if (this.metadata?.startTimeOfDay !== null && this.metadata?.startTimeOfDay !== undefined) {
-      const startStr = BWFParser.secondsToTimeString(this.metadata.startTimeOfDay);
-      const endSeconds = this.metadata.startTimeOfDay + audioBuffer.duration;
-      const endStr = BWFParser.secondsToTimeString(endSeconds);
-      this._setStatus(`Ready \u2014 Recording time: ${startStr} to ${endStr}. Type a wall-clock time to navigate.`);
+    // Show wall clock if available
+    if (session.sessionStartTime !== null) {
+      this.wallTimeGroup.style.display = '';
+      const startStr = BWFParser.secondsToTimeString(session.sessionStartTime);
+      const endStr = BWFParser.secondsToTimeString(session.sessionEndTime);
+      this._setStatus(
+        `Ready \u2014 ${session.files.length} files, ` +
+        `recording ${startStr}\u2013${endStr}. Type a time to navigate.`
+      );
+    } else {
+      this.wallTimeGroup.style.display = 'none';
+      this._setStatus('Ready');
     }
+
+    this._updateTimeDisplays(0);
   }
 
-  _displayFileInfo(fileName) {
-    if (!this.metadata) {
-      this.fileInfoDisplay.textContent = fileName;
-      return;
-    }
+  _buildFileList() {
+    this.fileListBody.innerHTML = '';
+    for (const file of this.session.files) {
+      const item = document.createElement('div');
+      item.className = 'file-list-item';
 
-    const m = this.metadata;
-    let info = `${fileName}  |  ${m.sampleRate} Hz  |  ${m.bitsPerSample}-bit  |  ${m.channels}ch`;
-    if (m.originationDate) info += `  |  Date: ${m.originationDate}`;
-    if (m.originationTime) info += `  |  Start: ${m.originationTime}`;
-    if (m.bext?.originator) info += `  |  Recorder: ${m.bext.originator}`;
-    this.fileInfoDisplay.textContent = info;
+      const wallStr = file.wallClockStart !== null
+        ? BWFParser.secondsToTimeString(file.wallClockStart)
+        : '';
+      const durStr = this._formatTime(file.duration);
+
+      item.innerHTML = `
+        <span class="file-name">${file.fileName}</span>
+        <span class="file-time">${wallStr}</span>
+        <span class="file-duration">${durStr}</span>
+      `;
+
+      item.addEventListener('click', () => {
+        this.engine.seek(file.timeStart);
+        const viewDuration = Math.min(file.duration, 120);
+        this.spectrogram.setView(file.timeStart, file.timeStart + viewDuration);
+        this.spectrogram.computeVisible();
+        this._updateTimeDisplays(file.timeStart);
+        this.fileListPanel.style.display = 'none';
+      });
+
+      this.fileListBody.appendChild(item);
+    }
   }
 
   _goToTime() {
@@ -296,38 +400,38 @@ class App {
       return;
     }
 
-    // If we have BWF timecode, treat input as wall-clock time
-    if (this.metadata?.startTimeOfDay !== null && this.metadata?.startTimeOfDay !== undefined) {
-      const offsetInFile = targetSeconds - this.metadata.startTimeOfDay;
-      if (offsetInFile < 0 || offsetInFile > this.engine.getDuration()) {
-        const startStr = BWFParser.secondsToTimeString(this.metadata.startTimeOfDay);
-        const endStr = BWFParser.secondsToTimeString(this.metadata.startTimeOfDay + this.engine.getDuration());
-        this._setStatus(`Time ${timeStr} is outside recording range (${startStr} \u2013 ${endStr})`);
+    if (this.session?.sessionStartTime !== null && this.session?.sessionStartTime !== undefined) {
+      // Treat as wall-clock time
+      const fileTime = this.session.fromWallClock(targetSeconds);
+      if (fileTime === null || fileTime < 0 || fileTime > this.session.totalDuration) {
+        const startStr = BWFParser.secondsToTimeString(this.session.sessionStartTime);
+        const endStr = BWFParser.secondsToTimeString(this.session.sessionEndTime);
+        this._setStatus(`Time ${timeStr} is outside recording (${startStr}\u2013${endStr})`);
         return;
       }
-      this.engine.seek(offsetInFile);
 
-      // Zoom to show context around the target (30 seconds on each side)
-      const viewPadding = 30;
+      this.engine.seek(fileTime);
+      // Zoom to 60-second window around target
+      const padding = 30;
       this.spectrogram.setView(
-        Math.max(0, offsetInFile - viewPadding),
-        Math.min(this.engine.getDuration(), offsetInFile + viewPadding)
+        Math.max(0, fileTime - padding),
+        Math.min(this.session.totalDuration, fileTime + padding)
       );
-      this.spectrogram.draw(offsetInFile);
-      this._setStatus(`Jumped to wall-clock time ${timeStr} (file position ${this._formatTime(offsetInFile)})`);
+      this.spectrogram.computeVisible();
+      this._setStatus(`Jumped to ${timeStr}`);
     } else {
-      // No timecode - treat as file position
+      // Treat as file position
       if (targetSeconds > this.engine.getDuration()) {
-        this._setStatus(`Time ${timeStr} exceeds file duration`);
+        this._setStatus(`Time ${timeStr} exceeds duration`);
         return;
       }
       this.engine.seek(targetSeconds);
-      const viewPadding = 30;
+      const padding = 30;
       this.spectrogram.setView(
-        Math.max(0, targetSeconds - viewPadding),
-        Math.min(this.engine.getDuration(), targetSeconds + viewPadding)
+        Math.max(0, targetSeconds - padding),
+        Math.min(this.engine.getDuration(), targetSeconds + padding)
       );
-      this.spectrogram.draw(targetSeconds);
+      this.spectrogram.computeVisible();
       this._setStatus(`Jumped to ${timeStr}`);
     }
   }
@@ -335,29 +439,40 @@ class App {
   _updateTimeDisplays(time) {
     this.currentTimeDisplay.textContent = this._formatTimePrecise(time);
 
-    if (this.metadata?.startTimeOfDay !== null && this.metadata?.startTimeOfDay !== undefined) {
-      const wallSeconds = this.metadata.startTimeOfDay + time;
-      this.wallTimeDisplay.textContent = BWFParser.secondsToTimeString(wallSeconds);
-      this.wallTimeDisplay.parentElement.style.display = '';
-    } else {
-      this.wallTimeDisplay.parentElement.style.display = 'none';
+    if (this.session?.sessionStartTime !== null && this.session?.sessionStartTime !== undefined) {
+      const wallSec = this.session.toWallClock(time);
+      if (wallSec !== null) {
+        this.wallTimeDisplay.textContent = BWFParser.secondsToTimeString(wallSec);
+      }
     }
   }
 
   _updateProgressBar(time) {
-    if (!this.progressFill) return;
     const duration = this.engine.getDuration();
     const pct = duration > 0 ? (time / duration) * 100 : 0;
     this.progressFill.style.width = pct + '%';
+  }
+
+  _startVUMeter() {
+    const update = () => {
+      if (this.engine.isPlaying) {
+        const { peak } = this.engine.getLevels();
+        // Convert to percentage, with some scaling for visibility
+        const pct = Math.min(100, peak * 100 * 1.5);
+        this.vuFill.style.width = pct + '%';
+      } else {
+        this.vuFill.style.width = '0%';
+      }
+      requestAnimationFrame(update);
+    };
+    requestAnimationFrame(update);
   }
 
   _formatTime(seconds) {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
-    if (h > 0) {
-      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    }
+    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
@@ -377,7 +492,6 @@ class App {
   }
 }
 
-// Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
   window.app = new App();
 });
