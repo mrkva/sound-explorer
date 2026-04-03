@@ -80,12 +80,20 @@ class App {
   }
 
   _setupCanvas() {
+    let resizeTimer = null;
     const resize = () => {
       const container = this.canvas.parentElement;
       this.canvas.width = container.clientWidth;
       this.canvas.height = container.clientHeight;
       if (this.spectrogram && this.session) {
+        // Immediate redraw (stretches existing image to new size)
         this.spectrogram.draw(this.engine.getCurrentTime());
+        // Debounced recompute so the spectrogram re-renders at correct resolution
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          this.spectrogram.tileCache.clear();
+          this.spectrogram.computeVisible();
+        }, 200);
       }
     };
     window.addEventListener('resize', resize);
@@ -1413,6 +1421,8 @@ class App {
     this.canvas.height = container.clientHeight;
     if (this.spectrogram && this.session) {
       this.spectrogram.draw(this.engine.getCurrentTime());
+      this.spectrogram.tileCache.clear();
+      this.spectrogram.computeVisible();
     }
   }
 
