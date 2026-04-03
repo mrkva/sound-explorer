@@ -481,6 +481,9 @@ class App {
     // Build file list
     this._buildFileList();
 
+    // Populate "interpret as sample rate" options
+    this._populateSampleRateOptions(session.sampleRate);
+
     // Set up spectrogram
     this._setStatus('Setting up spectrogram...');
     // Auto-select FFT size based on sample rate for good frequency resolution
@@ -1136,6 +1139,41 @@ class App {
 
   _setStatus(text) {
     this.statusDisplay.textContent = text;
+  }
+
+  // ── Playback sample rate interpretation ───────────────────────────
+
+  _populateSampleRateOptions(nativeSampleRate) {
+    const optgroup = document.getElementById('samplerate-optgroup');
+    optgroup.innerHTML = '';
+
+    // Standard target sample rates for "interpret as" demodulation
+    const targets = [8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000, 384000];
+
+    for (const target of targets) {
+      // Skip if same as native (that's just 1x)
+      if (target === nativeSampleRate) continue;
+      // The playback rate needed: target / native
+      // e.g., native=192000, target=48000 → rate=0.25 (slows down, shifts ultrasonic → audible)
+      const rate = target / nativeSampleRate;
+      // Only include rates the browser can handle (0.0625x to 16x)
+      if (rate < 0.0625 || rate > 16) continue;
+
+      const opt = document.createElement('option');
+      opt.value = rate.toString();
+      const label = target >= 1000 ? `${target / 1000}kHz` : `${target}Hz`;
+      opt.textContent = `Play as ${label}`;
+      if (rate < 1) {
+        opt.textContent += ` (${rate.toFixed(rate < 0.1 ? 3 : 2)}x — pitch ↓)`;
+      } else if (rate > 1) {
+        opt.textContent += ` (${rate.toFixed(2)}x — pitch ↑)`;
+      }
+      optgroup.appendChild(opt);
+    }
+
+    // Reset to 1x
+    this.playbackRateSelect.value = '1';
+    this.engine.setPlaybackRate(1);
   }
 
   // ── Annotations sidebar ──────────────────────────────────────────

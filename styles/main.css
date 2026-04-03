@@ -718,3 +718,8 @@ button.primary:hover { background: #254a6e; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Playback rate / sample rate select - wider for "Play as" labels */
+#playback-rate {
+  min-width: 100px;
+}
