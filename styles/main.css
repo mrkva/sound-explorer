@@ -312,6 +312,57 @@ button.primary:hover {
   white-space: nowrap;
 }
 
+/* Computing overlay */
+.computing-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 15, 26, 0.7);
+  z-index: 20;
+  pointer-events: none;
+}
+
+.computing-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px 40px;
+  min-width: 320px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.computing-label {
+  font-size: 15px;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+}
+
+.computing-bar-track {
+  height: 10px;
+  background: var(--bg-primary);
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.computing-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--green));
+  border-radius: 5px;
+  transition: width 0.15s ease-out;
+}
+
+.computing-percent {
+  margin-top: 8px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 13px;
+  color: var(--accent);
+}
+
 /* Welcome overlay */
 .welcome-overlay {
   position: absolute;

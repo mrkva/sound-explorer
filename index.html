@@ -73,6 +73,18 @@
   <!-- Spectrogram area -->
   <div class="spectrogram-container">
     <canvas id="spectrogram"></canvas>
+
+    <!-- Computing overlay -->
+    <div class="computing-overlay" id="computing-overlay" style="display: none;">
+      <div class="computing-box">
+        <div class="computing-label" id="computing-label">Computing spectrogram...</div>
+        <div class="computing-bar-track">
+          <div class="computing-bar-fill" id="computing-bar-fill"></div>
+        </div>
+        <div class="computing-percent" id="computing-percent">0%</div>
+      </div>
+    </div>
+
     <div class="welcome-overlay" id="welcome">
       <h2>Open a folder of WAV files or a single file</h2>
       <p>Supports Broadcast Wave Format (BWF) with embedded timecode</p>

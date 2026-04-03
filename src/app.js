@@ -80,13 +80,23 @@ class App {
       // Debounced recompute handled internally by spectrogram
     };
 
+    this.computingOverlay = document.getElementById('computing-overlay');
+    this.computingLabel = document.getElementById('computing-label');
+    this.computingBarFill = document.getElementById('computing-bar-fill');
+    this.computingPercent = document.getElementById('computing-percent');
+
     this.spectrogram.onProgress = (phase, percent) => {
-      if (phase === 'done') {
-        this._setStatus(this._readyStatusMessage());
-      } else if (phase === 'error') {
-        this._setStatus('Spectrogram error');
+      if (phase === 'done' || phase === 'error') {
+        this.computingOverlay.style.display = 'none';
+        this._setStatus(phase === 'done' ? this._readyStatusMessage() : 'Spectrogram error');
       } else {
-        this._setStatus(`${phase === 'reading' ? 'Reading audio' : phase === 'computing' ? 'Computing spectrogram' : 'Rendering'}... ${percent}%`);
+        this.computingOverlay.style.display = 'flex';
+        const label = phase === 'reading' ? 'Reading audio data...' :
+                      phase === 'computing' ? 'Computing spectrogram...' : 'Rendering...';
+        this.computingLabel.textContent = label;
+        this.computingBarFill.style.width = percent + '%';
+        this.computingPercent.textContent = percent + '%';
+        this._setStatus(`${label} ${percent}%`);
       }
     };
   }
@@ -339,9 +349,10 @@ class App {
     }
     this.spectrogram.fftSize = fftSize;
     this.spectrogram.dynamicRangeDB = parseInt(this.dynamicRangeSlider.value);
-    this.spectrogram.maxFreq = Math.min(
-      parseInt(this.maxFreqInput.value), session.sampleRate / 2
-    );
+    // Default max freq to Nyquist (half sample rate)
+    const nyquist = session.sampleRate / 2;
+    this.maxFreqInput.value = nyquist;
+    this.spectrogram.maxFreq = nyquist;
     this.spectrogram.gainDB = parseFloat(this.spectGainSlider.value);
     this.spectrogram.setSession(session);
 
