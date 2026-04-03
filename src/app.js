@@ -39,7 +39,6 @@ class App {
     this.maxFreqInput = document.getElementById('max-freq');
     this.freqPresetSelect = document.getElementById('freq-preset');
     this.logFreqCheckbox = document.getElementById('log-freq');
-    this.playbackRateSelect = document.getElementById('playback-rate');
     this.colorPresetSelect = document.getElementById('color-preset');
     this.vuFill = document.getElementById('vu-fill');
     this.fileListPanel = document.getElementById('file-list-panel');
@@ -299,13 +298,6 @@ class App {
     this.logFreqCheckbox.addEventListener('change', (e) => {
       this.spectrogram.logFrequency = e.target.checked;
       this.spectrogram.rerender();
-    });
-
-    // Playback rate — multiplies with the "Play as" speed
-    this.playbackRateSelect.addEventListener('change', (e) => {
-      const speedMultiplier = parseFloat(e.target.value);
-      const playAsSpeed = parseFloat(this.outputSampleRateSelect.value) || 1;
-      this.engine.setPlaybackRate(playAsSpeed * speedMultiplier);
     });
 
     // Color preset
@@ -623,8 +615,7 @@ class App {
     // Build file list
     this._buildFileList();
 
-    // Reset playback speed to 1x
-    this.playbackRateSelect.value = '1';
+    // Reset playback speed to native
     this.engine.setPlaybackRate(1);
 
     // Set up spectrogram
@@ -1388,8 +1379,7 @@ class App {
 
   _changePlayAsRate(speed) {
     if (!this.session) return;
-    const speedMultiplier = parseFloat(this.playbackRateSelect.value) || 1;
-    this.engine.setPlaybackRate(speed * speedMultiplier);
+    this.engine.setPlaybackRate(speed);
 
     if (speed === 1) {
       this._setStatus('Playback: native speed');

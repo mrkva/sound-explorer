@@ -59,6 +59,9 @@ export class AudioEngine {
     // Create audio element for streaming playback
     this.audioElement = document.createElement('audio');
     this.audioElement.preload = 'auto';
+    // Disable pitch correction — we want tape-speed behavior:
+    // slower playback = lower pitch, faster = higher pitch
+    this.audioElement.preservesPitch = false;
 
     // Restore output device selection if set
     if (this._sinkId && typeof this.audioElement.setSinkId === 'function') {
