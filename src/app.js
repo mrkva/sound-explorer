@@ -36,7 +36,10 @@ class App {
     this.spectGainSlider = document.getElementById('spect-gain');
     this.dynamicRangeSlider = document.getElementById('dynamic-range');
     this.fftSizeSelect = document.getElementById('fft-size');
+    this.minFreqInput = document.getElementById('min-freq');
     this.maxFreqInput = document.getElementById('max-freq');
+    this.freqPresetSelect = document.getElementById('freq-preset');
+    this.logFreqCheckbox = document.getElementById('log-freq');
     this.playbackRateSelect = document.getElementById('playback-rate');
     this.vuFill = document.getElementById('vu-fill');
     this.fileListPanel = document.getElementById('file-list-panel');
@@ -219,14 +222,37 @@ class App {
       this.spectrogram.computeVisible();
     });
 
-    // Max frequency
-    this.maxFreqInput.addEventListener('change', (e) => {
-      this.spectrogram.maxFreq = Math.min(
-        parseInt(e.target.value),
-        this.session ? this.session.sampleRate / 2 : 22050
-      );
+    // Frequency range
+    const applyFreqRange = () => {
+      const nyquist = this.session ? this.session.sampleRate / 2 : 22050;
+      this.spectrogram.minFreq = Math.max(0, parseInt(this.minFreqInput.value) || 0);
+      this.spectrogram.maxFreq = Math.min(parseInt(this.maxFreqInput.value) || nyquist, nyquist);
       this.spectrogram.tileCache.clear();
       this.spectrogram.computeVisible();
+    };
+    this.minFreqInput.addEventListener('change', applyFreqRange);
+    this.maxFreqInput.addEventListener('change', applyFreqRange);
+
+    // Frequency presets
+    this.freqPresetSelect.addEventListener('change', (e) => {
+      const nyquist = this.session ? this.session.sampleRate / 2 : 22050;
+      const presets = {
+        full: [0, nyquist],
+        bird: [100, 10000],
+        voice: [80, 4000],
+        low: [20, 500],
+        mid: [200, 8000]
+      };
+      const [min, max] = presets[e.target.value] || presets.full;
+      this.minFreqInput.value = min;
+      this.maxFreqInput.value = Math.min(max, nyquist);
+      applyFreqRange();
+    });
+
+    // Log frequency scale
+    this.logFreqCheckbox.addEventListener('change', (e) => {
+      this.spectrogram.logFrequency = e.target.checked;
+      this.spectrogram.rerender();
     });
 
     // Playback rate
@@ -379,22 +405,33 @@ class App {
     }
     this.spectrogram.fftSize = fftSize;
     this.spectrogram.dynamicRangeDB = parseInt(this.dynamicRangeSlider.value);
-    // Default max freq to Nyquist (half sample rate)
+    // Default frequency range to Nyquist
     const nyquist = session.sampleRate / 2;
+    this.minFreqInput.value = 0;
     this.maxFreqInput.value = nyquist;
+    this.spectrogram.minFreq = 0;
     this.spectrogram.maxFreq = nyquist;
+    this.freqPresetSelect.value = 'full';
     this.spectrogram.gainDB = parseFloat(this.spectGainSlider.value);
+    this.spectrogram.logFrequency = this.logFreqCheckbox.checked;
     this.spectrogram.setSession(session);
 
-    // Set up audio streaming
-    this._setStatus('Setting up audio...');
-    const audioUrl = await window.electronAPI.setupAudioServer(session.getServerFileList());
-    await this.engine.setSource(audioUrl, session.totalDuration);
-    this.engine.setGainDB(parseFloat(this.audioGainSlider.value));
+    // Start with a narrow initial view for instant display (2 minutes)
+    // instead of fitting the entire multi-hour session
+    const initialViewDuration = Math.min(120, session.totalDuration);
+    this.spectrogram.setView(0, initialViewDuration);
 
-    // Compute initial spectrogram
-    this._setStatus('Computing spectrogram...');
+    // Start audio setup and spectrogram compute in parallel
+    this._setStatus('Loading...');
+    const audioSetup = (async () => {
+      const audioUrl = await window.electronAPI.setupAudioServer(session.getServerFileList());
+      await this.engine.setSource(audioUrl, session.totalDuration);
+      this.engine.setGainDB(parseFloat(this.audioGainSlider.value));
+    })();
+
+    // Compute spectrogram for initial narrow view (fast)
     await this.spectrogram.computeVisible();
+    await audioSetup;
 
     // Show wall clock if available
     if (session.sessionStartTime !== null) {

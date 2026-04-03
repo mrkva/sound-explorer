@@ -18,11 +18,11 @@ export class SpectrogramRenderer {
     this.hopSize = options.hopSize || null; // auto-calculated
     this.minFreq = options.minFreq || 0;
     this.maxFreq = options.maxFreq || 22050;
+    this.logFrequency = options.logFrequency || false; // Log frequency scale
 
     // Gain/contrast controls
     this.gainDB = options.gainDB || 0;          // Boost in dB (positive = amplify faint sounds)
     this.dynamicRangeDB = options.dynamicRangeDB || 90;
-    this.floorDB = options.floorDB || -90;       // Noise floor
 
     // View state
     this.viewStart = 0;
@@ -268,9 +268,12 @@ export class SpectrogramRenderer {
       }
     }
 
-    // Fill any gaps (frames that fell between files)
+    // Fill any gaps (frames that fell between files) with silence
     for (let i = 0; i < targetFrames; i++) {
-      if (!frames[i]) frames[i] = new Float32Array(freqBins);
+      if (!frames[i]) {
+        frames[i] = new Float32Array(freqBins);
+        frames[i].fill(-120); // silence
+      }
     }
 
     return { frames, freqBins, numFrames: targetFrames, hopSize: step };
@@ -487,28 +490,48 @@ export class SpectrogramRenderer {
 
     // Frequency range in bins
     const binRes = this.session.sampleRate / this.fftSize;
-    const minBin = Math.floor(this.minFreq / binRes);
-    const maxBin = Math.min(Math.ceil(this.maxFreq / binRes), freqBins);
+    const minBin = Math.max(1, Math.floor(this.minFreq / binRes)); // Skip DC bin (0)
+    const maxBin = Math.min(Math.ceil(this.maxFreq / binRes), freqBins - 1);
     const visibleBins = maxBin - minBin;
+
+    // Pre-compute bin lookup table for Y -> frequency bin
+    // Supports both linear and logarithmic frequency scales
+    const binLookup = new Int32Array(spectHeight);
+    const logMinFreq = Math.log(Math.max(this.minFreq, 20)); // 20Hz floor for log
+    const logMaxFreq = Math.log(Math.max(this.maxFreq, 21));
+
+    for (let y = 0; y < spectHeight; y++) {
+      const ratio = (spectHeight - 1 - y) / spectHeight; // 0=bottom, 1=top
+      let bin;
+      if (this.logFrequency) {
+        // Log scale: more pixels for low frequencies
+        const logFreq = logMinFreq + ratio * (logMaxFreq - logMinFreq);
+        const freq = Math.exp(logFreq);
+        bin = Math.round(freq / binRes);
+      } else {
+        // Linear scale
+        bin = minBin + Math.floor(ratio * visibleBins);
+      }
+      binLookup[y] = Math.max(minBin, Math.min(bin, maxBin));
+    }
 
     // Create image
     const imageData = this.ctx.createImageData(spectWidth, spectHeight);
     const pixels = imageData.data;
 
-    // Effective gain-adjusted floor and ceiling
-    const ceiling = this.gainDB;
-    const floor = ceiling - this.dynamicRangeDB;
+    // Gain: shift signal up, fixed floor at -dynamicRange
+    const floor = -this.dynamicRangeDB;
 
     for (let x = 0; x < spectWidth; x++) {
       const frameIdx = Math.min(Math.floor(x * numFrames / spectWidth), numFrames - 1);
       const spectrum = frames[frameIdx];
 
       for (let y = 0; y < spectHeight; y++) {
-        const bin = Math.min(
-          minBin + Math.floor((spectHeight - 1 - y) * visibleBins / spectHeight),
-          freqBins - 1
-        );
-        const db = (spectrum[bin] !== undefined ? spectrum[bin] : -120) + this.gainDB;
+        const bin = binLookup[y];
+        let raw = spectrum[bin];
+        // Protect against NaN, undefined, and exactly-zero-filled gaps
+        if (raw === undefined || raw !== raw || raw === 0) raw = -120;
+        const db = raw + this.gainDB;
 
         const normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
         const [r, g, b] = this._colorize(normalized);
@@ -598,12 +621,27 @@ export class SpectrogramRenderer {
     this.ctx.textAlign = 'right';
 
     const spectHeight = canvasHeight - 40;
-    const numLabels = 8;
-    for (let i = 0; i <= numLabels; i++) {
-      const freq = this.minFreq + (this.maxFreq - this.minFreq) * (1 - i / numLabels);
-      const y = (i / numLabels) * spectHeight;
-      let label = freq >= 1000 ? (freq / 1000).toFixed(1) + 'k' : Math.round(freq).toString();
-      this.ctx.fillText(label, 46, y + 4);
+
+    if (this.logFrequency) {
+      // Log scale: use nice round frequencies
+      const logMin = Math.log(Math.max(this.minFreq, 20));
+      const logMax = Math.log(Math.max(this.maxFreq, 21));
+      const niceFreqs = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 40000, 80000];
+      for (const freq of niceFreqs) {
+        if (freq < this.minFreq || freq > this.maxFreq) continue;
+        const ratio = (Math.log(freq) - logMin) / (logMax - logMin);
+        const y = (1 - ratio) * spectHeight;
+        let label = freq >= 1000 ? (freq / 1000).toFixed(freq >= 10000 ? 0 : 1) + 'k' : freq.toString();
+        this.ctx.fillText(label, 46, y + 4);
+      }
+    } else {
+      const numLabels = 8;
+      for (let i = 0; i <= numLabels; i++) {
+        const freq = this.minFreq + (this.maxFreq - this.minFreq) * (1 - i / numLabels);
+        const y = (i / numLabels) * spectHeight;
+        let label = freq >= 1000 ? (freq / 1000).toFixed(1) + 'k' : Math.round(freq).toString();
+        this.ctx.fillText(label, 46, y + 4);
+      }
     }
   }
 
@@ -711,8 +749,17 @@ export class SpectrogramRenderer {
   zoom(centerTime, factor) {
     const currentDuration = this.viewEnd - this.viewStart;
     const newDuration = Math.max(0.5, Math.min(this.totalDuration, currentDuration * factor));
-    const ratio = (centerTime - this.viewStart) / currentDuration;
-    const newStart = centerTime - ratio * newDuration;
+    // Always center on the target time when zooming in,
+    // preserve relative position when zooming out
+    let newStart;
+    if (factor < 1) {
+      // Zooming in: center on cursor
+      newStart = centerTime - newDuration / 2;
+    } else {
+      // Zooming out: keep cursor at same relative position
+      const ratio = (centerTime - this.viewStart) / currentDuration;
+      newStart = centerTime - ratio * newDuration;
+    }
     this.setView(newStart, newStart + newDuration);
   }
 
@@ -725,8 +772,13 @@ export class SpectrogramRenderer {
   canvasYToFreq(y) {
     const spectHeight = this.canvas.height - 40;
     if (y < 0 || y >= spectHeight) return null;
-    // y=0 is top (maxFreq), y=spectHeight-1 is bottom (minFreq)
-    const ratio = 1 - (y / spectHeight);
+    const ratio = 1 - (y / spectHeight); // 0=minFreq, 1=maxFreq
+
+    if (this.logFrequency) {
+      const logMin = Math.log(Math.max(this.minFreq, 20));
+      const logMax = Math.log(Math.max(this.maxFreq, 21));
+      return Math.exp(logMin + ratio * (logMax - logMin));
+    }
     return this.minFreq + ratio * (this.maxFreq - this.minFreq);
   }
 

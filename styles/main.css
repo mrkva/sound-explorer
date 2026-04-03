@@ -266,6 +266,13 @@ button.primary:hover {
   padding: 2px;
 }
 
+.control-item input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .control-item input[type="range"] {
   width: 80px;
 }

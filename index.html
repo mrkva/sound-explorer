@@ -158,8 +158,29 @@
       </div>
 
       <div class="control-item">
+        <label for="min-freq">Min Hz</label>
+        <input type="number" id="min-freq" value="0" min="0" max="48000" step="100">
+      </div>
+
+      <div class="control-item">
         <label for="max-freq">Max Hz</label>
         <input type="number" id="max-freq" value="22050" min="500" max="96000" step="500">
+      </div>
+
+      <div class="control-item">
+        <label for="freq-preset">Preset</label>
+        <select id="freq-preset">
+          <option value="full">Full</option>
+          <option value="bird">Birds (100-10k)</option>
+          <option value="voice">Voice (80-4k)</option>
+          <option value="low">Low (20-500)</option>
+          <option value="mid">Mid (200-8k)</option>
+        </select>
+      </div>
+
+      <div class="control-item">
+        <label for="log-freq">Log</label>
+        <input type="checkbox" id="log-freq">
       </div>
 
       <!-- VU meter -->
