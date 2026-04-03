@@ -70,8 +70,9 @@ function fft(input, N) {
         output[idx1 + 1] += tIm;
 
         const newRe = curRe * wRe - curIm * wIm;
-        curIm = curRe * wIm + curIm * wRe;
+        const newIm = curRe * wIm + curIm * wRe;
         curRe = newRe;
+        curIm = newIm;
       }
     }
   }
