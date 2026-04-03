@@ -1,12 +1,13 @@
 /**
  * On-demand spectrogram renderer.
  *
- * Instead of computing the entire spectrogram upfront, this reads PCM chunks
- * from the session files and computes FFT only for the visible time range.
+ * Reads PCM chunks from session files and computes FFT only for the
+ * visible time range. Uses Web Worker pool for parallel FFT on multi-core CPUs.
  * Computed tiles are cached for fast scrolling.
- *
- * Supports adjustable gain/contrast for seeing faint sounds.
  */
+
+// Detect available CPU cores for worker pool sizing
+const NUM_WORKERS = Math.min(navigator.hardwareConcurrency || 4, 8);
 
 export class SpectrogramRenderer {
   constructor(canvas, options = {}) {
@@ -54,6 +55,11 @@ export class SpectrogramRenderer {
 
     // Hann window (pre-computed)
     this._window = null;
+
+    // Web Worker pool for parallel FFT
+    this._workers = [];
+    this._workerReady = [];
+    this._initWorkers();
 
     this._setupInteraction();
   }
@@ -174,7 +180,7 @@ export class SpectrogramRenderer {
     const N = this.fftSize;
     const freqBins = N / 2;
     const totalSpan = endSample - startSample;
-    const step = Math.floor(totalSpan / targetFrames);
+    const step = Math.max(1, Math.floor(totalSpan / targetFrames));
 
     if (!this._window || this._window.length !== N) {
       this._window = new Float32Array(N);
@@ -185,37 +191,32 @@ export class SpectrogramRenderer {
 
     const frames = new Array(targetFrames);
     const session = this.session;
-
-    // Process file by file - one IPC read per file per chunk
-    // For each file, figure out which frames fall within it
     let framesComputed = 0;
 
     for (const file of session.files) {
       const fileStartSample = file.sampleStart;
       const fileEndSample = file.sampleStart + file.samples;
 
-      // Find frames that start within this file
+      // Find frames that start within this file (with room for a full FFT window)
       const firstFrame = Math.max(0, Math.ceil((fileStartSample - startSample) / step));
       const lastFrame = Math.min(targetFrames - 1,
         Math.floor((fileEndSample - startSample - N) / step));
 
-      if (firstFrame > lastFrame) continue;
+      if (firstFrame > lastFrame || lastFrame < 0) continue;
 
-      // Read the needed range from this file in one big read
-      // From the first frame's start to the last frame's end
       const readStartSample = startSample + firstFrame * step;
-      const readEndSample = Math.min(
-        startSample + lastFrame * step + N,
-        fileEndSample
-      );
-      const offsetInFile = readStartSample - fileStartSample;
-      const samplesToRead = readEndSample - readStartSample;
+      const readEndSample = Math.min(startSample + lastFrame * step + N, fileEndSample);
+      const offsetInFile = Math.max(0, readStartSample - fileStartSample);
+      const samplesToRead = readEndSample - (fileStartSample + offsetInFile);
 
-      // Read in chunks of ~4MB of float data (~1M samples)
+      if (samplesToRead <= 0) continue;
+
       const maxSamplesPerChunk = 1024 * 1024;
-      let chunkStartSample = 0;
       let chunkData = null;
-      let chunkOffset = 0; // sample offset within the read range that chunkData covers
+      let chunkOffset = 0;
+
+      // Collect all frame data from this file first, then batch-FFT via workers
+      const fileFrameData = []; // [{index, data}]
 
       for (let i = firstFrame; i <= lastFrame; i++) {
         const frameSampleInRange = (startSample + i * step) - readStartSample;
@@ -224,7 +225,6 @@ export class SpectrogramRenderer {
         if (!chunkData ||
             frameSampleInRange < chunkOffset ||
             frameSampleInRange + N > chunkOffset + (chunkData ? chunkData.length : 0)) {
-          // Read a new chunk centered around this frame
           chunkOffset = Math.max(0, frameSampleInRange - N);
           const chunkSamples = Math.min(maxSamplesPerChunk, samplesToRead - chunkOffset);
           if (chunkSamples <= 0) break;
@@ -242,26 +242,30 @@ export class SpectrogramRenderer {
           );
         }
 
-        // Extract the window from chunk
         const localOffset = frameSampleInRange - chunkOffset;
-        const windowed = new Float32Array(N);
+        if (localOffset < 0 || !chunkData || localOffset + N > chunkData.length) {
+          continue;
+        }
+        // Copy the frame data (will be sent to worker)
+        const frameData = new Float32Array(N);
         for (let j = 0; j < N; j++) {
-          windowed[j] = (chunkData[localOffset + j] || 0) * this._window[j];
+          frameData[j] = chunkData[localOffset + j] || 0;
         }
+        fileFrameData.push({ index: i, data: frameData });
+      }
 
-        // FFT
-        const spectrum = this._fft(windowed);
-        const magnitudes = new Float32Array(freqBins);
-        for (let j = 0; j < freqBins; j++) {
-          const re = spectrum[2 * j];
-          const im = spectrum[2 * j + 1];
-          magnitudes[j] = 20 * Math.log10(Math.max(Math.sqrt(re * re + im * im), 1e-10));
-        }
-        frames[i] = magnitudes;
-        framesComputed++;
+      // Batch-FFT via worker pool (parallel across CPU cores)
+      if (fileFrameData.length > 0) {
+        const batchSize = 200; // Process in batches to report progress
+        for (let b = 0; b < fileFrameData.length; b += batchSize) {
+          const batch = fileFrameData.slice(b, b + batchSize);
+          const rawFrames = batch.map(f => f.data);
+          const magnitudes = await this._computeFFTBatch(rawFrames);
 
-        // Report progress & yield periodically
-        if (framesComputed % 100 === 0) {
+          for (let k = 0; k < batch.length; k++) {
+            frames[batch[k].index] = magnitudes[k];
+          }
+          framesComputed += batch.length;
           this._reportProgress('computing', Math.round((framesComputed / targetFrames) * 100));
           await new Promise(r => setTimeout(r, 0));
         }
@@ -281,6 +285,85 @@ export class SpectrogramRenderer {
 
   _reportProgress(phase, percent) {
     if (this.onProgress) this.onProgress(phase, percent);
+  }
+
+  // ── Web Worker Pool ─────────────────────────────────────────────────────
+
+  _initWorkers() {
+    try {
+      for (let i = 0; i < NUM_WORKERS; i++) {
+        const worker = new Worker('src/fft-worker.js');
+        this._workers.push(worker);
+        this._workerReady.push(true);
+      }
+      console.log(`FFT worker pool: ${NUM_WORKERS} workers (${navigator.hardwareConcurrency} cores detected)`);
+    } catch (err) {
+      console.warn('Web Workers not available, using main thread FFT:', err.message);
+      this._workers = [];
+    }
+  }
+
+  /**
+   * Compute FFT for a batch of windowed frames using the worker pool.
+   * Returns array of Float32Array magnitudes.
+   */
+  async _computeFFTBatch(windowedFrames) {
+    if (this._workers.length === 0) {
+      // Fallback: compute on main thread
+      return windowedFrames.map(frame => this._fftFrame(frame));
+    }
+
+    // Split frames across workers
+    const numWorkers = Math.min(this._workers.length, windowedFrames.length);
+    const chunkSize = Math.ceil(windowedFrames.length / numWorkers);
+    const promises = [];
+
+    // Pre-compute window function once
+    const N = this.fftSize;
+    if (!this._window || this._window.length !== N) {
+      this._window = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        this._window[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
+      }
+    }
+
+    for (let w = 0; w < numWorkers; w++) {
+      const start = w * chunkSize;
+      const end = Math.min(start + chunkSize, windowedFrames.length);
+      if (start >= end) break;
+
+      const tasks = [];
+      for (let i = start; i < end; i++) {
+        tasks.push({ data: windowedFrames[i], windowFunc: this._window });
+      }
+
+      const promise = new Promise((resolve) => {
+        const worker = this._workers[w];
+        worker.onmessage = (e) => resolve(e.data.magnitudes);
+        worker.postMessage({ type: 'compute', tasks, fftSize: N });
+      });
+      promises.push(promise);
+    }
+
+    const results = await Promise.all(promises);
+    // Flatten results from all workers
+    return results.flat();
+  }
+
+  /**
+   * Compute a single FFT frame on the main thread (fallback).
+   */
+  _fftFrame(data) {
+    const N = this.fftSize;
+    const freqBins = N / 2;
+    const spectrum = this._fft(data);
+    const magnitudes = new Float32Array(freqBins);
+    for (let j = 0; j < freqBins; j++) {
+      const re = spectrum[2 * j];
+      const im = spectrum[2 * j + 1];
+      magnitudes[j] = 20 * Math.log10(Math.max(Math.sqrt(re * re + im * im), 1e-10));
+    }
+    return magnitudes;
   }
 
   /**

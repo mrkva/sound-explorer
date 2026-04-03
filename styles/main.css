@@ -315,15 +315,18 @@ button.primary:hover {
   transition: width 0.05s linear;
 }
 
+/* Status bar */
+.status-bar {
+  padding: 3px 12px;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
 #status {
   color: var(--text-secondary);
   font-style: italic;
-  flex-shrink: 0;
-  text-align: right;
-  max-width: 400px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Computing overlay */

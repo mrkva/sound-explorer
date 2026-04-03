@@ -11,8 +11,7 @@
   <div class="toolbar">
     <div class="toolbar-group">
       <button id="btn-open-folder" class="primary">Open Folder</button>
-      <button id="btn-open-files">Open Files</button>
-      <button id="btn-open-file">Open File</button>
+      <button id="btn-open-file">Open File(s)</button>
     </div>
 
     <div class="toolbar-separator"></div>
@@ -154,6 +153,8 @@
           <option value="2048" selected>2048</option>
           <option value="4096">4096</option>
           <option value="8192">8192</option>
+          <option value="16384">16384</option>
+          <option value="32768">32768</option>
         </select>
       </div>
 
@@ -191,6 +192,10 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- Status bar (separate line) -->
+  <div class="status-bar">
     <span id="status">Ready</span>
   </div>
 

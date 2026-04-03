@@ -324,21 +324,8 @@ ipcMain.handle('open-folder-dialog', async () => {
   return result.filePaths[0];
 });
 
-// Open single file dialog
+// Open file(s) dialog - supports single or multiple selection
 ipcMain.handle('open-file-dialog', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile'],
-    filters: [
-      { name: 'WAV Audio', extensions: ['wav', 'wave', 'bwf'] },
-      { name: 'All Files', extensions: ['*'] }
-    ]
-  });
-  if (result.canceled) return null;
-  return result.filePaths[0];
-});
-
-// Open multiple files dialog
-ipcMain.handle('open-files-dialog', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile', 'multiSelections'],
     filters: [

@@ -16,7 +16,6 @@ class App {
     // DOM elements
     this.canvas = document.getElementById('spectrogram');
     this.btnOpenFolder = document.getElementById('btn-open-folder');
-    this.btnOpenFiles = document.getElementById('btn-open-files');
     this.btnOpenFile = document.getElementById('btn-open-file');
     this.btnPlay = document.getElementById('btn-play');
     this.btnStop = document.getElementById('btn-stop');
@@ -116,7 +115,7 @@ class App {
     this.spectrogram.onProgress = (phase, percent) => {
       if (phase === 'done' || phase === 'error') {
         this.computingOverlay.style.display = 'none';
-        this._setStatus(phase === 'done' ? this._readyStatusMessage() : 'Spectrogram error');
+        this._setStatus(phase === 'done' ? this._readyStatusMessage() : 'Spectrogram computation error');
       } else {
         this.computingOverlay.style.display = 'flex';
         const label = phase === 'reading' ? 'Reading audio data...' :
@@ -124,7 +123,7 @@ class App {
         this.computingLabel.textContent = label;
         this.computingBarFill.style.width = percent + '%';
         this.computingPercent.textContent = percent + '%';
-        this._setStatus(`${label} ${percent}%`);
+        // Don't duplicate overlay info in status bar
       }
     };
   }
@@ -144,11 +143,8 @@ class App {
     // Open folder
     this.btnOpenFolder.addEventListener('click', () => this._openFolder());
 
-    // Open multiple files
-    this.btnOpenFiles.addEventListener('click', () => this._openFiles());
-
-    // Open single file
-    this.btnOpenFile.addEventListener('click', () => this._openFile());
+    // Open file(s)
+    this.btnOpenFile.addEventListener('click', () => this._openFiles());
 
     // Play/Pause
     this.btnPlay.addEventListener('click', () => {
@@ -357,27 +353,16 @@ class App {
 
   async _openFiles() {
     try {
-      const filePaths = await window.electronAPI.openFilesDialog();
+      const filePaths = await window.electronAPI.openFileDialog();
       if (!filePaths) return;
 
-      this._setStatus(`Loading ${filePaths.length} files...`);
+      this._setStatus(`Loading ${filePaths.length} file${filePaths.length > 1 ? 's' : ''}...`);
       this.session = new Session();
-      await this.session.loadFiles(filePaths);
-      await this._initSession();
-    } catch (err) {
-      this._setStatus('Error: ' + err.message);
-      console.error(err);
-    }
-  }
-
-  async _openFile() {
-    try {
-      const filePath = await window.electronAPI.openFileDialog();
-      if (!filePath) return;
-
-      this._setStatus('Loading file...');
-      this.session = new Session();
-      await this.session.loadFile(filePath);
+      if (filePaths.length === 1) {
+        await this.session.loadFile(filePaths[0]);
+      } else {
+        await this.session.loadFiles(filePaths);
+      }
       await this._initSession();
     } catch (err) {
       this._setStatus('Error: ' + err.message);
