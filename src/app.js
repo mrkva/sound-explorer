@@ -453,6 +453,10 @@ class App {
       this.fileInfoHint.textContent = '';
     }
 
+    // Hide welcome overlay
+    const welcome = document.getElementById('welcome');
+    if (welcome) welcome.style.display = 'none';
+
     // Build file list
     this._buildFileList();
 

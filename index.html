@@ -242,18 +242,7 @@
   <script type="module" src="src/app.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      // Hide welcome overlay when computing starts
-      const welcome = document.getElementById('welcome');
-      const statusEl = document.getElementById('status');
-      const observer = new MutationObserver(() => {
-        if (statusEl.textContent.startsWith('Computing') ||
-            statusEl.textContent.startsWith('Ready —') ||
-            statusEl.textContent.startsWith('Ready \u2014')) {
-          welcome.style.display = 'none';
-          observer.disconnect();
-        }
-      });
-      observer.observe(statusEl, { childList: true, characterData: true, subtree: true });
+      // Welcome overlay is hidden by app.js when a session loads
 
       // Gain display updates
       const audioGain = document.getElementById('audio-gain');
