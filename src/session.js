@@ -101,6 +101,76 @@ export class Session {
   }
 
   /**
+   * Load multiple specific files as a session.
+   */
+  async loadFiles(filePaths) {
+    const fileInfos = await window.electronAPI.scanFiles(filePaths);
+    if (fileInfos.length === 0) {
+      throw new Error('No valid WAV files in selection');
+    }
+
+    // Reuse the same sorting and stitching logic as loadFolder
+    fileInfos.sort((a, b) => {
+      if (a.startTimeOfDay !== null && b.startTimeOfDay !== null) {
+        let timeA = a.startTimeOfDay;
+        let timeB = b.startTimeOfDay;
+        if (Math.abs(timeA - timeB) > 43200) {
+          if (timeA > timeB) timeA -= 86400;
+          else timeB -= 86400;
+        }
+        return timeA - timeB;
+      }
+      return a.filePath.localeCompare(b.filePath);
+    });
+
+    const ref = fileInfos[0];
+    this.sampleRate = ref.sampleRate;
+    this.channels = ref.channels;
+    this.bitsPerSample = ref.bitsPerSample;
+    this.format = ref.format || 1;
+    this.bytesPerSample = ref.bitsPerSample / 8;
+    this.blockAlign = this.channels * this.bytesPerSample;
+    this.sessionDate = ref.originationDate;
+
+    for (const f of fileInfos) {
+      if (f.sampleRate !== this.sampleRate || f.channels !== this.channels ||
+          f.bitsPerSample !== this.bitsPerSample) {
+        console.warn(`File ${f.filePath} has different format, skipping`);
+        continue;
+      }
+
+      const fileSamples = Math.floor(f.dataSize / this.blockAlign);
+      const fileDuration = fileSamples / this.sampleRate;
+
+      this.files.push({
+        filePath: f.filePath,
+        fileName: f.filePath.split(/[/\\]/).pop(),
+        dataOffset: f.dataOffset,
+        dataSize: f.dataSize,
+        samples: fileSamples,
+        duration: fileDuration,
+        sampleStart: this.totalSamples,
+        timeStart: this.totalDuration,
+        wallClockStart: f.startTimeOfDay,
+        originationDate: f.originationDate,
+        originationTime: f.originationTime,
+        bext: f.bext
+      });
+
+      this.totalSamples += fileSamples;
+      this.totalDuration += fileDuration;
+    }
+
+    if (this.files[0].wallClockStart !== null) {
+      this.sessionStartTime = this.files[0].wallClockStart;
+      const lastFile = this.files[this.files.length - 1];
+      this.sessionEndTime = lastFile.wallClockStart + lastFile.duration;
+    }
+
+    return this;
+  }
+
+  /**
    * Load a single file as a session.
    */
   async loadFile(filePath) {

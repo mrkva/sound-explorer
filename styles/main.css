@@ -178,6 +178,33 @@ button.primary:hover {
   font-size: 14px;
 }
 
+/* Cursor info */
+.cursor-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  min-width: 180px;
+}
+
+.cursor-info .label {
+  color: var(--text-secondary);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.cursor-freq {
+  color: #ff9800;
+  font-weight: 600;
+  min-width: 75px;
+}
+
+.cursor-time {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
 /* Spectrogram container */
 .spectrogram-container {
   flex: 1;

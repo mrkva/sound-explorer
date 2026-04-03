@@ -50,6 +50,7 @@ export class SpectrogramRenderer {
 
     this.onTimeClick = null;
     this.onViewChange = null;
+    this.onCursorMove = null; // Callback: (time, freq) => void
 
     // Hann window (pre-computed)
     this._window = null;
@@ -503,8 +504,11 @@ export class SpectrogramRenderer {
       const spectrum = frames[frameIdx];
 
       for (let y = 0; y < spectHeight; y++) {
-        const bin = minBin + Math.floor((spectHeight - 1 - y) * visibleBins / spectHeight);
-        const db = (spectrum[bin] || -120) + this.gainDB;
+        const bin = Math.min(
+          minBin + Math.floor((spectHeight - 1 - y) * visibleBins / spectHeight),
+          freqBins - 1
+        );
+        const db = (spectrum[bin] !== undefined ? spectrum[bin] : -120) + this.gainDB;
 
         const normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
         const [r, g, b] = this._colorize(normalized);
@@ -718,6 +722,14 @@ export class SpectrogramRenderer {
     return this.viewStart + ratio * (this.viewEnd - this.viewStart);
   }
 
+  canvasYToFreq(y) {
+    const spectHeight = this.canvas.height - 40;
+    if (y < 0 || y >= spectHeight) return null;
+    // y=0 is top (maxFreq), y=spectHeight-1 is bottom (minFreq)
+    const ratio = 1 - (y / spectHeight);
+    return this.minFreq + ratio * (this.maxFreq - this.minFreq);
+  }
+
   /**
    * Re-render the spectrogram image from cached FFT data (instant).
    * Use this when gain or dynamic range changes - no FFT recomputation needed.
@@ -739,8 +751,20 @@ export class SpectrogramRenderer {
 
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      const time = this.canvasXToTime(e.offsetX);
-      const factor = e.deltaY > 0 ? 1.3 : 1 / 1.3;
+      // Get cursor position relative to canvas for zoom center
+      const rect = this.canvas.getBoundingClientRect();
+      const canvasX = e.clientX - rect.left;
+      const time = this.canvasXToTime(canvasX);
+
+      // Trackpad pinch-to-zoom sends ctrlKey+wheel with fine deltaY
+      // Regular scroll wheel sends larger discrete deltaY
+      let factor;
+      if (e.ctrlKey) {
+        // Pinch gesture: deltaY is small and continuous
+        factor = 1 + e.deltaY * 0.02;
+      } else {
+        factor = e.deltaY > 0 ? 1.3 : 1 / 1.3;
+      }
       this.zoom(time, factor);
       this.draw();
       scheduleCompute();
@@ -766,6 +790,16 @@ export class SpectrogramRenderer {
         this.draw();
         scheduleCompute();
       }
+
+      // Report cursor position (time + frequency)
+      if (this.onCursorMove) {
+        const rect = this.canvas.getBoundingClientRect();
+        const canvasX = e.clientX - rect.left;
+        const canvasY = e.clientY - rect.top;
+        const time = this.canvasXToTime(canvasX);
+        const freq = this.canvasYToFreq(canvasY);
+        this.onCursorMove(time, freq);
+      }
     });
 
     this.canvas.addEventListener('mouseup', (e) => {
@@ -782,6 +816,7 @@ export class SpectrogramRenderer {
     this.canvas.addEventListener('mouseleave', () => {
       this.isDragging = false;
       this.canvas.style.cursor = 'crosshair';
+      if (this.onCursorMove) this.onCursorMove(null, null);
     });
   }
 }

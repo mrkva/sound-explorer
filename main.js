@@ -337,6 +337,19 @@ ipcMain.handle('open-file-dialog', async () => {
   return result.filePaths[0];
 });
 
+// Open multiple files dialog
+ipcMain.handle('open-files-dialog', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'WAV Audio', extensions: ['wav', 'wave', 'bwf'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths;
+});
+
 // Scan folder for WAV files and return their headers
 ipcMain.handle('scan-folder', async (event, folderPath) => {
   const entries = await fs.promises.readdir(folderPath);
@@ -347,6 +360,20 @@ ipcMain.handle('scan-folder', async (event, folderPath) => {
 
   const results = [];
   for (const filePath of wavFiles) {
+    try {
+      const header = await readWavHeader(filePath);
+      results.push({ filePath, ...header });
+    } catch (err) {
+      console.warn(`Skipping ${filePath}: ${err.message}`);
+    }
+  }
+  return results;
+});
+
+// Scan specific file paths and return their headers
+ipcMain.handle('scan-files', async (event, filePaths) => {
+  const results = [];
+  for (const filePath of filePaths) {
     try {
       const header = await readWavHeader(filePath);
       results.push({ filePath, ...header });

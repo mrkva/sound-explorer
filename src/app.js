@@ -16,6 +16,7 @@ class App {
     // DOM elements
     this.canvas = document.getElementById('spectrogram');
     this.btnOpenFolder = document.getElementById('btn-open-folder');
+    this.btnOpenFiles = document.getElementById('btn-open-files');
     this.btnOpenFile = document.getElementById('btn-open-file');
     this.btnPlay = document.getElementById('btn-play');
     this.btnStop = document.getElementById('btn-stop');
@@ -78,6 +79,32 @@ class App {
       // Debounced recompute handled internally by spectrogram
     };
 
+    this.cursorFreq = document.getElementById('cursor-freq');
+    this.cursorTime = document.getElementById('cursor-time');
+
+    this.spectrogram.onCursorMove = (time, freq) => {
+      if (time === null || freq === null) {
+        this.cursorFreq.textContent = '-- Hz';
+        this.cursorTime.textContent = '--:--';
+        return;
+      }
+      // Format frequency
+      if (freq >= 1000) {
+        this.cursorFreq.textContent = (freq / 1000).toFixed(2) + ' kHz';
+      } else {
+        this.cursorFreq.textContent = Math.round(freq) + ' Hz';
+      }
+      // Show wall-clock time if available, otherwise file position
+      if (this.session?.sessionStartTime !== null && this.session?.sessionStartTime !== undefined) {
+        const wallSec = this.session.toWallClock(time);
+        if (wallSec !== null) {
+          this.cursorTime.textContent = BWFParser.secondsToTimeString(wallSec);
+        }
+      } else {
+        this.cursorTime.textContent = this._formatTimePrecise(time);
+      }
+    };
+
     this.computingOverlay = document.getElementById('computing-overlay');
     this.computingLabel = document.getElementById('computing-label');
     this.computingBarFill = document.getElementById('computing-bar-fill');
@@ -113,6 +140,9 @@ class App {
   _setupEventListeners() {
     // Open folder
     this.btnOpenFolder.addEventListener('click', () => this._openFolder());
+
+    // Open multiple files
+    this.btnOpenFiles.addEventListener('click', () => this._openFiles());
 
     // Open single file
     this.btnOpenFile.addEventListener('click', () => this._openFile());
@@ -292,6 +322,21 @@ class App {
       this._setStatus('Scanning folder...');
       this.session = new Session();
       await this.session.loadFolder(folderPath);
+      await this._initSession();
+    } catch (err) {
+      this._setStatus('Error: ' + err.message);
+      console.error(err);
+    }
+  }
+
+  async _openFiles() {
+    try {
+      const filePaths = await window.electronAPI.openFilesDialog();
+      if (!filePaths) return;
+
+      this._setStatus(`Loading ${filePaths.length} files...`);
+      this.session = new Session();
+      await this.session.loadFiles(filePaths);
       await this._initSession();
     } catch (err) {
       this._setStatus('Error: ' + err.message);
