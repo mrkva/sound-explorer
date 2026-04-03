@@ -193,26 +193,6 @@ button.primary:hover {
   cursor: crosshair;
 }
 
-/* Progress bar */
-.progress-container {
-  height: 8px;
-  background: var(--bg-tertiary);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-#progress-bar {
-  height: 100%;
-  position: relative;
-}
-
-#progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--green));
-  width: 0%;
-  transition: width 0.05s linear;
-}
-
 /* Bottom bar */
 .bottom-bar {
   display: flex;

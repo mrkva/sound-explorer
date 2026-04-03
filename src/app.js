@@ -30,8 +30,6 @@ class App {
     this.durationDisplay = document.getElementById('duration');
     this.fileInfoDisplay = document.getElementById('file-info');
     this.statusDisplay = document.getElementById('status');
-    this.progressBar = document.getElementById('progress-bar');
-    this.progressFill = document.getElementById('progress-fill');
     this.volumeSlider = document.getElementById('volume');
     this.audioGainSlider = document.getElementById('audio-gain');
     this.spectGainSlider = document.getElementById('spect-gain');
@@ -105,12 +103,10 @@ class App {
     this.engine.onTimeUpdate = (time) => {
       this._updateTimeDisplays(time);
       this.spectrogram.draw(time);
-      this._updateProgressBar(time);
     };
 
     this.engine.onEnded = () => {
       this.btnPlay.textContent = '\u25B6 Play';
-      this._updateProgressBar(0);
     };
   }
 
@@ -138,7 +134,6 @@ class App {
       this.btnPlay.textContent = '\u25B6 Play';
       this.spectrogram.draw(0);
       this._updateTimeDisplays(0);
-      this._updateProgressBar(0);
     });
 
     // Zoom
@@ -207,16 +202,6 @@ class App {
     // Playback rate
     this.playbackRateSelect.addEventListener('change', (e) => {
       this.engine.setPlaybackRate(parseFloat(e.target.value));
-    });
-
-    // Progress bar click
-    this.progressBar.addEventListener('click', (e) => {
-      const rect = this.progressBar.getBoundingClientRect();
-      const ratio = (e.clientX - rect.left) / rect.width;
-      const time = ratio * this.engine.getDuration();
-      this.engine.seek(time);
-      this.spectrogram.draw(time);
-      this._updateTimeDisplays(time);
     });
 
     // File info bar - toggle file list
@@ -464,11 +449,6 @@ class App {
     }
   }
 
-  _updateProgressBar(time) {
-    const duration = this.engine.getDuration();
-    const pct = duration > 0 ? (time / duration) * 100 : 0;
-    this.progressFill.style.width = pct + '%';
-  }
 
   _startVUMeter() {
     const update = () => {

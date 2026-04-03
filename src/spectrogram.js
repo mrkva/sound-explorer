@@ -115,21 +115,24 @@ export class SpectrogramRenderer {
       let spectrogramData = this.tileCache.get(cacheKey);
 
       if (!spectrogramData) {
+        this._reportProgress('reading', 0);
+        // Yield so the overlay can appear before heavy work starts
+        await new Promise(r => setTimeout(r, 0));
+
         if (needsSubsampling) {
-          // SUBSAMPLED MODE: Read small windows spread across the view
-          // Each window is fftSize samples, spaced evenly to get targetFrames
           spectrogramData = await this._computeSubsampled(
             startSample, endSample, targetFrames
           );
         } else {
           // FULL MODE: Read all samples and compute FFT continuously
-          this._reportProgress('reading', 0);
           const pcmData = await this._readPCMRange(startSample, totalViewSamples);
           if (!pcmData) {
             this._computing = false;
+            this._reportProgress('done', 100);
             return;
           }
           this._reportProgress('computing', 0);
+          await new Promise(r => setTimeout(r, 0));
           spectrogramData = this._computeFFT(pcmData, hopSize);
         }
 
@@ -324,6 +327,11 @@ export class SpectrogramRenderer {
         );
 
         bytesReadSoFar += chunkLen;
+
+        // Report read progress
+        const totalBytesNeeded = numSamples * blockAlign;
+        const totalBytesRead = (samplesRead * blockAlign) + bytesReadSoFar;
+        this._reportProgress('reading', Math.round((totalBytesRead / totalBytesNeeded) * 100));
       }
 
       samplesRead += toRead;
