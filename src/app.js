@@ -274,8 +274,10 @@ class App {
       this.engine.setPlaybackRate(parseFloat(e.target.value));
     });
 
-    // File info bar - toggle file list
-    this.fileInfoDisplay.parentElement.addEventListener('click', () => {
+    // File info area - toggle file list
+    this.fileInfoArea = document.getElementById('file-info-area');
+    this.fileInfoHint = document.getElementById('file-info-hint');
+    this.fileInfoArea.addEventListener('click', () => {
       if (this.session && this.session.files.length > 1) {
         this.fileListPanel.style.display =
           this.fileListPanel.style.display === 'none' ? 'block' : 'none';
@@ -444,6 +446,12 @@ class App {
     // Display info
     this.fileInfoDisplay.textContent = session.getSummary();
     this.durationDisplay.textContent = this._formatTime(session.totalDuration);
+    // Show clickable hint if multi-file session
+    if (session.files.length > 1) {
+      this.fileInfoHint.textContent = `[${session.files.length} files - click]`;
+    } else {
+      this.fileInfoHint.textContent = '';
+    }
 
     // Build file list
     this._buildFileList();
@@ -790,11 +798,36 @@ class App {
     this.annotationsList.querySelectorAll('.delete-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const idx = parseInt(btn.dataset.index);
-        this.annotations.splice(idx, 1);
-        this._updateAnnotationsList();
+        if (btn.dataset.confirm === 'yes') {
+          const idx = parseInt(btn.dataset.index);
+          this.annotations.splice(idx, 1);
+          this._updateAnnotationsList();
+        } else {
+          btn.dataset.confirm = 'yes';
+          btn.textContent = 'Sure?';
+          btn.classList.add('confirm');
+          setTimeout(() => {
+            btn.dataset.confirm = '';
+            btn.textContent = 'Delete';
+            btn.classList.remove('confirm');
+          }, 2000);
+        }
       });
     });
+
+    // Sync annotations to spectrogram for timeline markers
+    this._syncAnnotationsToSpectrogram();
+  }
+
+  _syncAnnotationsToSpectrogram() {
+    if (this.spectrogram) {
+      this.spectrogram.annotations = this.annotations.map(a => ({
+        sessionStart: a.sessionStart,
+        sessionEnd: a.sessionEnd,
+        note: a.note
+      }));
+      this.spectrogram.draw();
+    }
   }
 
   _escapeHtml(str) {

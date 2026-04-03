@@ -59,6 +59,9 @@ export class SpectrogramRenderer {
     this.selectionEnd = null;
     this._isSelecting = false;
 
+    // Annotation markers (set by app): [{sessionStart, sessionEnd, note}]
+    this.annotations = [];
+
     // Hann window (pre-computed)
     this._window = null;
 
@@ -675,6 +678,9 @@ export class SpectrogramRenderer {
     // File boundaries
     this._drawFileBoundaries(width, height);
 
+    // Annotation markers on timeline
+    this._drawAnnotationMarkers(width, height);
+
     // Selection highlight
     if (this.selectionStart !== null && this.selectionEnd !== null) {
       const selStart = Math.max(this.selectionStart, this.viewStart);
@@ -738,6 +744,42 @@ export class SpectrogramRenderer {
       }
     }
     this.ctx.setLineDash([]);
+  }
+
+  _drawAnnotationMarkers(canvasWidth, canvasHeight) {
+    if (this.annotations.length === 0) return;
+
+    const spectWidth = canvasWidth - 60;
+    const axisY = canvasHeight - 40;
+    const viewDuration = this.viewEnd - this.viewStart;
+
+    for (const ann of this.annotations) {
+      // Check if annotation overlaps the view
+      if (ann.sessionEnd < this.viewStart || ann.sessionStart > this.viewEnd) continue;
+
+      const x1 = 50 + Math.max(0, ((ann.sessionStart - this.viewStart) / viewDuration) * spectWidth);
+      const x2 = 50 + Math.min(spectWidth, ((ann.sessionEnd - this.viewStart) / viewDuration) * spectWidth);
+      const barW = Math.max(3, x2 - x1);
+
+      // Draw a small colored bar in the time axis area
+      this.ctx.fillStyle = 'rgba(255, 152, 0, 0.6)';
+      this.ctx.fillRect(x1, axisY - 4, barW, 4);
+
+      // Draw label if there's room
+      if (barW > 20) {
+        this.ctx.fillStyle = 'rgba(255, 152, 0, 0.85)';
+        this.ctx.font = '9px sans-serif';
+        this.ctx.textAlign = 'left';
+        const labelX = x1 + 2;
+        const maxW = barW - 4;
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.rect(x1, axisY - 18, barW, 14);
+        this.ctx.clip();
+        this.ctx.fillText(ann.note, labelX, axisY - 7);
+        this.ctx.restore();
+      }
+    }
   }
 
   _drawFrequencyAxis(canvasHeight) {
