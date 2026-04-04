@@ -1273,8 +1273,9 @@ class App {
 
     const adjusted = wallSec + (this._tcOffsetHours || 0) * 3600;
 
-    // TimeReference = samples since midnight
-    const timeReference = Math.round(adjusted * session.sampleRate);
+    // TimeReference = samples since midnight (use modulo 86400 for time-of-day)
+    const daySeconds = ((adjusted % 86400) + 86400) % 86400;
+    const timeReference = Math.round(daySeconds * session.sampleRate);
 
     // OriginationDate and OriginationTime
     const date = session.sessionDate?.replace(/:/g, '-') || '2000-01-01';

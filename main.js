@@ -52,7 +52,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'Field Recording Explorer v0.1.2',
+    title: 'Field Recording Explorer v0.1.3',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -468,9 +468,12 @@ ipcMain.handle('export-wav-segment', async (event, segments, outputPath, bextMet
     // OriginationTime: 8 bytes (HH:MM:SS)
     bextChunk.write((bextMeta.originationTime || '').slice(0, 8).padEnd(8, '\0'), 338, 'ascii');
     // TimeReference: uint64 LE (samples since midnight)
-    const timeRef = bextMeta.timeReference || 0;
-    bextChunk.writeUInt32LE(timeRef & 0xFFFFFFFF, 346);
-    bextChunk.writeUInt32LE(Math.floor(timeRef / 0x100000000) & 0xFFFFFFFF, 350);
+    const timeRef = Math.max(0, bextMeta.timeReference || 0);
+    // Split uint64 without bitwise ops (which convert to signed int32)
+    const timeLow = timeRef % 0x100000000;
+    const timeHigh = Math.floor(timeRef / 0x100000000);
+    bextChunk.writeUInt32LE(timeLow >>> 0, 346);
+    bextChunk.writeUInt32LE(timeHigh >>> 0, 350);
     // Version: uint16 (BWF version 0)
     bextChunk.writeUInt16LE(0, 354);
     // Remaining 256 bytes (UMID + reserved) are already zeroed
