@@ -1287,10 +1287,15 @@ export class SpectrogramRenderer {
 
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      // Get cursor position relative to canvas for zoom center
-      const rect = this.canvas.getBoundingClientRect();
-      const canvasX = e.clientX - rect.left;
-      const time = this.canvasXToTime(canvasX);
+      // Zoom centers on playback cursor if available, otherwise mouse position
+      let time;
+      if (this._lastPlaybackTime !== null && this._lastPlaybackTime !== undefined) {
+        time = this._lastPlaybackTime;
+      } else {
+        const rect = this.canvas.getBoundingClientRect();
+        const canvasX = e.clientX - rect.left;
+        time = this.canvasXToTime(canvasX);
+      }
 
       // Trackpad pinch-to-zoom sends ctrlKey+wheel with fine deltaY
       // Regular scroll wheel sends larger discrete deltaY

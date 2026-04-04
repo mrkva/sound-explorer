@@ -499,6 +499,18 @@ class App {
           break;
       }
     });
+
+    // Shortcuts modal
+    const shortcutsModal = document.getElementById('shortcuts-modal');
+    document.getElementById('btn-shortcuts').addEventListener('click', () => {
+      shortcutsModal.style.display = 'flex';
+    });
+    document.getElementById('btn-close-shortcuts').addEventListener('click', () => {
+      shortcutsModal.style.display = 'none';
+    });
+    shortcutsModal.addEventListener('click', (e) => {
+      if (e.target === shortcutsModal) shortcutsModal.style.display = 'none';
+    });
   }
 
   _setupDragAndDrop() {
