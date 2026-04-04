@@ -6,6 +6,38 @@ const http = require('http');
 let mainWindow;
 let audioServer;
 let sessionFiles = []; // [{filePath, dataOffset, dataSize, bytesPerSample, channels, sampleRate}]
+
+// ── File descriptor cache (avoids open/close per PCM chunk read) ──────────
+const fdCache = new Map(); // filePath → { fd: fs.promises.FileHandle, timer }
+const FD_CACHE_TTL = 10000; // Close idle FDs after 10 seconds
+
+async function getCachedFd(filePath) {
+  let entry = fdCache.get(filePath);
+  if (entry) {
+    clearTimeout(entry.timer);
+    entry.timer = setTimeout(() => closeCachedFd(filePath), FD_CACHE_TTL);
+    return entry.fd;
+  }
+  const fd = await fs.promises.open(filePath, 'r');
+  const timer = setTimeout(() => closeCachedFd(filePath), FD_CACHE_TTL);
+  fdCache.set(filePath, { fd, timer });
+  return fd;
+}
+
+function closeCachedFd(filePath) {
+  const entry = fdCache.get(filePath);
+  if (entry) {
+    clearTimeout(entry.timer);
+    entry.fd.close().catch(() => {});
+    fdCache.delete(filePath);
+  }
+}
+
+function closeAllCachedFds() {
+  for (const [filePath] of fdCache) {
+    closeCachedFd(filePath);
+  }
+}
 let totalDataBytes = 0;    // Total bytes in the *output* (16-bit) stream
 let sessionBitsPerSample = 16;  // Source bits per sample
 let sessionFormat = 1;          // 1=PCM, 3=IEEE float
@@ -343,6 +375,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  closeAllCachedFds();
   if (audioServer) audioServer.close();
   if (process.platform !== 'darwin') app.quit();
 });
@@ -559,18 +592,18 @@ ipcMain.handle('read-file-header', async (event, filePath) => {
 });
 
 // Read a chunk of raw PCM data from a specific file (for spectrogram computation)
+// Uses FD cache to avoid open/close overhead on repeated reads from the same file.
 ipcMain.handle('read-pcm-chunk', async (event, filePath, dataOffset, byteOffset, byteLength) => {
-  const fd = await fs.promises.open(filePath, 'r');
+  const fd = await getCachedFd(filePath);
   const buf = Buffer.alloc(byteLength);
   const { bytesRead } = await fd.read(buf, 0, byteLength, dataOffset + byteOffset);
-  await fd.close();
-  // Return only bytes actually read
   const result = buf.buffer.slice(buf.byteOffset, buf.byteOffset + bytesRead);
   return result;
 });
 
 // Set up the audio server for a session and return the URL
 ipcMain.handle('setup-audio-server', async (event, files, requestedOutputRate) => {
+  closeAllCachedFds(); // Close FDs from previous session
   sessionFiles = files;
   const ref = files[0];
   sessionBitsPerSample = ref.bitsPerSample;

@@ -68,10 +68,17 @@ export class SpectrogramRenderer {
     // Hann window (pre-computed)
     this._window = null;
 
+    // Rendered spectrogram image (ImageData or ImageBitmap)
+    this._spectBitmap = null;
+
     // Web Worker pool for parallel FFT
     this._workers = [];
     this._workerReady = [];
     this._initWorkers();
+
+    // Render worker for off-main-thread pixel rendering
+    this._renderWorker = null;
+    this._initRenderWorker();
 
     this._setupInteraction();
   }
@@ -150,7 +157,7 @@ export class SpectrogramRenderer {
             startSample, endSample, targetFrames
           );
         } else {
-          // FULL MODE: Read all samples and compute FFT continuously
+          // FULL MODE: Read all samples and compute FFT on workers
           const pcmData = await this._readPCMRange(startSample, totalViewSamples);
           if (!pcmData) {
             this._computing = false;
@@ -159,7 +166,7 @@ export class SpectrogramRenderer {
           }
           this._reportProgress('computing', 0);
           await new Promise(r => setTimeout(r, 0));
-          spectrogramData = this._computeFFT(pcmData, hopSize);
+          spectrogramData = await this._computeFFTOnWorkers(pcmData, hopSize);
         }
 
         // Cache it
@@ -174,7 +181,7 @@ export class SpectrogramRenderer {
 
       this._lastFFTData = spectrogramData;
       this._reportProgress('rendering', 0);
-      this._renderSpectrogram(spectrogramData);
+      await this._renderSpectrogram(spectrogramData);
       this._reportProgress('done', 100);
       this.draw();
     } catch (err) {
@@ -201,12 +208,7 @@ export class SpectrogramRenderer {
     const totalSpan = endSample - startSample;
     const step = Math.max(1, Math.floor(totalSpan / targetFrames));
 
-    if (!this._window || this._window.length !== N) {
-      this._window = new Float32Array(N);
-      for (let i = 0; i < N; i++) {
-        this._window[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
-      }
-    }
+    this._ensureWindow(N);
 
     const frames = new Array(targetFrames);
     const session = this.session;
@@ -322,29 +324,31 @@ export class SpectrogramRenderer {
     }
   }
 
+  _initRenderWorker() {
+    try {
+      this._renderWorker = new Worker('src/render-worker.js');
+    } catch (err) {
+      console.warn('Render worker not available, using main thread rendering:', err.message);
+      this._renderWorker = null;
+    }
+  }
+
   /**
    * Compute FFT for a batch of windowed frames using the worker pool.
+   * Used by the subsampled path which sends pre-extracted frame data.
    * Returns array of Float32Array magnitudes.
    */
   async _computeFFTBatch(windowedFrames) {
     if (this._workers.length === 0) {
-      // Fallback: compute on main thread
       return windowedFrames.map(frame => this._fftFrame(frame));
     }
 
-    // Split frames across workers
     const numWorkers = Math.min(this._workers.length, windowedFrames.length);
     const chunkSize = Math.ceil(windowedFrames.length / numWorkers);
     const promises = [];
 
-    // Pre-compute window function once
     const N = this.fftSize;
-    if (!this._window || this._window.length !== N) {
-      this._window = new Float32Array(N);
-      for (let i = 0; i < N; i++) {
-        this._window[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
-      }
-    }
+    this._ensureWindow(N);
 
     for (let w = 0; w < numWorkers; w++) {
       const start = w * chunkSize;
@@ -364,9 +368,94 @@ export class SpectrogramRenderer {
       promises.push(promise);
     }
 
+    return (await Promise.all(promises)).flat();
+  }
+
+  /**
+   * Full-mode FFT on workers: sends contiguous PCM + window to workers,
+   * each worker processes a slice of frames (windowing + FFT + dB).
+   * Returns { frames, freqBins, numFrames, hopSize }.
+   */
+  async _computeFFTOnWorkers(monoData, hopSize) {
+    const N = this.fftSize;
+    const numFrames = Math.max(1, Math.floor((monoData.length - N) / hopSize) + 1);
+    const freqBins = N / 2;
+
+    this._ensureWindow(N);
+
+    if (this._workers.length === 0) {
+      // Fallback: main thread
+      return this._computeFFTMainThread(monoData, hopSize);
+    }
+
+    const numWorkers = Math.min(this._workers.length, numFrames);
+    const framesPerWorker = Math.ceil(numFrames / numWorkers);
+    const promises = [];
+
+    for (let w = 0; w < numWorkers; w++) {
+      const startFrame = w * framesPerWorker;
+      const endFrame = Math.min(startFrame + framesPerWorker, numFrames);
+      if (startFrame >= endFrame) break;
+      const workerFrames = endFrame - startFrame;
+
+      const promise = new Promise((resolve) => {
+        const worker = this._workers[w];
+        worker.onmessage = (e) => resolve({ startFrame, magnitudes: e.data.magnitudes });
+        worker.postMessage({
+          type: 'computeBulk',
+          pcm: monoData,        // SharedArrayBuffer-like (structured clone)
+          fftSize: N,
+          hopSize,
+          windowFunc: this._window,
+          startFrame,
+          numFrames: workerFrames
+        });
+      });
+      promises.push(promise);
+    }
+
     const results = await Promise.all(promises);
-    // Flatten results from all workers
-    return results.flat();
+    const frames = new Array(numFrames);
+    for (const { startFrame, magnitudes } of results) {
+      for (let i = 0; i < magnitudes.length; i++) {
+        frames[startFrame + i] = magnitudes[i];
+      }
+    }
+
+    this._reportProgress('computing', 100);
+    return { frames, freqBins, numFrames, hopSize };
+  }
+
+  /**
+   * Main-thread FFT fallback (when no workers available).
+   */
+  _computeFFTMainThread(monoData, hopSize) {
+    const N = this.fftSize;
+    const numFrames = Math.max(1, Math.floor((monoData.length - N) / hopSize) + 1);
+    const freqBins = N / 2;
+
+    this._ensureWindow(N);
+    const frames = new Array(numFrames);
+
+    for (let i = 0; i < numFrames; i++) {
+      const start = i * hopSize;
+      const frame = new Float32Array(N);
+      for (let j = 0; j < N; j++) {
+        frame[j] = (monoData[start + j] || 0) * this._window[j];
+      }
+      frames[i] = this._fftFrame(frame);
+    }
+
+    return { frames, freqBins, numFrames, hopSize };
+  }
+
+  _ensureWindow(N) {
+    if (!this._window || this._window.length !== N) {
+      this._window = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        this._window[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
+      }
+    }
   }
 
   /**
@@ -389,65 +478,75 @@ export class SpectrogramRenderer {
 
   /**
    * Read PCM samples from session files for the given sample range.
-   * Handles reading across multiple files.
+   * Issues parallel IPC reads (up to PARALLEL_READS concurrent) for throughput.
    */
   async _readPCMRange(startSample, numSamples) {
     const session = this.session;
     const blockAlign = session.blockAlign;
     const mono = new Float32Array(numSamples);
-    let samplesRead = 0;
+    const PARALLEL_READS = 4;
+
+    // Build a flat list of chunk descriptors
+    const chunks = [];
+    let samplesPlanned = 0;
 
     for (const file of session.files) {
-      if (samplesRead >= numSamples) break;
+      if (samplesPlanned >= numSamples) break;
 
       const fileEndSample = file.sampleStart + file.samples;
-      const readStart = startSample + samplesRead;
+      const readStart = startSample + samplesPlanned;
 
-      // Check if this file overlaps our range
       if (readStart >= fileEndSample) continue;
-      if (readStart + (numSamples - samplesRead) <= file.sampleStart) continue;
+      if (readStart + (numSamples - samplesPlanned) <= file.sampleStart) continue;
 
-      // Calculate the overlap
       const fileOffset = Math.max(0, readStart - file.sampleStart);
       const remainingInFile = file.samples - fileOffset;
-      const toRead = Math.min(numSamples - samplesRead, remainingInFile);
-
+      const toRead = Math.min(numSamples - samplesPlanned, remainingInFile);
       if (toRead <= 0) continue;
 
-      // Read raw bytes
-      const byteOffset = fileOffset * blockAlign;
-      const byteLength = toRead * blockAlign;
-
-      // Read in sub-chunks to avoid huge IPC transfers (max 8MB per chunk)
-      // IMPORTANT: chunk size must be a multiple of blockAlign to maintain
-      // sample frame alignment across chunk boundaries
+      // Split into sub-chunks (max 8MB each, aligned to blockAlign)
       const maxChunkBytes = Math.floor((8 * 1024 * 1024) / blockAlign) * blockAlign;
-      let samplesDecodedFromFile = 0;
+      let done = 0;
+      while (done < toRead) {
+        const chunkSamples = Math.min(Math.floor(maxChunkBytes / blockAlign), toRead - done);
+        chunks.push({
+          file,
+          fileOffset: fileOffset + done,
+          chunkSamples,
+          outputOffset: samplesPlanned + done
+        });
+        done += chunkSamples;
+      }
 
-      while (samplesDecodedFromFile < toRead) {
-        const remainingSamples = toRead - samplesDecodedFromFile;
-        const chunkSamples = Math.min(Math.floor(maxChunkBytes / blockAlign), remainingSamples);
-        const chunkByteOffset = (fileOffset + samplesDecodedFromFile) * blockAlign;
-        const chunkByteLen = chunkSamples * blockAlign;
+      samplesPlanned += toRead;
+    }
 
-        const rawBytes = await window.electronAPI.readPcmChunk(
-          file.filePath, file.dataOffset, chunkByteOffset, chunkByteLen
+    // Issue reads in parallel batches
+    let completed = 0;
+    for (let i = 0; i < chunks.length; i += PARALLEL_READS) {
+      const batch = chunks.slice(i, i + PARALLEL_READS);
+      const promises = batch.map(c => {
+        const byteOff = c.fileOffset * blockAlign;
+        const byteLen = c.chunkSamples * blockAlign;
+        return window.electronAPI.readPcmChunk(
+          c.file.filePath, c.file.dataOffset, byteOff, byteLen
         );
+      });
 
+      const results = await Promise.all(promises);
+
+      for (let j = 0; j < batch.length; j++) {
+        const rawBytes = results[j];
+        const c = batch[j];
         const actualSamples = Math.floor(rawBytes.byteLength / blockAlign);
         this._decodePCMToMono(
           new DataView(rawBytes), session.bitsPerSample, session.channels,
-          mono, samplesRead + samplesDecodedFromFile, actualSamples
+          mono, c.outputOffset, actualSamples
         );
-
-        samplesDecodedFromFile += actualSamples || chunkSamples; // avoid infinite loop if read fails
-
-        // Report read progress
-        const totalSamplesRead = samplesRead + samplesDecodedFromFile;
-        this._reportProgress('reading', Math.round((totalSamplesRead / numSamples) * 100));
       }
 
-      samplesRead += toRead;
+      completed += batch.length;
+      this._reportProgress('reading', Math.round((completed / chunks.length) * 100));
     }
 
     return mono;
@@ -496,45 +595,7 @@ export class SpectrogramRenderer {
     }
   }
 
-  /**
-   * Compute FFT frames from mono PCM data.
-   */
-  _computeFFT(monoData, hopSize) {
-    const N = this.fftSize;
-    const numFrames = Math.max(1, Math.floor((monoData.length - N) / hopSize) + 1);
-    const freqBins = N / 2;
-
-    // Ensure Hann window is ready
-    if (!this._window || this._window.length !== N) {
-      this._window = new Float32Array(N);
-      for (let i = 0; i < N; i++) {
-        this._window[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
-      }
-    }
-
-    const frames = new Array(numFrames);
-
-    for (let i = 0; i < numFrames; i++) {
-      const start = i * hopSize;
-      const frame = new Float32Array(N);
-      for (let j = 0; j < N; j++) {
-        frame[j] = (monoData[start + j] || 0) * this._window[j];
-      }
-
-      const spectrum = this._fft(frame);
-      const magnitudes = new Float32Array(freqBins);
-      for (let j = 0; j < freqBins; j++) {
-        const re = spectrum[2 * j];
-        const im = spectrum[2 * j + 1];
-        const mag = Math.sqrt(re * re + im * im);
-        const db = 20 * Math.log10(Math.max(mag, 1e-10));
-        magnitudes[j] = isFinite(db) ? db : -120;
-      }
-      frames[i] = magnitudes;
-    }
-
-    return { frames, freqBins, numFrames, hopSize };
-  }
+  // _computeFFT replaced by _computeFFTOnWorkers + _computeFFTMainThread
 
   /**
    * Cooley-Tukey FFT (radix-2).
@@ -589,9 +650,10 @@ export class SpectrogramRenderer {
   }
 
   /**
-   * Render spectrogram data to the canvas.
+   * Render spectrogram data to canvas.
+   * Delegates to render worker when available; falls back to main thread.
    */
-  _renderSpectrogram(data) {
+  async _renderSpectrogram(data) {
     const { width, height } = this.canvas;
     const spectWidth = width - 60;
     const spectHeight = height - 40;
@@ -600,26 +662,63 @@ export class SpectrogramRenderer {
 
     const { frames, freqBins, numFrames } = data;
 
-    // Frequency range in bins
+    if (this._renderWorker) {
+      // Offload to render worker
+      const bitmap = await new Promise((resolve) => {
+        this._renderWorker.onmessage = (e) => resolve(e.data.bitmap);
+        this._renderWorker.postMessage({
+          type: 'render',
+          frames, freqBins, numFrames,
+          width: spectWidth, height: spectHeight,
+          sampleRate: this.session.sampleRate,
+          fftSize: this.fftSize,
+          minFreq: this.minFreq,
+          maxFreq: this.maxFreq,
+          logFrequency: this.logFrequency,
+          gainDB: this.gainDB,
+          dynamicRangeDB: this.dynamicRangeDB,
+          colorPreset: this.colorPreset
+        });
+      });
+
+      // Store bitmap for redrawing with cursor
+      this._spectBitmap = bitmap;
+      this._spectImage = null;
+      this._spectWidth = spectWidth;
+      this._spectHeight = spectHeight;
+    } else {
+      // Main-thread fallback
+      this._renderSpectrogramMainThread(data);
+    }
+  }
+
+  /**
+   * Main-thread rendering fallback.
+   */
+  _renderSpectrogramMainThread(data) {
+    const { width, height } = this.canvas;
+    const spectWidth = width - 60;
+    const spectHeight = height - 40;
+    if (spectWidth <= 0 || spectHeight <= 0) return;
+
+    const { frames, freqBins, numFrames } = data;
+
     const binRes = this.session.sampleRate / this.fftSize;
-    const minBin = Math.max(1, Math.floor(this.minFreq / binRes)); // Skip DC bin (0)
+    const minBin = Math.max(1, Math.floor(this.minFreq / binRes));
     const maxBin = Math.min(Math.ceil(this.maxFreq / binRes), freqBins - 1);
     const visibleBins = maxBin - minBin;
 
-    // Pre-compute fractional bin lookup table for Y -> frequency
-    // Uses linear interpolation between bins to avoid aliasing artifacts
-    const binLookupLow = new Int32Array(spectHeight);   // Lower bin index
-    const binLookupFrac = new Float32Array(spectHeight); // Fractional position between bins
-    const logMinFreq = Math.log(Math.max(this.minFreq, 20)); // 20Hz floor for log
+    const binLookupLow = new Int32Array(spectHeight);
+    const binLookupFrac = new Float32Array(spectHeight);
+    const logMinFreq = Math.log(Math.max(this.minFreq, 20));
     const logMaxFreq = Math.log(Math.max(this.maxFreq, 21));
 
     for (let y = 0; y < spectHeight; y++) {
-      const ratio = (spectHeight - 1 - y) / spectHeight; // 0=bottom, 1=top
+      const ratio = (spectHeight - 1 - y) / spectHeight;
       let binF;
       if (this.logFrequency) {
         const logFreq = logMinFreq + ratio * (logMaxFreq - logMinFreq);
-        const freq = Math.exp(logFreq);
-        binF = freq / binRes;
+        binF = Math.exp(logFreq) / binRes;
       } else {
         binF = minBin + ratio * visibleBins;
       }
@@ -628,11 +727,8 @@ export class SpectrogramRenderer {
       binLookupFrac[y] = binF - Math.floor(binF);
     }
 
-    // Create image
     const imageData = this.ctx.createImageData(spectWidth, spectHeight);
     const pixels = imageData.data;
-
-    // Gain: shift signal up, fixed floor at -dynamicRange
     const floor = -this.dynamicRangeDB;
 
     for (let x = 0; x < spectWidth; x++) {
@@ -643,7 +739,6 @@ export class SpectrogramRenderer {
         const bin0 = binLookupLow[y];
         const frac = binLookupFrac[y];
 
-        // Interpolate between adjacent bins
         let raw0 = spectrum[bin0];
         if (raw0 === undefined || !isFinite(raw0)) raw0 = -120;
         let raw;
@@ -667,8 +762,8 @@ export class SpectrogramRenderer {
       }
     }
 
-    // Store for redrawing with cursor
     this._spectImage = imageData;
+    this._spectBitmap = null;
     this._spectWidth = spectWidth;
     this._spectHeight = spectHeight;
   }
@@ -681,7 +776,9 @@ export class SpectrogramRenderer {
     this.ctx.fillStyle = '#0f0f1a';
     this.ctx.fillRect(0, 0, width, height);
 
-    if (this._spectImage) {
+    if (this._spectBitmap) {
+      this.ctx.drawImage(this._spectBitmap, 50, 0);
+    } else if (this._spectImage) {
       this.ctx.putImageData(this._spectImage, 50, 0);
     }
 
@@ -1175,9 +1272,9 @@ export class SpectrogramRenderer {
    * Re-render the spectrogram image from cached FFT data (instant).
    * Use this when gain or dynamic range changes - no FFT recomputation needed.
    */
-  rerender() {
+  async rerender() {
     if (this._lastFFTData) {
-      this._renderSpectrogram(this._lastFFTData);
+      await this._renderSpectrogram(this._lastFFTData);
       this.draw();
     }
   }
