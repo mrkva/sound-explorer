@@ -30,6 +30,8 @@ export class SpectrogramRenderer {
 
     // Channel selection: -1 = mono mix, 0..N-1 = specific channel
     this.channel = -1;
+    // Split view: null = single, [chA, chB] = two channels stacked
+    this.splitChannels = null;
 
     // View state
     this.viewStart = 0;
@@ -45,6 +47,7 @@ export class SpectrogramRenderer {
 
     // Last computed FFT data (kept for instant gain/range re-rendering)
     this._lastFFTData = null;
+    this._lastFFTDataSplit = null; // [dataA, dataB] for split view
 
     // Currently computing
     this._computing = false;
@@ -149,47 +152,90 @@ export class SpectrogramRenderer {
       const needsSubsampling = totalViewSamples > samplesNeeded * 1.5 ||
                                totalViewSamples > maxFullModeSamples;
 
-      // Check cache
-      const cacheKey = `${startSample}-${endSample}-${this.fftSize}-${targetFrames}-ch${this.channel}`;
-      let spectrogramData = this.tileCache.get(cacheKey);
+      if (this.splitChannels) {
+        // Split view: compute both channels
+        const [chA, chB] = this.splitChannels;
+        const dataForChannels = [];
 
-      if (!spectrogramData) {
-        this._reportProgress('reading', 0);
-        // Yield so the overlay can appear before heavy work starts
-        await new Promise(r => setTimeout(r, 0));
+        for (const ch of [chA, chB]) {
+          const chCacheKey = `${startSample}-${endSample}-${this.fftSize}-${targetFrames}-ch${ch}`;
+          let chData = this.tileCache.get(chCacheKey);
 
-        if (needsSubsampling) {
-          spectrogramData = await this._computeSubsampled(
-            startSample, endSample, targetFrames
-          );
-        } else {
-          // FULL MODE: Read all samples and compute FFT on workers
-          const pcmData = await this._readPCMRange(startSample, totalViewSamples);
-          if (!pcmData) {
-            this._computing = false;
-            this._reportProgress('done', 100);
-            return;
+          if (!chData) {
+            this._reportProgress('reading', 0);
+            await new Promise(r => setTimeout(r, 0));
+
+            const savedChannel = this.channel;
+            this.channel = ch;
+
+            if (needsSubsampling) {
+              chData = await this._computeSubsampled(startSample, endSample, targetFrames);
+            } else {
+              const pcmData = await this._readPCMRange(startSample, totalViewSamples);
+              if (!pcmData) { this.channel = savedChannel; this._computing = false; this._reportProgress('done', 100); return; }
+              this._reportProgress('computing', 0);
+              await new Promise(r => setTimeout(r, 0));
+              chData = await this._computeFFTOnWorkers(pcmData, hopSize);
+            }
+
+            this.channel = savedChannel;
+
+            if (this.tileCache.size >= this.maxCacheSize) {
+              const keys = [...this.tileCache.keys()];
+              for (let i = 0; i < 50 && i < keys.length; i++) this.tileCache.delete(keys[i]);
+            }
+            this.tileCache.set(chCacheKey, chData);
           }
-          this._reportProgress('computing', 0);
+          dataForChannels.push(chData);
+        }
+
+        this._lastFFTData = null;
+        this._lastFFTDataSplit = dataForChannels;
+        this._reportProgress('rendering', 0);
+        await this._renderSplitSpectrogram(dataForChannels[0], dataForChannels[1]);
+        this._reportProgress('done', 100);
+        this.draw();
+      } else {
+        // Single channel / mix mode
+        const cacheKey = `${startSample}-${endSample}-${this.fftSize}-${targetFrames}-ch${this.channel}`;
+        let spectrogramData = this.tileCache.get(cacheKey);
+
+        if (!spectrogramData) {
+          this._reportProgress('reading', 0);
           await new Promise(r => setTimeout(r, 0));
-          spectrogramData = await this._computeFFTOnWorkers(pcmData, hopSize);
-        }
 
-        // Cache it
-        if (this.tileCache.size >= this.maxCacheSize) {
-          const keys = [...this.tileCache.keys()];
-          for (let i = 0; i < 50 && i < keys.length; i++) {
-            this.tileCache.delete(keys[i]);
+          if (needsSubsampling) {
+            spectrogramData = await this._computeSubsampled(
+              startSample, endSample, targetFrames
+            );
+          } else {
+            const pcmData = await this._readPCMRange(startSample, totalViewSamples);
+            if (!pcmData) {
+              this._computing = false;
+              this._reportProgress('done', 100);
+              return;
+            }
+            this._reportProgress('computing', 0);
+            await new Promise(r => setTimeout(r, 0));
+            spectrogramData = await this._computeFFTOnWorkers(pcmData, hopSize);
           }
-        }
-        this.tileCache.set(cacheKey, spectrogramData);
-      }
 
-      this._lastFFTData = spectrogramData;
-      this._reportProgress('rendering', 0);
-      await this._renderSpectrogram(spectrogramData);
-      this._reportProgress('done', 100);
-      this.draw();
+          if (this.tileCache.size >= this.maxCacheSize) {
+            const keys = [...this.tileCache.keys()];
+            for (let i = 0; i < 50 && i < keys.length; i++) {
+              this.tileCache.delete(keys[i]);
+            }
+          }
+          this.tileCache.set(cacheKey, spectrogramData);
+        }
+
+        this._lastFFTData = spectrogramData;
+        this._lastFFTDataSplit = null;
+        this._reportProgress('rendering', 0);
+        await this._renderSpectrogram(spectrogramData);
+        this._reportProgress('done', 100);
+        this.draw();
+      }
     } catch (err) {
       console.error('Spectrogram compute error:', err);
       this._reportProgress('error', 0);
@@ -781,6 +827,136 @@ export class SpectrogramRenderer {
   }
 
   /**
+   * Render split-view spectrogram: two channels stacked with a divider.
+   */
+  async _renderSplitSpectrogram(dataA, dataB) {
+    const { width, height } = this.canvas;
+    const spectWidth = width - 60;
+    const spectHeight = height - 40;
+    if (spectWidth <= 0 || spectHeight <= 0) return;
+
+    const dividerHeight = 2;
+    const halfHeight = Math.floor((spectHeight - dividerHeight) / 2);
+
+    if (this._renderWorker) {
+      // Render both halves on the render worker sequentially
+      const renderHalf = (data, h) => new Promise((resolve) => {
+        this._renderWorker.onmessage = (e) => resolve(e.data.bitmap);
+        this._renderWorker.postMessage({
+          type: 'render',
+          frames: data.frames, freqBins: data.freqBins, numFrames: data.numFrames,
+          width: spectWidth, height: h,
+          sampleRate: this.session.sampleRate,
+          fftSize: this.fftSize,
+          minFreq: this.minFreq,
+          maxFreq: this.maxFreq,
+          logFrequency: this.logFrequency,
+          gainDB: this.gainDB,
+          dynamicRangeDB: this.dynamicRangeDB,
+          colorPreset: this.colorPreset
+        });
+      });
+
+      const bitmapA = await renderHalf(dataA, halfHeight);
+      const bitmapB = await renderHalf(dataB, halfHeight);
+
+      // Compose onto an offscreen canvas, then get a single bitmap
+      const offscreen = new OffscreenCanvas(spectWidth, spectHeight);
+      const octx = offscreen.getContext('2d');
+      octx.drawImage(bitmapA, 0, 0);
+      // Divider line
+      octx.fillStyle = '#666';
+      octx.fillRect(0, halfHeight, spectWidth, dividerHeight);
+      octx.drawImage(bitmapB, 0, halfHeight + dividerHeight);
+
+      this._spectBitmap = await createImageBitmap(offscreen);
+      this._spectImage = null;
+    } else {
+      // Main-thread fallback: render into one ImageData
+      const imageData = this.ctx.createImageData(spectWidth, spectHeight);
+      const pixels = imageData.data;
+
+      this._renderHalfIntoPixels(dataA, pixels, spectWidth, 0, halfHeight);
+      // Divider
+      for (let x = 0; x < spectWidth; x++) {
+        for (let dy = 0; dy < dividerHeight; dy++) {
+          const idx = ((halfHeight + dy) * spectWidth + x) * 4;
+          pixels[idx] = 102; pixels[idx + 1] = 102; pixels[idx + 2] = 102; pixels[idx + 3] = 255;
+        }
+      }
+      this._renderHalfIntoPixels(dataB, pixels, spectWidth, halfHeight + dividerHeight, halfHeight);
+
+      this._spectImage = imageData;
+      this._spectBitmap = null;
+    }
+
+    this._spectWidth = spectWidth;
+    this._spectHeight = spectHeight;
+  }
+
+  /**
+   * Render one channel's FFT data into a region of a pixel buffer.
+   */
+  _renderHalfIntoPixels(data, pixels, spectWidth, yOffset, halfHeight) {
+    const { frames, freqBins, numFrames } = data;
+    const binRes = this.session.sampleRate / this.fftSize;
+    const minBin = Math.max(1, Math.floor(this.minFreq / binRes));
+    const maxBin = Math.min(Math.ceil(this.maxFreq / binRes), freqBins - 1);
+    const visibleBins = maxBin - minBin;
+
+    const binLookupLow = new Int32Array(halfHeight);
+    const binLookupFrac = new Float32Array(halfHeight);
+    const logMinFreq = Math.log(Math.max(this.minFreq, 20));
+    const logMaxFreq = Math.log(Math.max(this.maxFreq, 21));
+
+    for (let y = 0; y < halfHeight; y++) {
+      const ratio = (halfHeight - 1 - y) / halfHeight;
+      let binF;
+      if (this.logFrequency) {
+        binF = Math.exp(logMinFreq + ratio * (logMaxFreq - logMinFreq)) / binRes;
+      } else {
+        binF = minBin + ratio * visibleBins;
+      }
+      binF = Math.max(minBin, Math.min(binF, maxBin));
+      binLookupLow[y] = Math.floor(binF);
+      binLookupFrac[y] = binF - Math.floor(binF);
+    }
+
+    const floor = -this.dynamicRangeDB;
+
+    for (let x = 0; x < spectWidth; x++) {
+      const frameIdx = Math.min(Math.floor(x * numFrames / spectWidth), numFrames - 1);
+      const spectrum = frames[frameIdx];
+      if (!spectrum) continue;
+
+      for (let y = 0; y < halfHeight; y++) {
+        const bin0 = binLookupLow[y];
+        const frac = binLookupFrac[y];
+        let raw0 = spectrum[bin0];
+        if (raw0 === undefined || !isFinite(raw0)) raw0 = -120;
+        let raw;
+        if (frac > 0 && bin0 + 1 <= maxBin) {
+          let raw1 = spectrum[bin0 + 1];
+          if (raw1 === undefined || !isFinite(raw1)) raw1 = -120;
+          raw = raw0 + frac * (raw1 - raw0);
+        } else {
+          raw = raw0;
+        }
+
+        const db = raw + this.gainDB;
+        const normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
+        const [r, g, b] = this._colorize(normalized);
+
+        const idx = ((yOffset + y) * spectWidth + x) * 4;
+        pixels[idx] = r;
+        pixels[idx + 1] = g;
+        pixels[idx + 2] = b;
+        pixels[idx + 3] = 255;
+      }
+    }
+  }
+
+  /**
    * Draw the spectrogram + axes + cursor to the visible canvas.
    */
   draw(playbackTime = null) {
@@ -800,6 +976,33 @@ export class SpectrogramRenderer {
 
     // Frequency axis
     this._drawFrequencyAxis(height);
+
+    // Split view channel labels
+    if (this.splitChannels && this._spectBitmap) {
+      const spectHeight = height - 40;
+      const halfHeight = Math.floor((spectHeight - 2) / 2);
+      const channelLabels = ['L', 'R', 'C', 'LFE', 'Ls', 'Rs', 'Lb', 'Rb'];
+      const labelA = (this.splitChannels[0] < channelLabels.length)
+        ? `Ch ${this.splitChannels[0] + 1} (${channelLabels[this.splitChannels[0]]})`
+        : `Ch ${this.splitChannels[0] + 1}`;
+      const labelB = (this.splitChannels[1] < channelLabels.length)
+        ? `Ch ${this.splitChannels[1] + 1} (${channelLabels[this.splitChannels[1]]})`
+        : `Ch ${this.splitChannels[1] + 1}`;
+
+      this.ctx.font = '10px monospace';
+      this.ctx.textAlign = 'left';
+      // Label A (top)
+      this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      this.ctx.fillRect(52, 2, this.ctx.measureText(labelA).width + 6, 14);
+      this.ctx.fillStyle = '#ccc';
+      this.ctx.fillText(labelA, 55, 13);
+      // Label B (bottom)
+      const yB = halfHeight + 2;
+      this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      this.ctx.fillRect(52, yB + 2, this.ctx.measureText(labelB).width + 6, 14);
+      this.ctx.fillStyle = '#ccc';
+      this.ctx.fillText(labelB, 55, yB + 13);
+    }
 
     // Time axis
     this._drawTimeAxis(width, height);
@@ -1280,7 +1483,10 @@ export class SpectrogramRenderer {
    * Use this when gain or dynamic range changes - no FFT recomputation needed.
    */
   async rerender() {
-    if (this._lastFFTData) {
+    if (this._lastFFTDataSplit) {
+      await this._renderSplitSpectrogram(this._lastFFTDataSplit[0], this._lastFFTDataSplit[1]);
+      this.draw();
+    } else if (this._lastFFTData) {
       await this._renderSpectrogram(this._lastFFTData);
       this.draw();
     }

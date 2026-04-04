@@ -320,11 +320,19 @@ class App {
       this.spectrogram.rerender();
     });
 
-    // Channel selector
+    // Channel selector (supports single channel and split view)
     this.channelSelect.addEventListener('change', (e) => {
-      this.spectrogram.channel = parseInt(e.target.value);
-      this.spectrogram.tileCache.clear();
+      const val = e.target.value;
+      if (val.startsWith('split:')) {
+        const [a, b] = val.slice(6).split(',').map(Number);
+        this.spectrogram.splitChannels = [a, b];
+        this.spectrogram.channel = -1;
+      } else {
+        this.spectrogram.splitChannels = null;
+        this.spectrogram.channel = parseInt(val);
+      }
       this.spectrogram._lastFFTData = null;
+      this.spectrogram._lastFFTDataSplit = null;
       this.spectrogram._computing = false;
       this.spectrogram.computeVisible();
     });
@@ -1560,6 +1568,7 @@ class App {
 
   _populateChannelSelector(numChannels) {
     this.channelSelect.innerHTML = '';
+    const channelLabels = ['L', 'R', 'C', 'LFE', 'Ls', 'Rs', 'Lb', 'Rb'];
 
     // Always offer mono mix
     const mixOpt = document.createElement('option');
@@ -1568,7 +1577,7 @@ class App {
     this.channelSelect.appendChild(mixOpt);
 
     if (numChannels > 1) {
-      const channelLabels = ['L', 'R', 'C', 'LFE', 'Ls', 'Rs', 'Lb', 'Rb'];
+      // Individual channels
       for (let i = 0; i < numChannels; i++) {
         const opt = document.createElement('option');
         opt.value = i.toString();
@@ -1576,6 +1585,27 @@ class App {
         opt.textContent = `${i + 1} (${label})`;
         this.channelSelect.appendChild(opt);
       }
+
+      // Split view pairs
+      const sep = document.createElement('option');
+      sep.disabled = true;
+      sep.textContent = '── split ──';
+      this.channelSelect.appendChild(sep);
+
+      for (let i = 0; i < numChannels; i++) {
+        for (let j = i + 1; j < numChannels; j++) {
+          // For stereo, just show L|R; for multichannel, show all pairs
+          if (numChannels === 2 || j === i + 1) {
+            const opt = document.createElement('option');
+            opt.value = `split:${i},${j}`;
+            const labelI = i < channelLabels.length ? channelLabels[i] : `${i + 1}`;
+            const labelJ = j < channelLabels.length ? channelLabels[j] : `${j + 1}`;
+            opt.textContent = `${labelI} | ${labelJ}`;
+            this.channelSelect.appendChild(opt);
+          }
+        }
+      }
+
       this.channelControl.style.display = '';
     } else {
       this.channelControl.style.display = 'none';
@@ -1584,6 +1614,7 @@ class App {
     // Reset to mix
     this.channelSelect.value = '-1';
     this.spectrogram.channel = -1;
+    this.spectrogram.splitChannels = null;
   }
 
   // ── Go To mode ──────────────────────────────────────────────────────
