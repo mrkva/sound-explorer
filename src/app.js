@@ -23,6 +23,7 @@ class App {
     this.btnZoomOut = document.getElementById('btn-zoom-out');
     this.btnZoomFit = document.getElementById('btn-zoom-fit');
     this.timeInput = document.getElementById('time-input');
+    this.gotoMode = document.getElementById('goto-mode');
     this.btnGoTo = document.getElementById('btn-goto');
     this.currentTimeDisplay = document.getElementById('current-time');
     this.wallTimeDisplay = document.getElementById('wall-time');
@@ -245,6 +246,7 @@ class App {
     this.timeInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this._goToTime();
     });
+    this.gotoMode.addEventListener('change', () => this._updateGoToPlaceholder());
 
     // Volume
     this.volumeSlider.addEventListener('input', (e) => {
@@ -694,6 +696,9 @@ class App {
     // Populate date picker if multi-date session
     this._populateDatePicker();
 
+    // Configure Go To mode and placeholder
+    this._updateGoToPlaceholder();
+
     this._setStatus(this._readyStatusMessage());
     this._updateTimeDisplays(0);
   }
@@ -731,62 +736,57 @@ class App {
   _goToTime() {
     const timeStr = this.timeInput.value.trim();
     if (!timeStr) return;
+    const mode = this.gotoMode.value; // 'wall' or 'position'
 
     let targetSeconds = BWFParser.parseTimeString(timeStr);
     if (targetSeconds === null) {
-      this._setStatus('Invalid time format. Use HH:MM or HH:MM:SS');
+      // Also try flexible format (M:SS, plain seconds)
+      targetSeconds = this._parseFlexibleTime(timeStr);
+    }
+    if (targetSeconds === null) {
+      this._setStatus('Invalid time format');
       return;
     }
 
-    // If a date is selected in the date picker, adjust wall-clock target for that date
-    if (this.dateInput.style.display !== 'none' && this.dateInput.value && this.session?.sessionDate) {
-      const sessionDate = this.session.sessionDate.replace(/:/g, '-');
-      const selectedDate = this.dateInput.value;
-      if (selectedDate !== sessionDate) {
-        // Calculate day offset: if selected date is the next day, add 86400
-        const sd = new Date(sessionDate);
-        const td = new Date(selectedDate);
-        const dayDiff = Math.round((td - sd) / 86400000);
-        if (dayDiff > 0) {
-          targetSeconds += dayDiff * 86400;
+    let fileTime;
+
+    if (mode === 'wall' && this.session?.sessionStartTime !== null && this.session?.sessionStartTime !== undefined) {
+      // Wall-clock mode: adjust for selected date if needed
+      if (this.dateInput.style.display !== 'none' && this.dateInput.value && this.session?.sessionDate) {
+        const sessionDate = this.session.sessionDate.replace(/:/g, '-');
+        const selectedDate = this.dateInput.value;
+        if (selectedDate !== sessionDate) {
+          const sd = new Date(sessionDate);
+          const td = new Date(selectedDate);
+          const dayDiff = Math.round((td - sd) / 86400000);
+          if (dayDiff > 0) targetSeconds += dayDiff * 86400;
         }
       }
-    }
 
-    if (this.session?.sessionStartTime !== null && this.session?.sessionStartTime !== undefined) {
-      // Treat as wall-clock time
-      const fileTime = this.session.fromWallClock(targetSeconds);
+      fileTime = this.session.fromWallClock(targetSeconds);
       if (fileTime === null || fileTime < 0 || fileTime > this.session.totalDuration) {
         const startStr = BWFParser.secondsToTimeString(this.session.sessionStartTime);
         const endStr = BWFParser.secondsToTimeString(this.session.sessionEndTime);
-        this._setStatus(`Time ${timeStr} is outside recording (${startStr}\u2013${endStr})`);
+        this._setStatus(`Wall clock ${timeStr} is outside recording (${startStr}\u2013${endStr})`);
         return;
       }
-
-      this.engine.seek(fileTime);
-      // Zoom to 60-second window around target
-      const padding = 30;
-      this.spectrogram.setView(
-        Math.max(0, fileTime - padding),
-        Math.min(this.session.totalDuration, fileTime + padding)
-      );
-      this.spectrogram.computeVisible();
-      this._setStatus(`Jumped to ${timeStr}`);
     } else {
-      // Treat as file position
-      if (targetSeconds > this.engine.getDuration()) {
-        this._setStatus(`Time ${timeStr} exceeds duration`);
+      // Position mode: treat as file position in seconds
+      fileTime = targetSeconds;
+      if (fileTime > this.engine.getDuration()) {
+        this._setStatus(`Position ${timeStr} exceeds duration`);
         return;
       }
-      this.engine.seek(targetSeconds);
-      const padding = 30;
-      this.spectrogram.setView(
-        Math.max(0, targetSeconds - padding),
-        Math.min(this.engine.getDuration(), targetSeconds + padding)
-      );
-      this.spectrogram.computeVisible();
-      this._setStatus(`Jumped to ${timeStr}`);
     }
+
+    this.engine.seek(fileTime);
+    const padding = 30;
+    this.spectrogram.setView(
+      Math.max(0, fileTime - padding),
+      Math.min(this.session?.totalDuration || this.engine.getDuration(), fileTime + padding)
+    );
+    this.spectrogram.computeVisible();
+    this._setStatus(`Jumped to ${timeStr} (${mode === 'wall' ? 'wall clock' : 'position'})`);
   }
 
   _updateTimeDisplays(time) {
@@ -1260,6 +1260,43 @@ class App {
     await this._exportAnnotationAsWav(ann);
   }
 
+  _buildBextMetadata(ann) {
+    const session = this.session;
+    if (!session || session.sessionStartTime === null) return null;
+
+    // Calculate wall-clock time at the start of this annotation
+    const startTime = ann.segments[0]?.startInFile || 0;
+    const file = session.files.find(f => f.filePath === ann.segments[0]?.filePath);
+    const sessionStart = file ? file.timeStart + startTime : startTime;
+    const wallSec = session.toWallClock(sessionStart);
+    if (wallSec === null) return null;
+
+    const adjusted = wallSec + (this._tcOffsetHours || 0) * 3600;
+
+    // TimeReference = samples since midnight
+    const timeReference = Math.round(adjusted * session.sampleRate);
+
+    // OriginationDate and OriginationTime
+    const date = session.sessionDate?.replace(/:/g, '-') || '2000-01-01';
+    const totalSec = ((adjusted % 86400) + 86400) % 86400;
+    const hh = String(Math.floor(totalSec / 3600)).padStart(2, '0');
+    const mm = String(Math.floor((totalSec % 3600) / 60)).padStart(2, '0');
+    const ss = String(Math.floor(totalSec % 60)).padStart(2, '0');
+    const originationTime = `${hh}:${mm}:${ss}`;
+
+    // Copy originator info from source file if available
+    const bext = session.files[0]?.bext || {};
+
+    return {
+      description: ann.note || '',
+      originator: bext.originator || 'Field Recording Explorer',
+      originatorReference: bext.originatorReference || '',
+      originationDate: date,
+      originationTime,
+      timeReference
+    };
+  }
+
   async _exportAnnotationAsWav(ann) {
     if (!this.session) return;
 
@@ -1277,7 +1314,8 @@ class App {
     try {
       this._setStatus(`Exporting "${ann.note}"...`);
       const exportSegments = this._buildExportSegments(ann);
-      const result = await window.electronAPI.exportWavSegment(exportSegments, outputPath);
+      const bextMeta = this._buildBextMetadata(ann);
+      const result = await window.electronAPI.exportWavSegment(exportSegments, outputPath, bextMeta);
       const sizeMB = (result.totalDataBytes / (1024 * 1024)).toFixed(1);
       this._setStatus(`Exported "${ann.note}" (${sizeMB} MB) to ${outputPath.split(/[/\\]/).pop()}`);
     } catch (err) {
@@ -1303,7 +1341,8 @@ class App {
         const outputPath = dirPath + '/' + fileName;
         this._setStatus(`Exporting ${exported + 1}/${this.annotations.length}: "${ann.note}"...`);
         const exportSegments = this._buildExportSegments(ann);
-        await window.electronAPI.exportWavSegment(exportSegments, outputPath);
+        const bextMeta = this._buildBextMetadata(ann);
+        await window.electronAPI.exportWavSegment(exportSegments, outputPath, bextMeta);
         exported++;
       } catch (err) {
         console.error(`Failed to export "${ann.note}":`, err);
@@ -1500,6 +1539,34 @@ class App {
     const playAsStr = playAsSpeed !== 1 ? ` @${playAsSpeed}x` : '';
     this.playbackFormatDisplay.textContent = `${rateStr}/16bit ${ch}${playAsStr}`;
     this.playbackFormatDisplay.title = `Source: ${this.session.sampleRate}Hz/${bits}bit — Server: ${rate}Hz/16bit`;
+  }
+
+  // ── Go To mode ──────────────────────────────────────────────────────
+
+  _updateGoToPlaceholder() {
+    const mode = this.gotoMode.value;
+    const hasWallClock = this.session?.sessionStartTime !== null && this.session?.sessionStartTime !== undefined;
+
+    if (mode === 'wall' && hasWallClock) {
+      const startStr = BWFParser.secondsToTimeString(this.session.sessionStartTime);
+      // Show start time as placeholder hint
+      this.timeInput.placeholder = startStr.slice(0, 5); // e.g. "22:35"
+      this.timeInput.title = `Wall clock time (${startStr} onwards)`;
+    } else {
+      // Position mode, or no wall clock available
+      if (mode === 'wall' && !hasWallClock) {
+        this.gotoMode.value = 'position'; // Auto-switch if no timecode
+      }
+      this.timeInput.placeholder = 'M:SS';
+      this.timeInput.title = 'File position (M:SS or seconds)';
+    }
+
+    // Hide wall clock option if session has no timecode
+    const wallOption = this.gotoMode.querySelector('option[value="wall"]');
+    if (wallOption) {
+      wallOption.disabled = !hasWallClock;
+      if (!hasWallClock) this.gotoMode.value = 'position';
+    }
   }
 
   // ── Date picker for multi-date sessions ─────────────────────────────

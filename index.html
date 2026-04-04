@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Field Recording Explorer v0.1.1</title>
+  <title>Field Recording Explorer v0.1.2</title>
   <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
@@ -40,8 +40,11 @@
     <div class="time-nav">
       <label for="date-input" id="date-label" style="display:none;">Date:</label>
       <select id="date-input" style="display:none;" title="Recording date"></select>
-      <label for="time-input">Go to:</label>
-      <input type="text" id="time-input" placeholder="22:35" title="Wall-clock time (HH:MM or HH:MM:SS)">
+      <select id="goto-mode" title="Time reference">
+        <option value="wall">Wall clock</option>
+        <option value="position">Position</option>
+      </select>
+      <input type="text" id="time-input" placeholder="HH:MM:SS" title="Enter time and press Enter or Go">
       <button id="btn-goto">Go</button>
     </div>
 

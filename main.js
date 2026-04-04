@@ -52,7 +52,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'Field Recording Explorer v0.1.1',
+    title: 'Field Recording Explorer v0.1.2',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -430,9 +430,9 @@ ipcMain.handle('read-text-file', async (event, filePath) => {
 });
 
 // Export a WAV segment: read raw PCM from source file(s) and write a new WAV
-ipcMain.handle('export-wav-segment', async (event, segments, outputPath) => {
+ipcMain.handle('export-wav-segment', async (event, segments, outputPath, bextMeta) => {
   // segments: [{filePath, dataOffset, startByte, endByte}]
-  // All segments must have the same format (sample rate, channels, bits)
+  // bextMeta: optional {description, originator, originatorReference, originationDate, originationTime, timeReference}
   const ref = segments[0];
 
   // Calculate total output data bytes
@@ -441,77 +441,81 @@ ipcMain.handle('export-wav-segment', async (event, segments, outputPath) => {
     totalDataBytes += seg.endByte - seg.startByte;
   }
 
-  // Build WAV header (keep original format - no conversion)
   const bitsPerSample = ref.bitsPerSample;
   const channels = ref.channels;
   const sampleRate = ref.sampleRate;
   const format = ref.format || 1;
+  const isFloat = (format === 3);
   const bytesPerSample = bitsPerSample / 8;
   const blockAlign = channels * bytesPerSample;
   const byteRate = sampleRate * blockAlign;
 
-  // Use standard WAV header (44 bytes) for PCM, or extended for float
-  const isFloat = (format === 3);
-  const headerSize = isFloat ? 58 : 44;
+  // Build bext chunk if timecode metadata is available
+  let bextChunk = null;
+  if (bextMeta) {
+    const BEXT_SIZE = 602; // Fixed bext chunk size (v0, no coding history)
+    bextChunk = Buffer.alloc(BEXT_SIZE + 8); // +8 for chunk ID + size
+    bextChunk.write('bext', 0);
+    bextChunk.writeUInt32LE(BEXT_SIZE, 4);
+    // Description: 256 bytes
+    bextChunk.write((bextMeta.description || '').slice(0, 256).padEnd(256, '\0'), 8, 'ascii');
+    // Originator: 32 bytes
+    bextChunk.write((bextMeta.originator || '').slice(0, 32).padEnd(32, '\0'), 264, 'ascii');
+    // OriginatorReference: 32 bytes
+    bextChunk.write((bextMeta.originatorReference || '').slice(0, 32).padEnd(32, '\0'), 296, 'ascii');
+    // OriginationDate: 10 bytes (YYYY-MM-DD)
+    bextChunk.write((bextMeta.originationDate || '').slice(0, 10).padEnd(10, '\0'), 328, 'ascii');
+    // OriginationTime: 8 bytes (HH:MM:SS)
+    bextChunk.write((bextMeta.originationTime || '').slice(0, 8).padEnd(8, '\0'), 338, 'ascii');
+    // TimeReference: uint64 LE (samples since midnight)
+    const timeRef = bextMeta.timeReference || 0;
+    bextChunk.writeUInt32LE(timeRef & 0xFFFFFFFF, 346);
+    bextChunk.writeUInt32LE(Math.floor(timeRef / 0x100000000) & 0xFFFFFFFF, 350);
+    // Version: uint16 (BWF version 0)
+    bextChunk.writeUInt16LE(0, 354);
+    // Remaining 256 bytes (UMID + reserved) are already zeroed
+  }
+
+  const bextSize = bextChunk ? bextChunk.length : 0;
+
+  // Build RIFF + fmt header
+  const fmtSize = 16;
+  const headerSize = 12 + (8 + fmtSize) + bextSize + 8; // RIFF(12) + fmt(24) + bext + data(8)
 
   const header = Buffer.alloc(headerSize);
+  let pos = 0;
+
   // RIFF header
-  header.write('RIFF', 0);
-  header.writeUInt32LE(Math.min(totalDataBytes + headerSize - 8, 0xFFFFFFFF), 4);
-  header.write('WAVE', 8);
+  header.write('RIFF', pos); pos += 4;
+  header.writeUInt32LE(Math.min(headerSize - 8 + totalDataBytes, 0xFFFFFFFF), pos); pos += 4;
+  header.write('WAVE', pos); pos += 4;
 
   // fmt chunk
-  header.write('fmt ', 12);
-  if (isFloat) {
-    header.writeUInt32LE(18, 16); // chunk size for float
-    header.writeUInt16LE(3, 20);  // IEEE float
-  } else {
-    header.writeUInt32LE(16, 16); // chunk size for PCM
-    header.writeUInt16LE(1, 20);  // PCM
+  header.write('fmt ', pos); pos += 4;
+  header.writeUInt32LE(fmtSize, pos); pos += 4;
+  header.writeUInt16LE(isFloat ? 3 : 1, pos); pos += 2;
+  header.writeUInt16LE(channels, pos); pos += 2;
+  header.writeUInt32LE(sampleRate, pos); pos += 4;
+  header.writeUInt32LE(byteRate, pos); pos += 4;
+  header.writeUInt16LE(blockAlign, pos); pos += 2;
+  header.writeUInt16LE(bitsPerSample, pos); pos += 2;
+
+  // bext chunk (if present)
+  if (bextChunk) {
+    bextChunk.copy(header, pos);
+    pos += bextChunk.length;
   }
-  header.writeUInt16LE(channels, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(bitsPerSample, 34);
-  if (isFloat) {
-    header.writeUInt16LE(0, 36); // cbSize
-    // fact chunk could go here but most players don't need it
-    header.write('data', 38);
-    header.writeUInt32LE(Math.min(totalDataBytes, 0xFFFFFFFF), 42);
-    // Pad remaining header bytes to 58
-    header.write('data', headerSize - 8);
-    header.writeUInt32LE(Math.min(totalDataBytes, 0xFFFFFFFF), headerSize - 4);
-  } else {
-    header.write('data', 36);
-    header.writeUInt32LE(Math.min(totalDataBytes, 0xFFFFFFFF), 40);
-  }
+
+  // data chunk header
+  header.write('data', pos); pos += 4;
+  header.writeUInt32LE(Math.min(totalDataBytes, 0xFFFFFFFF), pos); pos += 4;
 
   // Write the file
   const outFd = await fs.promises.open(outputPath, 'w');
   try {
-    // Write header
-    await outFd.write(isFloat ? header.slice(0, 46) : header.slice(0, 44), 0, isFloat ? 46 : 44, 0);
-
-    // Actually, let's keep it simple: always write standard PCM/float header
-    const simpleHeader = Buffer.alloc(44);
-    simpleHeader.write('RIFF', 0);
-    simpleHeader.writeUInt32LE(Math.min(totalDataBytes + 36, 0xFFFFFFFF), 4);
-    simpleHeader.write('WAVE', 8);
-    simpleHeader.write('fmt ', 12);
-    simpleHeader.writeUInt32LE(16, 16);
-    simpleHeader.writeUInt16LE(isFloat ? 3 : 1, 20);
-    simpleHeader.writeUInt16LE(channels, 22);
-    simpleHeader.writeUInt32LE(sampleRate, 24);
-    simpleHeader.writeUInt32LE(byteRate, 28);
-    simpleHeader.writeUInt16LE(blockAlign, 32);
-    simpleHeader.writeUInt16LE(bitsPerSample, 34);
-    simpleHeader.write('data', 36);
-    simpleHeader.writeUInt32LE(Math.min(totalDataBytes, 0xFFFFFFFF), 40);
-
     let writePos = 0;
-    await outFd.write(simpleHeader, 0, 44, writePos);
-    writePos += 44;
+    await outFd.write(header, 0, header.length, writePos);
+    writePos += header.length;
 
     // Copy raw PCM data from each segment
     const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB read chunks
