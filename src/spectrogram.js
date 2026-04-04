@@ -71,6 +71,9 @@ export class SpectrogramRenderer {
     // Rendered spectrogram image (ImageData or ImageBitmap)
     this._spectBitmap = null;
 
+    // Last known playback time (so draw() can show cursor without explicit arg)
+    this._lastPlaybackTime = null;
+
     // Web Worker pool for parallel FFT
     this._workers = [];
     this._workerReady = [];
@@ -772,6 +775,10 @@ export class SpectrogramRenderer {
    * Draw the spectrogram + axes + cursor to the visible canvas.
    */
   draw(playbackTime = null) {
+    if (playbackTime !== null) {
+      this._lastPlaybackTime = playbackTime;
+    }
+    const cursorTime = this._lastPlaybackTime;
     const { width, height } = this.canvas;
     this.ctx.fillStyle = '#0f0f1a';
     this.ctx.fillRect(0, 0, width, height);
@@ -819,9 +826,9 @@ export class SpectrogramRenderer {
     }
 
     // Playback cursor
-    if (playbackTime !== null && playbackTime >= this.viewStart && playbackTime <= this.viewEnd) {
+    if (cursorTime !== null && cursorTime !== undefined && cursorTime >= this.viewStart && cursorTime <= this.viewEnd) {
       const spectWidth = width - 60;
-      const x = 50 + ((playbackTime - this.viewStart) / (this.viewEnd - this.viewStart)) * spectWidth;
+      const x = 50 + ((cursorTime - this.viewStart) / (this.viewEnd - this.viewStart)) * spectWidth;
       const cursorColor = this._getCursorColor();
       this.ctx.strokeStyle = cursorColor;
       this.ctx.lineWidth = 2;
@@ -1235,17 +1242,8 @@ export class SpectrogramRenderer {
   zoom(centerTime, factor) {
     const currentDuration = this.viewEnd - this.viewStart;
     const newDuration = Math.max(0.5, Math.min(this.totalDuration, currentDuration * factor));
-    // Always center on the target time when zooming in,
-    // preserve relative position when zooming out
-    let newStart;
-    if (factor < 1) {
-      // Zooming in: center on cursor
-      newStart = centerTime - newDuration / 2;
-    } else {
-      // Zooming out: keep cursor at same relative position
-      const ratio = (centerTime - this.viewStart) / currentDuration;
-      newStart = centerTime - ratio * newDuration;
-    }
+    // Always center on the target time (both zoom in and out)
+    const newStart = centerTime - newDuration / 2;
     this.setView(newStart, newStart + newDuration);
   }
 

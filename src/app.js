@@ -222,15 +222,15 @@ class App {
       this._updateTimeDisplays(0);
     });
 
-    // Zoom
+    // Zoom — center on playback cursor, fall back to view center
     this.btnZoomIn.addEventListener('click', () => {
-      const center = (this.spectrogram.viewStart + this.spectrogram.viewEnd) / 2;
+      const center = this.engine.getCurrentTime() || (this.spectrogram.viewStart + this.spectrogram.viewEnd) / 2;
       this.spectrogram.zoom(center, 0.5);
       this.spectrogram.computeVisible();
     });
 
     this.btnZoomOut.addEventListener('click', () => {
-      const center = (this.spectrogram.viewStart + this.spectrogram.viewEnd) / 2;
+      const center = this.engine.getCurrentTime() || (this.spectrogram.viewStart + this.spectrogram.viewEnd) / 2;
       this.spectrogram.zoom(center, 2);
       this.spectrogram.computeVisible();
     });
