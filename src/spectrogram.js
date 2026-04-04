@@ -28,6 +28,9 @@ export class SpectrogramRenderer {
     // Color preset
     this.colorPreset = options.colorPreset || 'viridis';
 
+    // Channel selection: -1 = mono mix, 0..N-1 = specific channel
+    this.channel = -1;
+
     // View state
     this.viewStart = 0;
     this.viewEnd = 10;
@@ -147,7 +150,7 @@ export class SpectrogramRenderer {
                                totalViewSamples > maxFullModeSamples;
 
       // Check cache
-      const cacheKey = `${startSample}-${endSample}-${this.fftSize}-${targetFrames}`;
+      const cacheKey = `${startSample}-${endSample}-${this.fftSize}-${targetFrames}-ch${this.channel}`;
       let spectrogramData = this.tileCache.get(cacheKey);
 
       if (!spectrogramData) {
@@ -260,7 +263,7 @@ export class SpectrogramRenderer {
             file.filePath, file.dataOffset, byteOff, byteLen
           );
           chunkData = new Float32Array(Math.floor(rawBytes.byteLength / session.blockAlign));
-          this._decodePCMToMono(
+          this._decodePCM(
             new DataView(rawBytes), session.bitsPerSample, session.channels,
             chunkData, 0, chunkData.length
           );
@@ -542,7 +545,7 @@ export class SpectrogramRenderer {
         const rawBytes = results[j];
         const c = batch[j];
         const actualSamples = Math.floor(rawBytes.byteLength / blockAlign);
-        this._decodePCMToMono(
+        this._decodePCM(
           new DataView(rawBytes), session.bitsPerSample, session.channels,
           mono, c.outputOffset, actualSamples
         );
@@ -556,46 +559,52 @@ export class SpectrogramRenderer {
   }
 
   /**
-   * Decode raw PCM bytes to mono float samples.
+   * Decode raw PCM bytes to float samples.
+   * channel: -1 = mono downmix, 0..N-1 = specific channel.
    * Handles 16-bit, 24-bit, 32-bit integer, and 32-bit float.
    */
-  _decodePCMToMono(view, bitsPerSample, channels, output, outputOffset, numSamples) {
+  _decodePCM(view, bitsPerSample, channels, output, outputOffset, numSamples) {
     const bytesPerSample = bitsPerSample / 8;
     const blockAlign = channels * bytesPerSample;
-    const scale = 1 / channels;
     const isFloat = this.session && this.session.format === 3;
+    const selectedChannel = this.channel;
+    const isMix = selectedChannel < 0 || selectedChannel >= channels;
+    const scale = isMix ? 1 / channels : 1;
 
     for (let i = 0; i < numSamples; i++) {
       const frameOffset = i * blockAlign;
       if (frameOffset + blockAlign > view.byteLength) break;
 
-      let monoValue = 0;
-      for (let ch = 0; ch < channels; ch++) {
-        const sampleOffset = frameOffset + ch * bytesPerSample;
+      let outValue = 0;
 
-        let value;
-        if (bitsPerSample === 16) {
-          value = view.getInt16(sampleOffset, true) / 32768;
-        } else if (bitsPerSample === 24) {
-          const b0 = view.getUint8(sampleOffset);
-          const b1 = view.getUint8(sampleOffset + 1);
-          const b2 = view.getInt8(sampleOffset + 2); // signed for MSB
-          value = (b2 * 65536 + b1 * 256 + b0) / 8388608;
-        } else if (bitsPerSample === 32 && isFloat) {
-          // IEEE 754 float, already in -1.0 to +1.0 range
-          value = view.getFloat32(sampleOffset, true);
-        } else if (bitsPerSample === 32) {
-          // 32-bit integer
-          value = view.getInt32(sampleOffset, true) / 2147483648;
-        } else {
-          value = 0;
+      if (isMix) {
+        // Mono downmix: average all channels
+        for (let ch = 0; ch < channels; ch++) {
+          outValue += this._readSample(view, frameOffset + ch * bytesPerSample, bitsPerSample, isFloat) * scale;
         }
-
-        monoValue += value * scale;
+      } else {
+        // Single channel extraction
+        outValue = this._readSample(view, frameOffset + selectedChannel * bytesPerSample, bitsPerSample, isFloat);
       }
 
-      output[outputOffset + i] = monoValue;
+      output[outputOffset + i] = outValue;
     }
+  }
+
+  _readSample(view, offset, bitsPerSample, isFloat) {
+    if (bitsPerSample === 16) {
+      return view.getInt16(offset, true) / 32768;
+    } else if (bitsPerSample === 24) {
+      const b0 = view.getUint8(offset);
+      const b1 = view.getUint8(offset + 1);
+      const b2 = view.getInt8(offset + 2);
+      return (b2 * 65536 + b1 * 256 + b0) / 8388608;
+    } else if (bitsPerSample === 32 && isFloat) {
+      return view.getFloat32(offset, true);
+    } else if (bitsPerSample === 32) {
+      return view.getInt32(offset, true) / 2147483648;
+    }
+    return 0;
   }
 
   // _computeFFT replaced by _computeFFTOnWorkers + _computeFFTMainThread

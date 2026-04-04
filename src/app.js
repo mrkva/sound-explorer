@@ -41,6 +41,8 @@ class App {
     this.freqPresetSelect = document.getElementById('freq-preset');
     this.logFreqCheckbox = document.getElementById('log-freq');
     this.colorPresetSelect = document.getElementById('color-preset');
+    this.channelSelect = document.getElementById('channel-select');
+    this.channelControl = document.getElementById('channel-control');
     this.vuFill = document.getElementById('vu-fill');
     this.fileListPanel = document.getElementById('file-list-panel');
     this.fileListBody = document.getElementById('file-list-body');
@@ -316,6 +318,15 @@ class App {
     this.colorPresetSelect.addEventListener('change', (e) => {
       this.spectrogram.colorPreset = e.target.value;
       this.spectrogram.rerender();
+    });
+
+    // Channel selector
+    this.channelSelect.addEventListener('change', (e) => {
+      this.spectrogram.channel = parseInt(e.target.value);
+      this.spectrogram.tileCache.clear();
+      this.spectrogram._lastFFTData = null;
+      this.spectrogram._computing = false;
+      this.spectrogram.computeVisible();
     });
 
     // File info area - toggle file list
@@ -682,6 +693,9 @@ class App {
     // Compute spectrogram for initial narrow view (fast)
     await this.spectrogram.computeVisible();
     await audioSetup;
+
+    // Populate channel selector
+    this._populateChannelSelector(session.channels);
 
     // Show wall clock if available
     if (session.sessionStartTime !== null) {
@@ -1540,6 +1554,36 @@ class App {
     const playAsStr = playAsSpeed !== 1 ? ` @${playAsSpeed}x` : '';
     this.playbackFormatDisplay.textContent = `${rateStr}/16bit ${ch}${playAsStr}`;
     this.playbackFormatDisplay.title = `Source: ${this.session.sampleRate}Hz/${bits}bit — Server: ${rate}Hz/16bit`;
+  }
+
+  // ── Channel selector ────────────────────────────────────────────────
+
+  _populateChannelSelector(numChannels) {
+    this.channelSelect.innerHTML = '';
+
+    // Always offer mono mix
+    const mixOpt = document.createElement('option');
+    mixOpt.value = '-1';
+    mixOpt.textContent = 'Mix';
+    this.channelSelect.appendChild(mixOpt);
+
+    if (numChannels > 1) {
+      const channelLabels = ['L', 'R', 'C', 'LFE', 'Ls', 'Rs', 'Lb', 'Rb'];
+      for (let i = 0; i < numChannels; i++) {
+        const opt = document.createElement('option');
+        opt.value = i.toString();
+        const label = i < channelLabels.length ? channelLabels[i] : `${i + 1}`;
+        opt.textContent = `${i + 1} (${label})`;
+        this.channelSelect.appendChild(opt);
+      }
+      this.channelControl.style.display = '';
+    } else {
+      this.channelControl.style.display = 'none';
+    }
+
+    // Reset to mix
+    this.channelSelect.value = '-1';
+    this.spectrogram.channel = -1;
   }
 
   // ── Go To mode ──────────────────────────────────────────────────────
