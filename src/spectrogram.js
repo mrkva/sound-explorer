@@ -268,11 +268,12 @@ export class SpectrogramRenderer {
 
     const frames = new Array(targetFrames);
     let framesComputed = 0;
-    let totalReads = 0;
+    const blockAlign = session.blockAlign;
+    const windowBytes = N * blockAlign;
 
-    // Strategy: read large raw chunks from disk, but only decode the N-sample
-    // windows we need (spaced `step` apart). Pack extracted windows into a
-    // compact buffer and send to workers via computeBulk with hopSize=N.
+    // Strategy: use scattered reads — one IPC call per file reads only the
+    // small N-sample windows we need, skipping the huge gaps between them.
+    // This transfers ~20MB instead of ~4GB for a 30-min view.
 
     for (const file of session.files) {
       const fileStartSample = file.sampleStart;
@@ -284,14 +285,8 @@ export class SpectrogramRenderer {
 
       if (firstFrame > lastFrame || lastFrame < 0) continue;
 
-      // Read raw bytes in large chunks (~32MB), then extract only the N-sample
-      // windows we need from each chunk. This gives few IPC calls + minimal decoding.
-      const maxReadBytes = 32 * 1024 * 1024;
-      const blockAlign = session.blockAlign;
-      const windowBytes = N * blockAlign;
-
       // Build list of frame positions relative to file start
-      const framePositions = []; // [{frameIdx, offsetInFile}]
+      const framePositions = [];
       for (let i = firstFrame; i <= lastFrame; i++) {
         const samplePos = startSample + i * step;
         const offInFile = samplePos - fileStartSample;
@@ -302,109 +297,88 @@ export class SpectrogramRenderer {
 
       if (framePositions.length === 0) continue;
 
-      // Group frame positions into read batches: consecutive frames whose
-      // byte range (first window start to last window end) fits in maxReadBytes
-      const readBatches = [];
-      let batchStart = 0;
-      while (batchStart < framePositions.length) {
-        const firstPos = framePositions[batchStart];
-        let batchEnd = batchStart;
-        while (batchEnd + 1 < framePositions.length) {
-          const lastPos = framePositions[batchEnd + 1];
-          const span = (lastPos.offsetInFile + N - firstPos.offsetInFile) * blockAlign;
-          if (span > maxReadBytes) break;
-          batchEnd++;
-        }
-        readBatches.push(framePositions.slice(batchStart, batchEnd + 1));
-        batchStart = batchEnd + 1;
-      }
+      // Split into IPC batches (max ~2000 windows per call to avoid huge args)
+      const MAX_WINDOWS_PER_CALL = 2000;
+      for (let bi = 0; bi < framePositions.length; bi += MAX_WINDOWS_PER_CALL) {
+        const batch = framePositions.slice(bi, bi + MAX_WINDOWS_PER_CALL);
 
-      // Fire all reads in parallel to overlap I/O, then decode + FFT.
-      totalReads += readBatches.length;
-      this._reportProgress('reading', Math.round((framesComputed / targetFrames) * 100));
+        this._reportProgress('reading', Math.round((framesComputed / targetFrames) * 100));
 
-      const tr0 = performance.now();
-      const allReadResults = await Promise.all(readBatches.map(batchFrames => {
-        const readOffsetSamples = batchFrames[0].offsetInFile;
-        const readEndSamples = batchFrames[batchFrames.length - 1].offsetInFile + N;
-        const byteOff = readOffsetSamples * blockAlign;
-        const byteLen = (readEndSamples - readOffsetSamples) * blockAlign;
-        return window.electronAPI.readPcmChunk(
-          file.filePath, file.dataOffset, byteOff, byteLen
-        ).then(rawBytes => ({ rawBytes, batchFrames, readOffsetSamples }));
-      }));
-      tRead += performance.now() - tr0;
+        // Build scattered read descriptors
+        const windows = batch.map(fp => ({
+          byteOffset: fp.offsetInFile * blockAlign,
+          byteLength: windowBytes
+        }));
 
-      // Decode all batches into one big packed buffer, then FFT all at once
-      let totalBatchFrames = 0;
-      for (const r of allReadResults) totalBatchFrames += r.batchFrames.length;
+        const tr0 = performance.now();
+        const rawBytes = await window.electronAPI.readPcmScattered(
+          file.filePath, file.dataOffset, windows
+        );
+        tRead += performance.now() - tr0;
 
-      const allPacked = new Float32Array(totalBatchFrames * N);
-      const allFrameIndices = new Array(totalBatchFrames);
-      let packOffset = 0;
+        // Decode the concatenated windows into a packed buffer
+        const numBatchFrames = batch.length;
+        const allPacked = new Float32Array(numBatchFrames * N);
+        const allFrameIndices = new Array(numBatchFrames);
 
-      const td0 = performance.now();
-      for (const { rawBytes, batchFrames, readOffsetSamples } of allReadResults) {
-        for (let f = 0; f < batchFrames.length; f++) {
-          const sampleOff = batchFrames[f].offsetInFile - readOffsetSamples;
+        const td0 = performance.now();
+        for (let f = 0; f < numBatchFrames; f++) {
           this._decodePCM(
-            new DataView(rawBytes, sampleOff * blockAlign, N * blockAlign),
+            new DataView(rawBytes, f * windowBytes, windowBytes),
             session.bitsPerSample, session.channels,
-            allPacked, packOffset * N, N
+            allPacked, f * N, N
           );
-          allFrameIndices[packOffset] = batchFrames[f].frameIdx;
-          packOffset++;
+          allFrameIndices[f] = batch[f].frameIdx;
         }
-      }
-      tDecode += performance.now() - td0;
+        tDecode += performance.now() - td0;
 
-      // Single bulk FFT dispatch across all workers — slice per worker to minimize cloning
-      const tf0 = performance.now();
-      if (this._workers.length > 0 && totalBatchFrames > 1) {
-        const numWorkers = Math.min(this._workers.length, totalBatchFrames);
-        const framesPerWorker = Math.ceil(totalBatchFrames / numWorkers);
-        const promises = [];
+        // Bulk FFT — slice per worker to minimize cloning
+        const tf0 = performance.now();
+        if (this._workers.length > 0 && numBatchFrames > 1) {
+          const numWorkers = Math.min(this._workers.length, numBatchFrames);
+          const framesPerWorker = Math.ceil(numBatchFrames / numWorkers);
+          const promises = [];
 
-        for (let w = 0; w < numWorkers; w++) {
-          const wStart = w * framesPerWorker;
-          const wEnd = Math.min(wStart + framesPerWorker, totalBatchFrames);
-          if (wStart >= wEnd) break;
+          for (let w = 0; w < numWorkers; w++) {
+            const wStart = w * framesPerWorker;
+            const wEnd = Math.min(wStart + framesPerWorker, numBatchFrames);
+            if (wStart >= wEnd) break;
 
-          // Slice the packed buffer so each worker only receives its portion
-          const workerPcm = allPacked.slice(wStart * N, wEnd * N);
+            const workerPcm = allPacked.slice(wStart * N, wEnd * N);
+            promises.push(new Promise((resolve) => {
+              const worker = this._workers[w];
+              worker.onmessage = (e) => resolve({ wStart, magnitudes: e.data.magnitudes });
+              worker.postMessage({
+                type: 'computeBulk',
+                pcm: workerPcm,
+                fftSize: N,
+                hopSize: N,
+                windowFunc: this._window,
+                startFrame: 0,
+                numFrames: wEnd - wStart
+              });
+            }));
+          }
 
-          promises.push(new Promise((resolve) => {
-            const worker = this._workers[w];
-            worker.onmessage = (e) => resolve({ wStart, magnitudes: e.data.magnitudes });
-            worker.postMessage({
-              type: 'computeBulk',
-              pcm: workerPcm,
-              fftSize: N,
-              hopSize: N,
-              windowFunc: this._window,
-              startFrame: 0,
-              numFrames: wEnd - wStart
-            });
-          }));
-        }
-
-        const results = await Promise.all(promises);
-        for (const { wStart, magnitudes } of results) {
-          for (let k = 0; k < magnitudes.length; k++) {
-            frames[allFrameIndices[wStart + k]] = magnitudes[k];
+          const results = await Promise.all(promises);
+          for (const { wStart, magnitudes } of results) {
+            for (let k = 0; k < magnitudes.length; k++) {
+              frames[allFrameIndices[wStart + k]] = magnitudes[k];
+            }
+          }
+        } else {
+          for (let f = 0; f < numBatchFrames; f++) {
+            const frame = new Float32Array(N);
+            for (let j = 0; j < N; j++) {
+              frame[j] = allPacked[f * N + j] * this._window[j];
+            }
+            frames[allFrameIndices[f]] = this._fftFrame(frame);
           }
         }
-      } else {
-        for (let f = 0; f < totalBatchFrames; f++) {
-          const frame = new Float32Array(N);
-          for (let j = 0; j < N; j++) {
-            frame[j] = allPacked[f * N + j] * this._window[j];
-          }
-          frames[allFrameIndices[f]] = this._fftFrame(frame);
-        }
+        tFFT += performance.now() - tf0;
+        framesComputed += numBatchFrames;
       }
-      tFFT += performance.now() - tf0;
-      framesComputed += totalBatchFrames;
+
       this._reportProgress('computing', Math.round((framesComputed / targetFrames) * 100));
       await new Promise(r => setTimeout(r, 0));
     }
@@ -418,7 +392,7 @@ export class SpectrogramRenderer {
     }
 
     const totalMs = performance.now() - t0;
-    console.log(`[subsampled] total=${totalMs.toFixed(0)}ms read=${tRead.toFixed(0)}ms decode=${tDecode.toFixed(0)}ms fft=${tFFT.toFixed(0)}ms | ${targetFrames} frames, ${totalReads} reads, step=${step}, N=${N}`);
+    console.log(`[subsampled] total=${totalMs.toFixed(0)}ms read=${tRead.toFixed(0)}ms decode=${tDecode.toFixed(0)}ms fft=${tFFT.toFixed(0)}ms | ${targetFrames} frames, step=${step}, N=${N}`);
     return { frames, freqBins, numFrames: targetFrames, hopSize: step };
   }
 

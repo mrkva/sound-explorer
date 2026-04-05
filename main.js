@@ -52,7 +52,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'Field Recording Explorer v0.1.8',
+    title: 'Field Recording Explorer v0.1.9',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -606,6 +606,24 @@ ipcMain.handle('read-pcm-chunk', async (event, filePath, dataOffset, byteOffset,
   const { bytesRead } = await fd.read(buf, 0, byteLength, dataOffset + byteOffset);
   const result = buf.buffer.slice(buf.byteOffset, buf.byteOffset + bytesRead);
   return result;
+});
+
+// Read multiple small scattered windows from a file in a single IPC call.
+// windows: [{byteOffset, byteLength}], returns concatenated ArrayBuffer.
+ipcMain.handle('read-pcm-scattered', async (event, filePath, dataOffset, windows) => {
+  const fd = await getCachedFd(filePath);
+  let totalBytes = 0;
+  for (const w of windows) totalBytes += w.byteLength;
+  const out = Buffer.alloc(totalBytes);
+  let pos = 0;
+  // Read all windows concurrently from the same fd
+  const promises = windows.map((w, i) => {
+    const offset = pos;
+    pos += w.byteLength;
+    return fd.read(out, offset, w.byteLength, dataOffset + w.byteOffset);
+  });
+  await Promise.all(promises);
+  return out.buffer.slice(out.byteOffset, out.byteOffset + totalBytes);
 });
 
 // Set up the audio server for a session and return the URL

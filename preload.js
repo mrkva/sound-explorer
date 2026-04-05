@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readFileHeader: (filePath) => ipcRenderer.invoke('read-file-header', filePath),
   readPcmChunk: (filePath, dataOffset, byteOffset, byteLength) =>
     ipcRenderer.invoke('read-pcm-chunk', filePath, dataOffset, byteOffset, byteLength),
+  readPcmScattered: (filePath, dataOffset, windows) =>
+    ipcRenderer.invoke('read-pcm-scattered', filePath, dataOffset, windows),
   setupAudioServer: (files, outputRate) => ipcRenderer.invoke('setup-audio-server', files, outputRate),
   onOpenFiles: (callback) => ipcRenderer.on('open-files', (_event, filePaths) => callback(filePaths))
 });
