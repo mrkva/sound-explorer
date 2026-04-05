@@ -1485,9 +1485,19 @@ export class SpectrogramRenderer {
   }
 
   setView(start, end) {
-    this.viewStart = Math.max(0, start);
-    this.viewEnd = Math.min(this.totalDuration, end);
-    this.draw(); // Always redraw immediately (axes, cursor, selection)
+    const duration = end - start;
+    // Clamp while preserving view duration (prevents accidental zoom at boundaries)
+    if (start < 0) {
+      start = 0;
+      end = Math.min(duration, this.totalDuration);
+    }
+    if (end > this.totalDuration) {
+      end = this.totalDuration;
+      start = Math.max(0, end - duration);
+    }
+    this.viewStart = start;
+    this.viewEnd = end;
+    this.draw();
     this._updateScrollbar();
     if (this.onViewChange) this.onViewChange(this.viewStart, this.viewEnd);
   }

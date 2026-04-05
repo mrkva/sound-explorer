@@ -554,8 +554,13 @@ class App {
       }
 
       try {
-        // Get file paths from dropped files
-        const filePaths = wavFiles.map(f => f.path).filter(p => p);
+        // Get file paths from dropped files (Electron 33+ requires webUtils)
+        const filePaths = wavFiles.map(f => {
+          if (window.electronAPI.getPathForFile) {
+            try { return window.electronAPI.getPathForFile(f); } catch (e) {}
+          }
+          return f.path;
+        }).filter(p => p);
         if (filePaths.length === 0) {
           this._setStatus('Could not read file paths');
           return;
