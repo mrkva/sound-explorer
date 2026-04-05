@@ -90,6 +90,7 @@ export class SpectrogramRenderer {
     this._initRenderWorker();
 
     this._setupInteraction();
+    this._setupScrollbar();
   }
 
   /**
@@ -1448,6 +1449,7 @@ export class SpectrogramRenderer {
     this.viewStart = Math.max(0, start);
     this.viewEnd = Math.min(this.totalDuration, end);
     this.draw(); // Always redraw immediately (axes, cursor, selection)
+    this._updateScrollbar();
     if (this.onViewChange) this.onViewChange(this.viewStart, this.viewEnd);
   }
 
@@ -1492,6 +1494,78 @@ export class SpectrogramRenderer {
     }
   }
 
+  _setupScrollbar() {
+    this._scrollbar = document.getElementById('time-scrollbar');
+    this._scrollThumb = document.getElementById('time-scrollbar-thumb');
+    if (!this._scrollbar || !this._scrollThumb) return;
+
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartLeft = 0;
+
+    this._scrollThumb.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartLeft = this._scrollThumb.offsetLeft;
+      document.body.style.cursor = 'grabbing';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const trackWidth = this._scrollbar.clientWidth;
+      const thumbWidth = this._scrollThumb.offsetWidth;
+      const maxLeft = trackWidth - thumbWidth;
+      const dx = e.clientX - dragStartX;
+      const newLeft = Math.max(0, Math.min(maxLeft, dragStartLeft + dx));
+      const ratio = maxLeft > 0 ? newLeft / maxLeft : 0;
+      const viewDuration = this.viewEnd - this.viewStart;
+      const newStart = ratio * (this.totalDuration - viewDuration);
+      this.setView(newStart, newStart + viewDuration);
+      clearTimeout(this._scrollComputeTimeout);
+      this._scrollComputeTimeout = setTimeout(() => this.computeVisible(), 150);
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        document.body.style.cursor = '';
+      }
+    });
+
+    // Click on track to jump
+    this._scrollbar.addEventListener('mousedown', (e) => {
+      if (e.target === this._scrollThumb) return;
+      const rect = this._scrollbar.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const trackWidth = this._scrollbar.clientWidth;
+      const viewDuration = this.viewEnd - this.viewStart;
+      const thumbWidth = (viewDuration / this.totalDuration) * trackWidth;
+      const maxLeft = trackWidth - thumbWidth;
+      const newLeft = Math.max(0, Math.min(maxLeft, clickX - thumbWidth / 2));
+      const ratio = maxLeft > 0 ? newLeft / maxLeft : 0;
+      const newStart = ratio * (this.totalDuration - viewDuration);
+      this.setView(newStart, newStart + viewDuration);
+      clearTimeout(this._scrollComputeTimeout);
+      this._scrollComputeTimeout = setTimeout(() => this.computeVisible(), 150);
+    });
+  }
+
+  _updateScrollbar() {
+    if (!this._scrollbar || !this._scrollThumb) return;
+    const trackWidth = this._scrollbar.clientWidth;
+    const viewDuration = this.viewEnd - this.viewStart;
+    const thumbRatio = Math.min(1, viewDuration / this.totalDuration);
+    const thumbWidth = Math.max(30, thumbRatio * trackWidth);
+    const maxLeft = trackWidth - thumbWidth;
+    const scrollableRange = this.totalDuration - viewDuration;
+    const posRatio = scrollableRange > 0 ? this.viewStart / scrollableRange : 0;
+    this._scrollThumb.style.width = thumbWidth + 'px';
+    this._scrollThumb.style.left = (posRatio * maxLeft) + 'px';
+    // Hide scrollbar when viewing full duration
+    this._scrollbar.style.display = thumbRatio >= 0.99 ? 'none' : 'block';
+  }
+
   _setupInteraction() {
     let computeTimeout = null;
 
@@ -1502,7 +1576,19 @@ export class SpectrogramRenderer {
 
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      // Zoom centers on playback cursor if available, otherwise mouse position
+
+      // Horizontal scroll (two-finger horizontal swipe) → pan in time
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && !e.ctrlKey) {
+        const viewDuration = this.viewEnd - this.viewStart;
+        // deltaX > 0 means scroll right → move view forward in time
+        const panAmount = (e.deltaX / this.canvas.width) * viewDuration * 2;
+        const newStart = this.viewStart + panAmount;
+        this.setView(newStart, newStart + viewDuration);
+        scheduleCompute();
+        return;
+      }
+
+      // Vertical scroll or pinch → zoom
       let time;
       if (this._lastPlaybackTime !== null && this._lastPlaybackTime !== undefined) {
         time = this._lastPlaybackTime;

@@ -151,6 +151,9 @@
     <!-- Spectrogram area -->
     <div class="spectrogram-container">
       <canvas id="spectrogram"></canvas>
+      <div id="time-scrollbar" class="time-scrollbar" style="display: none;">
+        <div id="time-scrollbar-thumb" class="time-scrollbar-thumb"></div>
+      </div>
 
       <!-- Computing overlay -->
       <div class="computing-overlay" id="computing-overlay" style="display: none;">
@@ -175,7 +178,8 @@
           <kbd>Shift</kbd>+<kbd>&larr;</kbd><kbd>&rarr;</kbd> Seek &plusmn;10s<br>
           <kbd>+</kbd><kbd>-</kbd> Zoom &nbsp;
           <kbd>F</kbd> Fit view &nbsp;
-          <kbd>Scroll</kbd> Zoom at cursor<br>
+          <kbd>Scroll &uarr;&darr;</kbd> Zoom at cursor &nbsp;
+          <kbd>Scroll &larr;&rarr;</kbd> Pan in time<br>
           <kbd>Drag</kbd> Select time range &nbsp;
           <kbd>Right-drag</kbd> Pan view &nbsp;
           <kbd>Esc</kbd> Clear selection<br>
@@ -354,7 +358,8 @@
       </table>
       <hr style="border:none; border-top:1px solid #333; margin:12px 0 8px;">
       <table style="width:100%; border-collapse:collapse; color:#999; font-size:12px;">
-        <tr><td style="padding:2px 12px 2px 0;">Scroll wheel</td><td>Zoom in/out at cursor</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;">Scroll up/down</td><td>Zoom in/out at cursor</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;">Scroll left/right</td><td>Pan in time</td></tr>
         <tr><td style="padding:2px 12px 2px 0;">Left-drag</td><td>Select time range</td></tr>
         <tr><td style="padding:2px 12px 2px 0;">Right-drag</td><td>Pan view</td></tr>
         <tr><td style="padding:2px 12px 2px 0;">Drag &amp; drop</td><td>Open WAV files</td></tr>
