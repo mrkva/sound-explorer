@@ -1577,37 +1577,30 @@ export class SpectrogramRenderer {
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
 
-      // Horizontal scroll (two-finger horizontal swipe) → pan in time
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && !e.ctrlKey) {
-        const viewDuration = this.viewEnd - this.viewStart;
-        // deltaX > 0 means scroll right → move view forward in time
-        const panAmount = (e.deltaX / this.canvas.width) * viewDuration * 2;
-        const newStart = this.viewStart + panAmount;
-        this.setView(newStart, newStart + viewDuration);
+      // Pinch-to-zoom (ctrlKey+wheel) → zoom
+      if (e.ctrlKey) {
+        let time;
+        if (this._lastPlaybackTime !== null && this._lastPlaybackTime !== undefined) {
+          time = this._lastPlaybackTime;
+        } else {
+          const rect = this.canvas.getBoundingClientRect();
+          const canvasX = e.clientX - rect.left;
+          time = this.canvasXToTime(canvasX);
+        }
+        const factor = 1 + e.deltaY * 0.02;
+        this.zoom(time, factor);
         scheduleCompute();
         return;
       }
 
-      // Vertical scroll or pinch → zoom
-      let time;
-      if (this._lastPlaybackTime !== null && this._lastPlaybackTime !== undefined) {
-        time = this._lastPlaybackTime;
-      } else {
-        const rect = this.canvas.getBoundingClientRect();
-        const canvasX = e.clientX - rect.left;
-        time = this.canvasXToTime(canvasX);
-      }
-
-      // Trackpad pinch-to-zoom sends ctrlKey+wheel with fine deltaY
-      // Regular scroll wheel sends larger discrete deltaY
-      let factor;
-      if (e.ctrlKey) {
-        // Pinch gesture: deltaY is small and continuous
-        factor = 1 + e.deltaY * 0.02;
-      } else {
-        factor = e.deltaY > 0 ? 1.3 : 1 / 1.3;
-      }
-      this.zoom(time, factor);
+      // Any non-pinch scroll → pan in time (horizontal component)
+      // Use deltaX if available, otherwise ignore vertical-only scroll
+      const dx = e.deltaX || 0;
+      if (dx === 0 && e.deltaY !== 0) return; // pure vertical scroll — ignore
+      const viewDuration = this.viewEnd - this.viewStart;
+      const panAmount = (dx / this.canvas.width) * viewDuration * 2;
+      const newStart = this.viewStart + panAmount;
+      this.setView(newStart, newStart + viewDuration);
       scheduleCompute();
     });
 
