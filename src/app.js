@@ -22,6 +22,7 @@ class App {
     this.btnZoomIn = document.getElementById('btn-zoom-in');
     this.btnZoomOut = document.getElementById('btn-zoom-out');
     this.btnZoomFit = document.getElementById('btn-zoom-fit');
+    this.btnZoomSel = document.getElementById('btn-zoom-sel');
     this.timeInput = document.getElementById('time-input');
     this.gotoMode = document.getElementById('goto-mode');
     this.btnGoTo = document.getElementById('btn-goto');
@@ -242,6 +243,8 @@ class App {
       this.spectrogram.setView(0, this.spectrogram.totalDuration);
       this.spectrogram.computeVisible();
     });
+
+    this.btnZoomSel.addEventListener('click', () => this._zoomToSelection());
 
     // Go to time
     this.btnGoTo.addEventListener('click', () => this._goToTime());
@@ -496,6 +499,10 @@ class App {
           e.preventDefault();
           this.btnZoomFit.click();
           break;
+        case 'KeyS':
+          e.preventDefault();
+          this._zoomToSelection();
+          break;
         case 'KeyG':
           e.preventDefault();
           this.timeInput.focus();
@@ -601,6 +608,19 @@ class App {
     }
   }
 
+  _zoomToSelection() {
+    const s = this.spectrogram.selectionStart;
+    const e = this.spectrogram.selectionEnd;
+    if (s === null || e === null) return;
+    const start = Math.min(s, e);
+    const end = Math.max(s, e);
+    if (end - start < 0.01) return;
+    // Add 5% padding on each side
+    const pad = (end - start) * 0.05;
+    this.spectrogram.setView(start - pad, end + pad);
+    this.spectrogram.computeVisible();
+  }
+
   _adjustSpectGain(delta) {
     const current = parseFloat(this.spectGainSlider.value);
     const newVal = Math.max(0, Math.min(80, current + delta));
@@ -645,6 +665,10 @@ class App {
 
   async _initSession() {
     const session = this.session;
+
+    // Clear previous annotations
+    this.annotations = [];
+    this._updateAnnotationsList();
 
     // Display info
     this.fileInfoDisplay.textContent = session.getSummary();
@@ -728,6 +752,9 @@ class App {
 
     this._setStatus(this._readyStatusMessage());
     this._updateTimeDisplays(0);
+
+    // Try to auto-load annotations from the same folder
+    this._autoloadAnnotations();
   }
 
   _buildFileList() {
@@ -1155,9 +1182,16 @@ class App {
       return;
     }
 
+    // Default to saving in the same folder as the WAV files
+    let defaultPath = 'annotations.json';
+    if (this.session && this.session.files.length > 0) {
+      const dir = this.session.files[0].filePath.replace(/[/\\][^/\\]+$/, '');
+      defaultPath = dir + '/annotations.json';
+    }
+
     const filePath = await window.electronAPI.saveFileDialog({
       title: 'Export Annotations',
-      defaultPath: 'annotations.json',
+      defaultPath,
       filters: [
         { name: 'JSON', extensions: ['json'] },
         { name: 'All Files', extensions: ['*'] }
@@ -1384,19 +1418,23 @@ class App {
     const filePaths = await window.electronAPI.openFileDialog();
     if (!filePaths || filePaths.length === 0) return;
 
-    // Find the .json file
     const jsonPath = filePaths.find(p => p.endsWith('.json')) || filePaths[0];
+    const count = await this._loadAnnotationsFromFile(jsonPath);
+    if (count > 0) {
+      if (!this.annotationsSidebar.classList.contains('open')) {
+        this._toggleAnnotationsSidebar();
+      }
+      this._setStatus(`Loaded ${count} annotations from ${jsonPath.split(/[/\\]/).pop()}`);
+    }
+  }
 
+  async _loadAnnotationsFromFile(jsonPath) {
     try {
       const content = await window.electronAPI.readTextFile(jsonPath);
       const data = JSON.parse(content);
 
-      if (!data.annotations || !Array.isArray(data.annotations)) {
-        this._setStatus('Invalid annotations file');
-        return;
-      }
+      if (!data.annotations || !Array.isArray(data.annotations)) return 0;
 
-      // Convert loaded annotations to internal format
       for (const ann of data.annotations) {
         this.annotations.push({
           note: ann.note,
@@ -1417,12 +1455,35 @@ class App {
       }
 
       this._updateAnnotationsList();
-      if (!this.annotationsSidebar.classList.contains('open')) {
-        this._toggleAnnotationsSidebar();
-      }
-      this._setStatus(`Loaded ${data.annotations.length} annotations from ${jsonPath.split(/[/\\]/).pop()}`);
+      return data.annotations.length;
     } catch (err) {
-      this._setStatus('Error loading annotations: ' + err.message);
+      return 0;
+    }
+  }
+
+  async _autoloadAnnotations() {
+    if (!this.session || this.session.files.length === 0) return;
+
+    // Look for annotations.json in the same folder as the first WAV file
+    const firstFilePath = this.session.files[0].filePath;
+    const folderPath = firstFilePath.replace(/[/\\][^/\\]+$/, '');
+
+    // Try: annotations.json, then <first-filename>.annotations.json
+    const baseName = firstFilePath.replace(/^.*[/\\]/, '').replace(/\.[^.]+$/, '');
+    const candidates = [
+      folderPath + '/annotations.json',
+      folderPath + '/' + baseName + '.annotations.json'
+    ];
+
+    for (const path of candidates) {
+      const count = await this._loadAnnotationsFromFile(path);
+      if (count > 0) {
+        if (!this.annotationsSidebar.classList.contains('open')) {
+          this._toggleAnnotationsSidebar();
+        }
+        this._setStatus(`Auto-loaded ${count} annotations from ${path.split(/[/\\]/).pop()}`);
+        return;
+      }
     }
   }
 
