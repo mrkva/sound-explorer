@@ -261,15 +261,18 @@ export class SpectrogramRenderer {
     const totalSpan = endSample - startSample;
     const step = Math.max(1, Math.floor(totalSpan / targetFrames));
     const session = this.session;
+    const t0 = performance.now();
+    let tRead = 0, tDecode = 0, tFFT = 0;
 
     this._ensureWindow(N);
 
     const frames = new Array(targetFrames);
     let framesComputed = 0;
+    let totalReads = 0;
 
-    // Strategy: for each file, read contiguous chunks that cover groups of
-    // spaced-out frames, then use computeBulk (PCM + hopSize) on those chunks.
-    // This minimizes IPC reads and leverages the optimized bulk FFT path.
+    // Strategy: read large raw chunks from disk, but only decode the N-sample
+    // windows we need (spaced `step` apart). Pack extracted windows into a
+    // compact buffer and send to workers via computeBulk with hopSize=N.
 
     for (const file of session.files) {
       const fileStartSample = file.sampleStart;
@@ -281,100 +284,129 @@ export class SpectrogramRenderer {
 
       if (firstFrame > lastFrame || lastFrame < 0) continue;
 
-      // Group consecutive frames into chunks that share a contiguous read.
-      // Each chunk covers frames whose PCM windows fit in ≤4MB of decoded float samples.
-      const maxChunkSamples = 4 * 1024 * 1024; // ~16MB Float32
-      let groupStart = firstFrame;
+      // Read raw bytes in large chunks (~32MB), then extract only the N-sample
+      // windows we need from each chunk. This gives few IPC calls + minimal decoding.
+      const maxReadBytes = 32 * 1024 * 1024;
+      const blockAlign = session.blockAlign;
+      const windowBytes = N * blockAlign;
 
-      while (groupStart <= lastFrame) {
-        // Find how many frames fit in one chunk read
-        const chunkPcmStart = startSample + groupStart * step;
-        let groupEnd = groupStart;
-        while (groupEnd < lastFrame) {
-          const nextEnd = startSample + (groupEnd + 1) * step + N;
-          if (nextEnd - chunkPcmStart > maxChunkSamples) break;
-          groupEnd++;
+      // Build list of frame positions relative to file start
+      const framePositions = []; // [{frameIdx, offsetInFile}]
+      for (let i = firstFrame; i <= lastFrame; i++) {
+        const samplePos = startSample + i * step;
+        const offInFile = samplePos - fileStartSample;
+        if (offInFile >= 0 && offInFile + N <= file.samples) {
+          framePositions.push({ frameIdx: i, offsetInFile: offInFile });
         }
-
-        const chunkPcmEnd = Math.min(startSample + groupEnd * step + N, fileEndSample);
-        const offsetInFile = Math.max(0, chunkPcmStart - fileStartSample);
-        const samplesToRead = chunkPcmEnd - (fileStartSample + offsetInFile);
-        if (samplesToRead <= 0) { groupStart = groupEnd + 1; continue; }
-
-        // Read the contiguous chunk
-        this._reportProgress('reading', Math.round((framesComputed / targetFrames) * 100));
-        const byteOff = offsetInFile * session.blockAlign;
-        const byteLen = samplesToRead * session.blockAlign;
-        const rawBytes = await window.electronAPI.readPcmChunk(
-          file.filePath, file.dataOffset, byteOff, byteLen
-        );
-        const chunkMono = new Float32Array(Math.floor(rawBytes.byteLength / session.blockAlign));
-        this._decodePCM(
-          new DataView(rawBytes), session.bitsPerSample, session.channels,
-          chunkMono, 0, chunkMono.length
-        );
-
-        // Use computeBulk: treat the chunk as contiguous PCM with hopSize = step.
-        // The frame positions in chunkMono: frame i starts at (startSample + i*step) - chunkPcmStart
-        // Since frames are evenly spaced by `step`, we can use computeBulk if
-        // frames are contiguous within the chunk. But they start at known offsets,
-        // so we build a synthetic contiguous buffer and use bulk.
-        const framesInGroup = groupEnd - groupStart + 1;
-
-        if (this._workers.length > 0 && framesInGroup > 1) {
-          // Fast path: use computeBulk with the chunk PCM directly.
-          // Frame i in this group starts at offset (i * step) relative to chunkPcmStart.
-          // The first frame starts at offset 0 (by construction), hop = step.
-          const numWorkers = Math.min(this._workers.length, framesInGroup);
-          const framesPerWorker = Math.ceil(framesInGroup / numWorkers);
-          const promises = [];
-
-          for (let w = 0; w < numWorkers; w++) {
-            const wStart = w * framesPerWorker;
-            const wEnd = Math.min(wStart + framesPerWorker, framesInGroup);
-            if (wStart >= wEnd) break;
-
-            const promise = new Promise((resolve) => {
-              const worker = this._workers[w];
-              worker.onmessage = (e) => resolve({ wStart, magnitudes: e.data.magnitudes });
-              worker.postMessage({
-                type: 'computeBulk',
-                pcm: chunkMono,
-                fftSize: N,
-                hopSize: step,
-                windowFunc: this._window,
-                startFrame: wStart,
-                numFrames: wEnd - wStart
-              });
-            });
-            promises.push(promise);
-          }
-
-          const results = await Promise.all(promises);
-          for (const { wStart, magnitudes } of results) {
-            for (let k = 0; k < magnitudes.length; k++) {
-              frames[groupStart + wStart + k] = magnitudes[k];
-            }
-          }
-        } else {
-          // Fallback: single-frame FFT
-          for (let i = 0; i < framesInGroup; i++) {
-            const offset = i * step;
-            if (offset + N > chunkMono.length) break;
-            const frame = new Float32Array(N);
-            for (let j = 0; j < N; j++) {
-              frame[j] = chunkMono[offset + j] * this._window[j];
-            }
-            frames[groupStart + i] = this._fftFrame(frame);
-          }
-        }
-
-        framesComputed += framesInGroup;
-        this._reportProgress('computing', Math.round((framesComputed / targetFrames) * 100));
-        await new Promise(r => setTimeout(r, 0));
-
-        groupStart = groupEnd + 1;
       }
+
+      if (framePositions.length === 0) continue;
+
+      // Group frame positions into read batches: consecutive frames whose
+      // byte range (first window start to last window end) fits in maxReadBytes
+      const readBatches = [];
+      let batchStart = 0;
+      while (batchStart < framePositions.length) {
+        const firstPos = framePositions[batchStart];
+        let batchEnd = batchStart;
+        while (batchEnd + 1 < framePositions.length) {
+          const lastPos = framePositions[batchEnd + 1];
+          const span = (lastPos.offsetInFile + N - firstPos.offsetInFile) * blockAlign;
+          if (span > maxReadBytes) break;
+          batchEnd++;
+        }
+        readBatches.push(framePositions.slice(batchStart, batchEnd + 1));
+        batchStart = batchEnd + 1;
+      }
+
+      // Fire all reads in parallel to overlap I/O, then decode + FFT.
+      totalReads += readBatches.length;
+      this._reportProgress('reading', Math.round((framesComputed / targetFrames) * 100));
+
+      const tr0 = performance.now();
+      const allReadResults = await Promise.all(readBatches.map(batchFrames => {
+        const readOffsetSamples = batchFrames[0].offsetInFile;
+        const readEndSamples = batchFrames[batchFrames.length - 1].offsetInFile + N;
+        const byteOff = readOffsetSamples * blockAlign;
+        const byteLen = (readEndSamples - readOffsetSamples) * blockAlign;
+        return window.electronAPI.readPcmChunk(
+          file.filePath, file.dataOffset, byteOff, byteLen
+        ).then(rawBytes => ({ rawBytes, batchFrames, readOffsetSamples }));
+      }));
+      tRead += performance.now() - tr0;
+
+      // Decode all batches into one big packed buffer, then FFT all at once
+      let totalBatchFrames = 0;
+      for (const r of allReadResults) totalBatchFrames += r.batchFrames.length;
+
+      const allPacked = new Float32Array(totalBatchFrames * N);
+      const allFrameIndices = new Array(totalBatchFrames);
+      let packOffset = 0;
+
+      const td0 = performance.now();
+      for (const { rawBytes, batchFrames, readOffsetSamples } of allReadResults) {
+        for (let f = 0; f < batchFrames.length; f++) {
+          const sampleOff = batchFrames[f].offsetInFile - readOffsetSamples;
+          this._decodePCM(
+            new DataView(rawBytes, sampleOff * blockAlign, N * blockAlign),
+            session.bitsPerSample, session.channels,
+            allPacked, packOffset * N, N
+          );
+          allFrameIndices[packOffset] = batchFrames[f].frameIdx;
+          packOffset++;
+        }
+      }
+      tDecode += performance.now() - td0;
+
+      // Single bulk FFT dispatch across all workers — slice per worker to minimize cloning
+      const tf0 = performance.now();
+      if (this._workers.length > 0 && totalBatchFrames > 1) {
+        const numWorkers = Math.min(this._workers.length, totalBatchFrames);
+        const framesPerWorker = Math.ceil(totalBatchFrames / numWorkers);
+        const promises = [];
+
+        for (let w = 0; w < numWorkers; w++) {
+          const wStart = w * framesPerWorker;
+          const wEnd = Math.min(wStart + framesPerWorker, totalBatchFrames);
+          if (wStart >= wEnd) break;
+
+          // Slice the packed buffer so each worker only receives its portion
+          const workerPcm = allPacked.slice(wStart * N, wEnd * N);
+
+          promises.push(new Promise((resolve) => {
+            const worker = this._workers[w];
+            worker.onmessage = (e) => resolve({ wStart, magnitudes: e.data.magnitudes });
+            worker.postMessage({
+              type: 'computeBulk',
+              pcm: workerPcm,
+              fftSize: N,
+              hopSize: N,
+              windowFunc: this._window,
+              startFrame: 0,
+              numFrames: wEnd - wStart
+            });
+          }));
+        }
+
+        const results = await Promise.all(promises);
+        for (const { wStart, magnitudes } of results) {
+          for (let k = 0; k < magnitudes.length; k++) {
+            frames[allFrameIndices[wStart + k]] = magnitudes[k];
+          }
+        }
+      } else {
+        for (let f = 0; f < totalBatchFrames; f++) {
+          const frame = new Float32Array(N);
+          for (let j = 0; j < N; j++) {
+            frame[j] = allPacked[f * N + j] * this._window[j];
+          }
+          frames[allFrameIndices[f]] = this._fftFrame(frame);
+        }
+      }
+      tFFT += performance.now() - tf0;
+      framesComputed += totalBatchFrames;
+      this._reportProgress('computing', Math.round((framesComputed / targetFrames) * 100));
+      await new Promise(r => setTimeout(r, 0));
     }
 
     // Fill gaps (frames between files) with silence
@@ -385,6 +417,8 @@ export class SpectrogramRenderer {
       }
     }
 
+    const totalMs = performance.now() - t0;
+    console.log(`[subsampled] total=${totalMs.toFixed(0)}ms read=${tRead.toFixed(0)}ms decode=${tDecode.toFixed(0)}ms fft=${tFFT.toFixed(0)}ms | ${targetFrames} frames, ${totalReads} reads, step=${step}, N=${N}`);
     return { frames, freqBins, numFrames: targetFrames, hopSize: step };
   }
 
