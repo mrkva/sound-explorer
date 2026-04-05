@@ -6,6 +6,8 @@
   "scripts": {
     "start": "electron .",
     "pack": "electron-builder --dir",
+    "clean": "rm -rf dist",
+    "predist": "npm run clean",
     "dist": "electron-builder"
   },
   "author": "",
