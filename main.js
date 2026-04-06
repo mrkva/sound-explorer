@@ -430,12 +430,17 @@ ipcMain.handle('read-text-file', async (event, filePath) => {
 });
 
 // Export a WAV segment: read raw PCM from source file(s) and write a new WAV
-ipcMain.handle('export-wav-segment', async (event, segments, outputPath, bextMeta) => {
-  // segments: [{filePath, dataOffset, startByte, endByte}]
-  // bextMeta: optional {description, originator, originatorReference, originationDate, originationTime, timeReference}
+/**
+ * Write a WAV file from PCM segments with optional bext metadata.
+ * Shared by both native and resampled export handlers.
+ * @param {Array} segments - [{filePath, dataOffset, startByte, endByte, bitsPerSample, channels, format}]
+ * @param {string} outputPath
+ * @param {number} sampleRate - sample rate to write in the WAV header
+ * @param {object|null} bextMeta - optional BWF metadata
+ */
+async function writeWavFromSegments(segments, outputPath, sampleRate, bextMeta) {
   const ref = segments[0];
 
-  // Calculate total output data bytes
   let totalDataBytes = 0;
   for (const seg of segments) {
     totalDataBytes += seg.endByte - seg.startByte;
@@ -443,7 +448,6 @@ ipcMain.handle('export-wav-segment', async (event, segments, outputPath, bextMet
 
   const bitsPerSample = ref.bitsPerSample;
   const channels = ref.channels;
-  const sampleRate = ref.sampleRate;
   const format = ref.format || 1;
   const isFloat = (format === 3);
   const bytesPerSample = bitsPerSample / 8;
@@ -455,124 +459,6 @@ ipcMain.handle('export-wav-segment', async (event, segments, outputPath, bextMet
   if (bextMeta) {
     const BEXT_SIZE = 602; // Fixed bext chunk size (v0, no coding history)
     bextChunk = Buffer.alloc(BEXT_SIZE + 8); // +8 for chunk ID + size
-    bextChunk.write('bext', 0);
-    bextChunk.writeUInt32LE(BEXT_SIZE, 4);
-    // Description: 256 bytes
-    bextChunk.write((bextMeta.description || '').slice(0, 256).padEnd(256, '\0'), 8, 'ascii');
-    // Originator: 32 bytes
-    bextChunk.write((bextMeta.originator || '').slice(0, 32).padEnd(32, '\0'), 264, 'ascii');
-    // OriginatorReference: 32 bytes
-    bextChunk.write((bextMeta.originatorReference || '').slice(0, 32).padEnd(32, '\0'), 296, 'ascii');
-    // OriginationDate: 10 bytes (YYYY-MM-DD)
-    bextChunk.write((bextMeta.originationDate || '').slice(0, 10).padEnd(10, '\0'), 328, 'ascii');
-    // OriginationTime: 8 bytes (HH:MM:SS)
-    bextChunk.write((bextMeta.originationTime || '').slice(0, 8).padEnd(8, '\0'), 338, 'ascii');
-    // TimeReference: uint64 LE (samples since midnight)
-    const timeRef = Math.max(0, bextMeta.timeReference || 0);
-    // Split uint64 without bitwise ops (which convert to signed int32)
-    const timeLow = timeRef % 0x100000000;
-    const timeHigh = Math.floor(timeRef / 0x100000000);
-    bextChunk.writeUInt32LE(timeLow >>> 0, 346);
-    bextChunk.writeUInt32LE(timeHigh >>> 0, 350);
-    // Version: uint16 (BWF version 0)
-    bextChunk.writeUInt16LE(0, 354);
-    // Remaining 256 bytes (UMID + reserved) are already zeroed
-  }
-
-  const bextSize = bextChunk ? bextChunk.length : 0;
-
-  // Build RIFF + fmt header
-  const fmtSize = 16;
-  const headerSize = 12 + (8 + fmtSize) + bextSize + 8; // RIFF(12) + fmt(24) + bext + data(8)
-
-  const header = Buffer.alloc(headerSize);
-  let pos = 0;
-
-  // RIFF header
-  header.write('RIFF', pos); pos += 4;
-  header.writeUInt32LE(Math.min(headerSize - 8 + totalDataBytes, 0xFFFFFFFF), pos); pos += 4;
-  header.write('WAVE', pos); pos += 4;
-
-  // fmt chunk
-  header.write('fmt ', pos); pos += 4;
-  header.writeUInt32LE(fmtSize, pos); pos += 4;
-  header.writeUInt16LE(isFloat ? 3 : 1, pos); pos += 2;
-  header.writeUInt16LE(channels, pos); pos += 2;
-  header.writeUInt32LE(sampleRate, pos); pos += 4;
-  header.writeUInt32LE(byteRate, pos); pos += 4;
-  header.writeUInt16LE(blockAlign, pos); pos += 2;
-  header.writeUInt16LE(bitsPerSample, pos); pos += 2;
-
-  // bext chunk (if present)
-  if (bextChunk) {
-    bextChunk.copy(header, pos);
-    pos += bextChunk.length;
-  }
-
-  // data chunk header
-  header.write('data', pos); pos += 4;
-  header.writeUInt32LE(Math.min(totalDataBytes, 0xFFFFFFFF), pos); pos += 4;
-
-  // Write the file
-  const outFd = await fs.promises.open(outputPath, 'w');
-  try {
-    let writePos = 0;
-    await outFd.write(header, 0, header.length, writePos);
-    writePos += header.length;
-
-    // Copy raw PCM data from each segment
-    const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB read chunks
-    for (const seg of segments) {
-      const srcFd = await fs.promises.open(seg.filePath, 'r');
-      try {
-        let remaining = seg.endByte - seg.startByte;
-        let srcPos = seg.dataOffset + seg.startByte;
-
-        while (remaining > 0) {
-          const toRead = Math.min(CHUNK_SIZE, remaining);
-          const buf = Buffer.alloc(toRead);
-          const { bytesRead } = await srcFd.read(buf, 0, toRead, srcPos);
-          if (bytesRead === 0) break;
-          await outFd.write(buf, 0, bytesRead, writePos);
-          writePos += bytesRead;
-          srcPos += bytesRead;
-          remaining -= bytesRead;
-        }
-      } finally {
-        await srcFd.close();
-      }
-    }
-  } finally {
-    await outFd.close();
-  }
-
-  return { success: true, outputPath, totalDataBytes };
-});
-
-// Export WAV with modified sample rate (for speed-shifted export)
-// Same raw PCM data but header declares a different sample rate,
-// so playback in any DAW/player reproduces at that speed.
-ipcMain.handle('export-wav-resampled', async (event, segments, outputPath, targetSampleRate, bextMeta) => {
-  const ref = segments[0];
-
-  let totalDataBytes = 0;
-  for (const seg of segments) {
-    totalDataBytes += seg.endByte - seg.startByte;
-  }
-
-  const bitsPerSample = ref.bitsPerSample;
-  const channels = ref.channels;
-  const format = ref.format || 1;
-  const isFloat = (format === 3);
-  const bytesPerSample = bitsPerSample / 8;
-  const blockAlign = channels * bytesPerSample;
-  const byteRate = targetSampleRate * blockAlign;
-
-  // Build bext chunk
-  let bextChunk = null;
-  if (bextMeta) {
-    const BEXT_SIZE = 602;
-    bextChunk = Buffer.alloc(BEXT_SIZE + 8);
     bextChunk.write('bext', 0);
     bextChunk.writeUInt32LE(BEXT_SIZE, 4);
     bextChunk.write((bextMeta.description || '').slice(0, 256).padEnd(256, '\0'), 8, 'ascii');
@@ -603,7 +489,7 @@ ipcMain.handle('export-wav-resampled', async (event, segments, outputPath, targe
   header.writeUInt32LE(fmtSize, pos); pos += 4;
   header.writeUInt16LE(isFloat ? 3 : 1, pos); pos += 2;
   header.writeUInt16LE(channels, pos); pos += 2;
-  header.writeUInt32LE(targetSampleRate, pos); pos += 4;  // <-- the modified rate
+  header.writeUInt32LE(sampleRate, pos); pos += 4;
   header.writeUInt32LE(byteRate, pos); pos += 4;
   header.writeUInt16LE(blockAlign, pos); pos += 2;
   header.writeUInt16LE(bitsPerSample, pos); pos += 2;
@@ -623,6 +509,7 @@ ipcMain.handle('export-wav-resampled', async (event, segments, outputPath, targe
     writePos += header.length;
 
     const CHUNK_SIZE = 4 * 1024 * 1024;
+    const readBuf = Buffer.allocUnsafe(CHUNK_SIZE);
     for (const seg of segments) {
       const srcFd = await fs.promises.open(seg.filePath, 'r');
       try {
@@ -630,10 +517,9 @@ ipcMain.handle('export-wav-resampled', async (event, segments, outputPath, targe
         let srcPos = seg.dataOffset + seg.startByte;
         while (remaining > 0) {
           const toRead = Math.min(CHUNK_SIZE, remaining);
-          const buf = Buffer.alloc(toRead);
-          const { bytesRead } = await srcFd.read(buf, 0, toRead, srcPos);
+          const { bytesRead } = await srcFd.read(readBuf, 0, toRead, srcPos);
           if (bytesRead === 0) break;
-          await outFd.write(buf, 0, bytesRead, writePos);
+          await outFd.write(readBuf, 0, bytesRead, writePos);
           writePos += bytesRead;
           srcPos += bytesRead;
           remaining -= bytesRead;
@@ -646,7 +532,21 @@ ipcMain.handle('export-wav-resampled', async (event, segments, outputPath, targe
     await outFd.close();
   }
 
-  return { success: true, outputPath, totalDataBytes, targetSampleRate };
+  return { success: true, outputPath, totalDataBytes };
+}
+
+ipcMain.handle('export-wav-segment', async (event, segments, outputPath, bextMeta) => {
+  const sampleRate = segments[0].sampleRate;
+  return writeWavFromSegments(segments, outputPath, sampleRate, bextMeta);
+});
+
+// Export WAV with modified sample rate (for speed-shifted export).
+// Same raw PCM data but header declares a different sample rate,
+// so playback in any DAW/player reproduces at that speed.
+ipcMain.handle('export-wav-resampled', async (event, segments, outputPath, targetSampleRate, bextMeta) => {
+  const result = await writeWavFromSegments(segments, outputPath, targetSampleRate, bextMeta);
+  result.targetSampleRate = targetSampleRate;
+  return result;
 });
 
 // Scan folder for WAV files and return their headers

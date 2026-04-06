@@ -880,15 +880,18 @@ class App {
 
 
   _startVUMeter() {
+    // Cancel previous loop if called again (prevents leak on session reload)
+    if (this._vuRafId) cancelAnimationFrame(this._vuRafId);
+
     const peakHold = document.getElementById('vu-peak-hold');
     const dbfsValue = document.getElementById('vu-dbfs-value');
     let peakHoldLevel = 0;
     let peakHoldTimer = 0;
+    let wasPlaying = false;
     const PEAK_HOLD_MS = 1500;
     const PEAK_DECAY_RATE = 0.0005; // per ms
     let lastTime = performance.now();
 
-    // Map dBFS to meter percentage (range: -60 to 0 dBFS)
     const dbToPercent = (db) => Math.max(0, Math.min(100, (db + 60) / 60 * 100));
 
     const update = () => {
@@ -897,12 +900,12 @@ class App {
       lastTime = now;
 
       if (this.engine.isPlaying) {
+        wasPlaying = true;
         const { peak } = this.engine.getLevels();
         const dbfs = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
         const pct = dbToPercent(dbfs);
         this.vuFill.style.width = pct + '%';
 
-        // Peak hold
         if (pct >= peakHoldLevel) {
           peakHoldLevel = pct;
           peakHoldTimer = PEAK_HOLD_MS;
@@ -915,7 +918,6 @@ class App {
         peakHold.style.left = peakHoldLevel + '%';
         peakHold.style.display = peakHoldLevel > 0 ? '' : 'none';
 
-        // dBFS readout
         if (dbfs > -60) {
           dbfsValue.textContent = dbfs.toFixed(1) + ' dB';
           dbfsValue.style.color = dbfs > -3 ? 'var(--danger)' : dbfs > -10 ? 'var(--orange)' : '';
@@ -923,16 +925,19 @@ class App {
           dbfsValue.textContent = '-\u221E';
           dbfsValue.style.color = '';
         }
-      } else {
+      } else if (wasPlaying) {
+        // Reset once on stop, not every frame
+        wasPlaying = false;
+        peakHoldLevel = 0;
+        peakHoldTimer = 0;
         this.vuFill.style.width = '0%';
         peakHold.style.display = 'none';
-        peakHoldLevel = 0;
         dbfsValue.textContent = '-\u221E';
         dbfsValue.style.color = '';
       }
-      requestAnimationFrame(update);
+      this._vuRafId = requestAnimationFrame(update);
     };
-    requestAnimationFrame(update);
+    this._vuRafId = requestAnimationFrame(update);
   }
 
   _formatTime(seconds) {
@@ -1394,22 +1399,25 @@ class App {
     const { start, end } = this._pendingSelection;
     const note = this.annotationNoteInput.value.trim() || 'selection';
     const targetSampleRate = Math.round(this.session.sampleRate * speed);
-    const speedLabel = speed < 1 ? `${speed}x-slow` : `${speed}x-fast`;
+    const speedLabel = `${speed}x`;
 
+    // Reuse shared segment/filename builders
     const segments = this._getSelectionSegments(start, end);
+    const ann = { note, segments, wallClockStartISO: null, wallClockEndISO: null };
 
-    let defaultName = `${note}_${speedLabel}_${targetSampleRate}Hz.wav`;
     if (this.session.sessionStartTime !== null) {
       const wallStart = this.session.toWallClock(start);
+      const wallEnd = this.session.toWallClock(end);
       const date = this.session.sessionDate || '2000-01-01';
-      if (wallStart !== null) {
-        const iso = this._wallClockToISO(date, wallStart);
-        defaultName = `${iso}_${note}_${speedLabel}.wav`;
+      if (wallStart !== null && wallEnd !== null) {
+        ann.wallClockStartISO = this._wallClockToISO(date, wallStart);
+        ann.wallClockEndISO = this._wallClockToISO(date, wallEnd);
       }
     }
-    defaultName = defaultName.replace(/[<>:"/\\|?*]/g, '_');
 
-    // Default to WAV folder
+    const baseName = this._buildExportFilename(ann).replace(/\.wav$/i, '');
+    const defaultName = `${baseName}_${speedLabel}.wav`;
+
     const folderPath = this.session.files[0].filePath.replace(/[/\\][^/\\]+$/, '');
     const outputPath = await window.electronAPI.saveFileDialog({
       title: `Export at ${speedLabel} (${targetSampleRate} Hz)`,
@@ -1423,19 +1431,11 @@ class App {
 
     try {
       this._setStatus(`Exporting at ${speedLabel}...`);
-      const exportSegments = segments.map(seg => ({
-        filePath: seg.filePath,
-        dataOffset: this.session.files.find(f => f.filePath === seg.filePath)?.dataOffset || 0,
-        startByte: Math.floor(seg.startInFile * this.session.sampleRate) * this.session.blockAlign,
-        endByte: Math.ceil(seg.endInFile * this.session.sampleRate) * this.session.blockAlign,
-        bitsPerSample: this.session.bitsPerSample,
-        channels: this.session.channels,
-        sampleRate: this.session.sampleRate,
-        format: this.session.format
-      }));
+      const exportSegments = this._buildExportSegments(ann);
+      const bextMeta = this._buildBextMetadata(ann);
 
       const result = await window.electronAPI.exportWavResampled(
-        exportSegments, outputPath, targetSampleRate, null
+        exportSegments, outputPath, targetSampleRate, bextMeta
       );
       const sizeMB = (result.totalDataBytes / (1024 * 1024)).toFixed(1);
       this._setStatus(`Exported ${speedLabel} (${sizeMB} MB, ${targetSampleRate} Hz) to ${outputPath.split(/[/\\]/).pop()}`);
@@ -1647,7 +1647,7 @@ class App {
         el.textContent = `${label} (native)`;
       } else {
         const label = interpretedRate >= 1000 ? `${interpretedRate / 1000}kHz` : `${interpretedRate}Hz`;
-        el.textContent = `${label} (${speed < 1 ? '' : ''}${speed}x)`;
+        el.textContent = `${label} (${speed}x)`;
       }
       select.appendChild(el);
     }
@@ -1675,9 +1675,8 @@ class App {
     const btn = this.btnExportSlowed;
     if (speed !== 1 && this._pendingSelection) {
       btn.style.display = '';
-      const label = speed < 1 ? `${speed}x` : `${speed}x`;
-      btn.textContent = `Export ${label}`;
-      btn.title = `Export selection with playback speed ${label} baked in (sample rate ${Math.round(this.session.sampleRate * speed)} Hz)`;
+      btn.textContent = `Export ${speed}x`;
+      btn.title = `Export selection at ${speed}x speed (sample rate ${Math.round(this.session.sampleRate * speed)} Hz)`;
     } else {
       btn.style.display = 'none';
     }
