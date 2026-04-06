@@ -2,8 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#111111">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Sound Explorer</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="img/icon-192.png">
+  <link rel="icon" type="image/svg+xml" href="img/icon.svg">
   <link rel="stylesheet" href="css/main.css?v=0.2.0">
 </head>
 <body>
@@ -12,8 +18,8 @@
     <div class="drop-content">
       <img id="drop-logo" src="img/logo_black.png" alt="LOM" class="drop-logo">
       <h2>Sound Explorer <span class="drop-version">v0.1</span></h2>
-      <p>Drag &amp; drop WAV files here</p>
-      <p class="drop-sub">or</p>
+      <p class="drop-hint-desktop">Drag &amp; drop WAV files here</p>
+      <p class="drop-sub drop-hint-desktop">or</p>
       <button id="btn-open" class="btn btn-accent">Open Files</button>
       <input type="file" id="file-input" multiple accept=".wav" style="display:none">
     </div>

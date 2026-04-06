@@ -790,81 +790,109 @@ dialog h4 {
    ========================================================================== */
 
 @media (max-width: 768px) {
-  /* --- Toolbar: compact, two-row layout --- */
+  /* --- Drop zone: mobile friendly --- */
+  .drop-hint-desktop {
+    display: none !important;
+  }
+
+  .drop-content h2 {
+    font-size: 22px;
+  }
+
+  #btn-open {
+    height: 48px;
+    padding: 0 32px;
+    font-size: 16px;
+  }
+
+  /* --- Toolbar: single compact row --- */
   #toolbar {
-    gap: 4px;
+    gap: 3px;
     padding: 4px 6px;
   }
 
-  /* Bigger touch targets */
   .toolbar-btn {
-    height: 36px;
-    padding: 0 10px;
-    font-size: 13px;
-    line-height: 34px;
-    min-width: 36px;
+    height: 34px;
+    padding: 0 8px;
+    font-size: 12px;
+    line-height: 32px;
+    min-width: 34px;
   }
 
   .btn-play-pause {
-    min-width: 80px;
+    min-width: 70px;
   }
 
   /* Hide secondary controls on mobile */
   .toolbar-title,
   .toolbar-version,
+  .toolbar-logo,
   #toolbar .toolbar-sep,
   #toolbar .toolbar-label,
   #btn-goto-mode,
   #input-goto,
   #btn-goto,
-  #btn-shortcuts {
+  #btn-shortcuts,
+  #btn-zoom-in,
+  #btn-zoom-out {
     display: none !important;
   }
 
   .toolbar-spacer {
-    flex: 0;
-    width: 0;
+    flex: 1;
+    min-width: 0;
   }
 
-  .toolbar-logo {
-    width: 20px;
-    height: 20px;
-  }
-
-  /* Speed selector: compact */
+  /* Speed selector */
   #select-speed {
-    max-width: 160px;
-    font-size: 12px;
-    height: 36px;
+    max-width: 140px;
+    font-size: 11px;
+    height: 34px;
   }
 
-  /* --- Info strip: compact --- */
+  /* Export buttons compact */
+  #btn-export,
+  #btn-export-speed {
+    height: 34px;
+    font-size: 11px;
+    padding: 0 6px;
+  }
+
+  /* --- Info strip: minimal --- */
   #info-strip {
     gap: 10px;
     padding: 3px 6px;
     font-size: 11px;
     min-height: 22px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
   }
 
   #info-cursor,
-  #info-wallclock {
+  #info-wallclock,
+  #info-file {
     display: none;
   }
 
-  /* --- Bottom bar: horizontal scroll, no wrap --- */
+  /* --- Bottom bar: horizontal scroll --- */
   #bottom-bar {
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
     padding: 6px;
     gap: 6px;
-    min-height: 44px;
+    min-height: 40px;
+  }
+
+  #bottom-bar::-webkit-scrollbar {
+    display: none;
   }
 
   .control-section {
     flex-shrink: 0;
+  }
+
+  .section-label {
+    font-size: 8px;
   }
 
   .ctrl-label {
@@ -876,40 +904,41 @@ dialog h4 {
   }
 
   .ctrl-value {
-    min-width: 36px;
+    min-width: 32px;
     font-size: 10px;
   }
 
   .select-small {
     font-size: 10px;
+    height: 28px;
   }
 
-  /* Bigger VU meter button as touch target */
+  /* VU meter button */
   #btn-vu {
-    height: 36px;
-    font-size: 13px;
+    height: 34px;
+    font-size: 12px;
     flex-shrink: 0;
   }
 
   /* --- VU meter: taller bars for touch --- */
   .vu-channel-row {
-    height: 28px;
+    height: 26px;
   }
 
   .vu-channel-track {
-    height: 22px;
+    height: 20px;
   }
 
   .vu-channel-label {
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .vu-channel-db {
-    font-size: 12px;
-    width: 110px;
+    font-size: 11px;
+    width: 100px;
   }
 
-  /* --- Canvas: no annotations panel on mobile --- */
+  /* --- Canvas: annotations panel fullscreen on mobile --- */
   .annotations-panel {
     position: fixed;
     inset: 0;
@@ -931,20 +960,9 @@ dialog h4 {
   }
 
   #selection-controls .input-time {
-    width: 65px;
-    height: 36px;
-    font-size: 12px;
-  }
-
-  /* --- Drop zone: mobile friendly --- */
-  .drop-content h2 {
-    font-size: 22px;
-  }
-
-  #btn-open {
-    height: 44px;
-    padding: 0 24px;
-    font-size: 16px;
+    width: 60px;
+    height: 34px;
+    font-size: 11px;
   }
 
   /* --- Dialog --- */
@@ -953,20 +971,19 @@ dialog h4 {
     padding: 16px;
   }
 
-  /* --- Buttons: general touch size --- */
+  /* --- General touch size --- */
   .btn {
-    min-height: 32px;
+    min-height: 30px;
   }
 
   .btn-small {
-    min-height: 28px;
+    min-height: 26px;
   }
 
-  /* --- Export buttons --- */
-  #btn-export,
-  #btn-export-speed {
-    height: 36px;
-    font-size: 12px;
-    padding: 0 8px;
+  /* --- Status bar --- */
+  #status-bar {
+    font-size: 10px;
+    padding: 2px 6px;
+    min-height: 18px;
   }
 }
