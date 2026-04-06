@@ -28,7 +28,7 @@ body.dark {
   --slider-thumb: #e0e0e0;
   --vu-bg: #0a0a0a;
   --vu-border: #333333;
-  --info-text: #666666;
+  --info-text: #999999;
 }
 
 * {
@@ -196,12 +196,12 @@ body.dark .toolbar-logo {
   display: flex;
   align-items: center;
   gap: 20px;
-  padding: 3px 10px;
-  background: var(--bg-primary);
-  border-bottom: none;
-  font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
-  font-size: 11px;
-  min-height: 24px;
+  padding: 5px 10px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+  font-size: 12px;
+  min-height: 28px;
   letter-spacing: 0.02em;
 }
 
@@ -305,11 +305,27 @@ body.dark .toolbar-logo {
   background: rgba(0, 0, 0, 0.6);
   color: var(--accent);
   font-size: 11px;
-  font-family: 'SF Mono', 'Consolas', monospace;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
   padding: 3px 10px;
   border-radius: 3px;
   pointer-events: none;
   z-index: 10;
+}
+
+.canvas-hint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.75);
+  color: #e0e0e0;
+  font-size: 12px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 10;
+  white-space: nowrap;
+  transition: opacity 0.8s ease;
 }
 
 /* --- Bottom bar --- */
@@ -317,12 +333,36 @@ body.dark .toolbar-logo {
 #bottom-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 5px 10px;
+  gap: 8px;
+  padding: 10px 10px 5px;
   background: var(--bg-secondary);
   border-top: 2px solid var(--border);
   flex-wrap: wrap;
-  min-height: 38px;
+  min-height: 42px;
+}
+
+.control-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  padding: 3px 8px;
+  position: relative;
+}
+
+.section-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  position: absolute;
+  top: -8px;
+  left: 6px;
+  background: var(--bg-secondary);
+  padding: 0 3px;
+  line-height: 1;
 }
 
 .control-group {
@@ -333,7 +373,7 @@ body.dark .toolbar-logo {
 
 .ctrl-label {
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -344,7 +384,7 @@ body.dark .toolbar-logo {
   font-size: 11px;
   min-width: 48px;
   text-align: right;
-  font-family: 'SF Mono', 'Consolas', monospace;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
 }
 
 /* --- VU Meter --- */
@@ -385,7 +425,7 @@ body.dark .toolbar-logo {
 /* Big VU Meter */
 .vu-meter-big {
   width: 100%;
-  background: #0a0a0a;
+  background: var(--vu-bg);
   border-top: 1px solid var(--border);
   padding: 6px 10px;
   display: none;
@@ -402,7 +442,7 @@ body.dark .toolbar-logo {
 
 .vu-channel-label {
   font-size: 10px;
-  font-family: 'SF Mono', 'Consolas', monospace;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
   color: #888;
   width: 16px;
   text-align: right;
@@ -423,7 +463,7 @@ body.dark .toolbar-logo {
   top: 0;
   right: 0;
   height: 100%;
-  background: #111;
+  background: var(--vu-bg, #111);
   transition: width 80ms linear;
   width: 100%;
 }
@@ -442,7 +482,7 @@ body.dark .toolbar-logo {
 
 .vu-channel-db {
   font-size: 11px;
-  font-family: 'SF Mono', 'Consolas', monospace;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
   color: #ccc;
   width: 120px;
   text-align: right;
@@ -482,7 +522,7 @@ body.dark .toolbar-logo {
   position: absolute;
   top: 0;
   font-size: 9px;
-  font-family: 'SF Mono', 'Consolas', monospace;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
   color: #555;
   transform: translateX(-50%);
 }
@@ -491,7 +531,7 @@ body.dark .toolbar-logo {
   width: 120px;
   flex-shrink: 0;
   font-size: 9px;
-  font-family: 'SF Mono', 'Consolas', monospace;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
   color: #555;
   text-align: right;
 }
@@ -560,6 +600,18 @@ body.dark .toolbar-logo {
   font-size: 14px;
 }
 
+/* Help button circular */
+.btn-help {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  font-weight: 600;
+  font-size: 13px;
+  text-align: center;
+  line-height: 22px;
+}
+
 /* --- Inputs --- */
 
 .input {
@@ -569,7 +621,7 @@ body.dark .toolbar-logo {
   border-radius: 0.375em;
   padding: 3px 6px;
   font-size: 12px;
-  font-family: 'SF Mono', 'Consolas', monospace;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
 }
 
 #toolbar .input,
@@ -663,7 +715,7 @@ body.dark .toolbar-logo {
 .info-text {
   color: var(--text-secondary);
   font-size: 11px;
-  font-family: 'SF Mono', 'Consolas', monospace;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
 }
 
 /* --- Dialogs --- */
@@ -671,7 +723,7 @@ body.dark .toolbar-logo {
 dialog {
   background: var(--bg-secondary);
   color: var(--text-primary);
-  border: 2px solid var(--text-primary);
+  border: 1px solid var(--border);
   border-radius: 0.375em;
   padding: 24px;
   max-width: 500px;
@@ -713,7 +765,7 @@ dialog h4 {
 
 .shortcuts-table td:first-child {
   color: var(--accent);
-  font-family: 'SF Mono', 'Consolas', monospace;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
   font-size: 11px;
   width: 150px;
 }
@@ -736,7 +788,7 @@ dialog h4 {
 
 .annotation-time {
   color: var(--accent);
-  font-family: 'SF Mono', 'Consolas', monospace;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
   font-size: 11px;
   white-space: nowrap;
 }

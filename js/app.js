@@ -2,9 +2,9 @@
  * Main application controller — wires together WAV parser, spectrogram, audio engine, and UI.
  */
 
-import { WavParser } from './wav-parser.js?v=3';
-import { SpectrogramRenderer } from './spectrogram.js?v=3';
-import { AudioEngine } from './audio-engine.js?v=3';
+import { WavParser } from './wav-parser.js?v=4';
+import { SpectrogramRenderer } from './spectrogram.js?v=4';
+import { AudioEngine } from './audio-engine.js?v=4';
 
 class App {
   constructor() {
@@ -363,6 +363,7 @@ class App {
       this._updateFreqInputs();
 
       this._setStatus(`Loaded ${files.length} file(s)`);
+      this._showCanvasHint();
     } catch (err) {
       this._setStatus(`Error: ${err.message}`);
       console.error(err);
@@ -384,15 +385,16 @@ class App {
 
   _populateChannelSelector() {
     const sel = document.getElementById('select-channel');
+    const group = document.getElementById('channel-group');
     const info = this.wavInfos[0];
     sel.innerHTML = '';
 
     if (info.channels === 1) {
-      sel.style.display = 'none';
+      group.style.display = 'none';
       return;
     }
 
-    sel.style.display = '';
+    group.style.display = '';
     const mix = document.createElement('option');
     mix.value = 'mix';
     mix.textContent = 'Mix';
@@ -670,10 +672,10 @@ class App {
     const btn = document.getElementById('btn-goto-mode');
     if (this._goToMode === 'position') {
       this._goToMode = 'wallclock';
-      btn.textContent = 'WALL';
+      btn.textContent = 'Wall Clock';
     } else {
       this._goToMode = 'position';
-      btn.textContent = 'POS';
+      btn.textContent = 'Position';
     }
   }
 
@@ -991,6 +993,17 @@ class App {
   }
 
   // --- Helpers ---
+
+  _showCanvasHint() {
+    if (localStorage.getItem('hintShown')) return;
+    localStorage.setItem('hintShown', '1');
+    const hint = document.createElement('div');
+    hint.className = 'canvas-hint';
+    hint.innerHTML = 'Scroll to zoom &nbsp;&bull;&nbsp; Right-drag to pan &nbsp;&bull;&nbsp; Left-drag to select';
+    document.getElementById('canvas-container').appendChild(hint);
+    setTimeout(() => { hint.style.opacity = '0'; }, 5000);
+    setTimeout(() => { hint.remove(); }, 5800);
+  }
 
   _showComputing(show) {
     document.getElementById('computing-indicator').style.display = show ? '' : 'none';

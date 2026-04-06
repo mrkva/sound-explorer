@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sound Explorer</title>
-  <link rel="stylesheet" href="css/main.css?v=3">
+  <link rel="stylesheet" href="css/main.css?v=4">
 </head>
 <body>
   <!-- Drop zone (shown before files loaded) -->
@@ -33,7 +33,7 @@
 
       <span class="toolbar-sep"></span>
 
-      <button id="btn-play" class="btn toolbar-btn btn-play-pause">&triangleright; Play</button>
+      <button id="btn-play" class="btn btn-accent toolbar-btn btn-play-pause">&triangleright; Play</button>
       <button id="btn-stop" class="btn toolbar-btn">&square; Stop</button>
 
       <span class="toolbar-sep"></span>
@@ -52,7 +52,7 @@
       <span class="toolbar-sep"></span>
 
       <label class="toolbar-label">Go To:</label>
-      <button id="btn-goto-mode" class="btn toolbar-btn">POS</button>
+      <button id="btn-goto-mode" class="btn toolbar-btn" title="Toggle between file position and wall clock time">Position</button>
       <input id="input-goto" type="text" class="input input-time" placeholder="0:00.00">
       <button id="btn-goto" class="btn toolbar-btn">Go</button>
 
@@ -83,7 +83,7 @@
 
       <button id="btn-annotations" class="btn toolbar-btn">Annotations</button>
       <button id="btn-theme" class="btn toolbar-btn btn-theme" title="Toggle dark mode">&#x263E;</button>
-      <button id="btn-shortcuts" class="btn toolbar-btn">?</button>
+      <button id="btn-shortcuts" class="btn toolbar-btn btn-help" title="Keyboard shortcuts">?</button>
     </div>
 
     <!-- Info strip -->
@@ -122,91 +122,94 @@
 
     <!-- Bottom bar -->
     <div id="bottom-bar">
-      <div class="control-group">
-        <label class="ctrl-label">Gain</label>
-        <input id="input-gain" type="range" min="0" max="60" value="0" step="1" class="slider">
-        <span id="label-gain" class="ctrl-value">0 dB</span>
-      </div>
-      <div class="control-group">
-        <label class="ctrl-label">Volume</label>
-        <input id="input-volume" type="range" min="0" max="1" value="1" step="0.01" class="slider">
-      </div>
-      <div class="control-group vu-group">
-        <label class="ctrl-label">VU</label>
-        <div class="vu-meter">
-          <div id="vu-peak" class="vu-bar vu-peak"></div>
-          <div id="vu-rms" class="vu-bar vu-rms"></div>
+      <div class="control-section">
+        <span class="section-label">Audio</span>
+        <div class="control-group">
+          <label class="ctrl-label" title="Audio amplification boost (0-60 dB)">Boost</label>
+          <input id="input-gain" type="range" min="0" max="60" value="0" step="1" class="slider">
+          <span id="label-gain" class="ctrl-value">0 dB</span>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">Volume</label>
+          <input id="input-volume" type="range" min="0" max="1" value="1" step="0.01" class="slider">
+        </div>
+        <div class="control-group vu-group">
+          <label class="ctrl-label">VU</label>
+          <div class="vu-meter">
+            <div id="vu-peak" class="vu-bar vu-peak"></div>
+            <div id="vu-rms" class="vu-bar vu-rms"></div>
+          </div>
         </div>
       </div>
 
-      <span class="toolbar-sep"></span>
-
-      <div class="control-group">
-        <label class="ctrl-label">Spec Gain</label>
-        <input id="input-spec-gain" type="range" min="-60" max="0" value="-20" step="1" class="slider">
-        <span id="label-spec-gain" class="ctrl-value">-20 dB</span>
-      </div>
-      <div class="control-group">
-        <label class="ctrl-label">Range</label>
-        <input id="input-spec-range" type="range" min="-120" max="-40" value="-100" step="1" class="slider">
-        <span id="label-spec-range" class="ctrl-value">-100 dB</span>
-      </div>
-      <div class="control-group">
-        <label class="ctrl-label">FFT</label>
-        <select id="select-fft" class="select select-small">
-          <option value="128">128</option>
-          <option value="256">256</option>
-          <option value="512">512</option>
-          <option value="1024">1024</option>
-          <option value="2048" selected>2048</option>
-          <option value="4096">4096</option>
-          <option value="8192">8192</option>
-          <option value="16384">16384</option>
-          <option value="32768">32768</option>
-        </select>
-      </div>
-      <div class="control-group">
-        <label class="ctrl-label">Colors</label>
-        <select id="select-colormap" class="select select-small">
-          <option value="viridis" selected>Viridis</option>
-          <option value="magma">Magma</option>
-          <option value="inferno">Inferno</option>
-          <option value="grayscale">Grayscale</option>
-          <option value="green">Green</option>
-          <option value="hot">Hot</option>
-        </select>
-      </div>
-      <div class="control-group">
-        <label class="ctrl-label">Ch</label>
-        <select id="select-channel" class="select select-small" style="display:none"></select>
-      </div>
-
-      <span class="toolbar-sep"></span>
-
-      <div class="control-group">
-        <label class="ctrl-label">Freq Min</label>
-        <input id="input-freq-min" type="number" class="input input-freq" value="0">
-      </div>
-      <div class="control-group">
-        <label class="ctrl-label">Max</label>
-        <input id="input-freq-max" type="number" class="input input-freq" value="96000">
-      </div>
-      <div class="control-group">
-        <label class="ctrl-label">Preset</label>
-        <select id="select-freq-preset" class="select select-small">
-          <option value="full">Full</option>
-          <option value="bat">Bat</option>
-          <option value="bird">Bird</option>
-          <option value="audible">Audible</option>
-        </select>
-      </div>
-      <div class="control-group">
-        <label class="ctrl-label">
-          <input type="checkbox" id="check-log"> Log
-        </label>
+      <div class="control-section">
+        <span class="section-label">Spectrogram</span>
+        <div class="control-group">
+          <label class="ctrl-label" title="Spectrogram brightness threshold">Brightness</label>
+          <input id="input-spec-gain" type="range" min="-60" max="0" value="-20" step="1" class="slider">
+          <span id="label-spec-gain" class="ctrl-value">-20 dB</span>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label" title="Spectrogram dynamic range floor">Floor</label>
+          <input id="input-spec-range" type="range" min="-120" max="-40" value="-100" step="1" class="slider">
+          <span id="label-spec-range" class="ctrl-value">-100 dB</span>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">FFT</label>
+          <select id="select-fft" class="select select-small">
+            <option value="128">128</option>
+            <option value="256">256</option>
+            <option value="512">512</option>
+            <option value="1024">1024</option>
+            <option value="2048" selected>2048</option>
+            <option value="4096">4096</option>
+            <option value="8192">8192</option>
+            <option value="16384">16384</option>
+            <option value="32768">32768</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">Colors</label>
+          <select id="select-colormap" class="select select-small">
+            <option value="viridis" selected>Viridis</option>
+            <option value="magma">Magma</option>
+            <option value="inferno">Inferno</option>
+            <option value="grayscale">Grayscale</option>
+            <option value="green">Green</option>
+            <option value="hot">Hot</option>
+          </select>
+        </div>
+        <div id="channel-group" class="control-group" style="display:none">
+          <label class="ctrl-label">Ch</label>
+          <select id="select-channel" class="select select-small"></select>
+        </div>
       </div>
 
-      <span class="toolbar-sep"></span>
+      <div class="control-section">
+        <span class="section-label">Frequency</span>
+        <div class="control-group">
+          <label class="ctrl-label">Min</label>
+          <input id="input-freq-min" type="number" class="input input-freq" value="0">
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">Max</label>
+          <input id="input-freq-max" type="number" class="input input-freq" value="96000">
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">Preset</label>
+          <select id="select-freq-preset" class="select select-small">
+            <option value="full">Full</option>
+            <option value="bat">Bat</option>
+            <option value="bird">Bird</option>
+            <option value="audible">Audible</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">
+            <input type="checkbox" id="check-log"> Log
+          </label>
+        </div>
+      </div>
 
       <button id="btn-vu" class="btn toolbar-btn btn-small" title="Toggle VU meter">VU Meter</button>
     </div>
@@ -242,6 +245,6 @@
   </dialog>
 
 
-  <script type="module" src="js/app.js?v=3"></script>
+  <script type="module" src="js/app.js?v=4"></script>
 </body>
 </html>
