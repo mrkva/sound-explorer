@@ -382,6 +382,123 @@ body.dark .toolbar-logo {
 
 /* --- Status bar --- */
 
+/* Big VU Meter */
+.vu-meter-big {
+  width: 100%;
+  background: #0a0a0a;
+  border-top: 1px solid var(--border);
+  padding: 6px 10px;
+  display: none;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.vu-meter-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 2px;
+}
+
+.vu-meter-hide {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.vu-meter-hide:hover { color: #aaa; }
+
+.vu-channel-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+}
+
+.vu-channel-label {
+  font-size: 10px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  color: #888;
+  width: 16px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.vu-channel-track {
+  flex: 1;
+  height: 16px;
+  background: linear-gradient(to right, #2d8a4e, #4fc353 60%, #e8c840 85%, #f15656 95%);
+  border-radius: 2px;
+  position: relative;
+  overflow: hidden;
+}
+
+.vu-channel-cover {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  background: #111;
+  transition: width 80ms linear;
+  width: 100%;
+}
+
+.vu-channel-peak {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: #ffffff;
+  transition: left 80ms linear;
+}
+
+.vu-channel-clip .vu-channel-cover {
+  display: none;
+}
+
+.vu-channel-db {
+  font-size: 10px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  color: #888;
+  width: 52px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.vu-scale {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 14px;
+  margin-top: 1px;
+}
+
+.vu-scale-spacer {
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.vu-scale-track {
+  flex: 1;
+  position: relative;
+  height: 14px;
+}
+
+.vu-scale-mark {
+  position: absolute;
+  top: 0;
+  font-size: 9px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  color: #555;
+  transform: translateX(-50%);
+}
+
+.vu-scale-db-spacer {
+  width: 52px;
+  flex-shrink: 0;
+}
+
 #status-bar {
   padding: 3px 10px;
   background: var(--bg-tertiary);

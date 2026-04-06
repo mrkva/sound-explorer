@@ -83,6 +83,7 @@ class App {
 
     // Annotations panel toggle
     document.getElementById('btn-annotations').addEventListener('click', () => this._toggleAnnotationsPanel());
+    document.getElementById('btn-vu').addEventListener('click', () => this._toggleBigVU());
 
     // Dark mode toggle
     const savedTheme = localStorage.getItem('theme');
@@ -793,12 +794,23 @@ class App {
 
   // --- VU Meter ---
 
-  _bigVURows = []; // [{rmsBar, peakBar, dbLabel}]
+  _bigVURows = []; // [{cover, peakBar, track, dbLabel}]
+  _bigVUVisible = true;
 
   _buildBigVUMeter(numChannels) {
     const container = document.getElementById('vu-meter-big');
     container.innerHTML = '';
     this._bigVURows = [];
+
+    // Header with hide button
+    const header = document.createElement('div');
+    header.className = 'vu-meter-header';
+    const hideBtn = document.createElement('button');
+    hideBtn.className = 'vu-meter-hide';
+    hideBtn.textContent = 'Hide VU';
+    hideBtn.addEventListener('click', () => this._toggleBigVU());
+    header.appendChild(hideBtn);
+    container.appendChild(header);
 
     const labels = ['L', 'R', 'C', 'LFE', 'LS', 'RS'];
 
@@ -814,10 +826,11 @@ class App {
       const track = document.createElement('div');
       track.className = 'vu-channel-track';
 
-      const rmsBar = document.createElement('div');
-      rmsBar.className = 'vu-channel-rms';
-      rmsBar.style.width = '0%';
-      track.appendChild(rmsBar);
+      // Dark cover sits on top of the gradient track, shrinks from right to reveal level
+      const cover = document.createElement('div');
+      cover.className = 'vu-channel-cover';
+      cover.style.width = '100%';
+      track.appendChild(cover);
 
       const peakBar = document.createElement('div');
       peakBar.className = 'vu-channel-peak';
@@ -832,7 +845,7 @@ class App {
       row.appendChild(dbLabel);
 
       container.appendChild(row);
-      this._bigVURows.push({ rmsBar, peakBar, dbLabel });
+      this._bigVURows.push({ cover, peakBar, track, dbLabel });
     }
 
     // dBFS scale row
@@ -861,7 +874,22 @@ class App {
     scaleRow.appendChild(dbSpacer);
 
     container.appendChild(scaleRow);
-    container.style.display = 'flex';
+
+    // Restore visibility from previous state
+    const saved = localStorage.getItem('bigVU');
+    this._bigVUVisible = saved !== 'hidden';
+    container.style.display = this._bigVUVisible ? 'flex' : 'none';
+    document.getElementById('btn-vu').textContent =
+      this._bigVUVisible ? 'VU ✓' : 'VU';
+  }
+
+  _toggleBigVU() {
+    this._bigVUVisible = !this._bigVUVisible;
+    document.getElementById('vu-meter-big').style.display =
+      this._bigVUVisible ? 'flex' : 'none';
+    document.getElementById('btn-vu').textContent =
+      this._bigVUVisible ? 'VU ✓' : 'VU';
+    localStorage.setItem('bigVU', this._bigVUVisible ? 'visible' : 'hidden');
   }
 
   _startVUMeter() {
@@ -879,21 +907,22 @@ class App {
       smallPeak.style.width = pWidth + '%';
       smallRms.style.width = rWidth + '%';
 
-      // Big per-channel VU
-      if (bigRows.length > 0) {
+      // Big per-channel VU — skip if hidden
+      if (bigRows.length > 0 && this._bigVUVisible) {
         const channels = this.audio.getChannelVUMeters();
         for (let i = 0; i < bigRows.length && i < channels.length; i++) {
           const ch = channels[i];
           const rmsW = Math.max(0, Math.min(100, (ch.rms + 60) / 60 * 100));
           const peakW = Math.max(0, Math.min(100, (ch.peak + 60) / 60 * 100));
-          bigRows[i].rmsBar.style.width = rmsW + '%';
+          // Cover width is the inverse — 100% = silent, 0% = full scale
+          bigRows[i].cover.style.width = (100 - rmsW) + '%';
           bigRows[i].peakBar.style.left = peakW + '%';
 
           // Clip indicator
           if (ch.peak >= -0.1) {
-            bigRows[i].rmsBar.classList.add('vu-channel-clip');
+            bigRows[i].track.classList.add('vu-channel-clip');
           } else {
-            bigRows[i].rmsBar.classList.remove('vu-channel-clip');
+            bigRows[i].track.classList.remove('vu-channel-clip');
           }
 
           // dB readout
@@ -911,9 +940,9 @@ class App {
     if (this._vuRAF) cancelAnimationFrame(this._vuRAF);
     // Reset big VU bars
     for (const row of this._bigVURows) {
-      row.rmsBar.style.width = '0%';
+      row.cover.style.width = '100%';
       row.peakBar.style.left = '0%';
-      row.rmsBar.classList.remove('vu-channel-clip');
+      row.track.classList.remove('vu-channel-clip');
       row.dbLabel.textContent = '-∞ dBFS';
     }
   }
