@@ -357,6 +357,7 @@ class App {
       // Update UI
       this._populateSpeedSelector();
       this._populateChannelSelector();
+      this._buildBigVUMeter(wavInfos[0].channels);
       this._updateFileInfo();
       this._updateFreqInputs();
 
@@ -792,16 +793,115 @@ class App {
 
   // --- VU Meter ---
 
+  _bigVURows = []; // [{rmsBar, peakBar, dbLabel}]
+
+  _buildBigVUMeter(numChannels) {
+    const container = document.getElementById('vu-meter-big');
+    container.innerHTML = '';
+    this._bigVURows = [];
+
+    const labels = ['L', 'R', 'C', 'LFE', 'LS', 'RS'];
+
+    for (let i = 0; i < numChannels; i++) {
+      const row = document.createElement('div');
+      row.className = 'vu-channel-row';
+
+      const label = document.createElement('span');
+      label.className = 'vu-channel-label';
+      label.textContent = numChannels === 1 ? 'M' : (labels[i] || `${i + 1}`);
+      row.appendChild(label);
+
+      const track = document.createElement('div');
+      track.className = 'vu-channel-track';
+
+      const rmsBar = document.createElement('div');
+      rmsBar.className = 'vu-channel-rms';
+      rmsBar.style.width = '0%';
+      track.appendChild(rmsBar);
+
+      const peakBar = document.createElement('div');
+      peakBar.className = 'vu-channel-peak';
+      peakBar.style.left = '0%';
+      track.appendChild(peakBar);
+
+      row.appendChild(track);
+
+      const dbLabel = document.createElement('span');
+      dbLabel.className = 'vu-channel-db';
+      dbLabel.textContent = '-∞ dBFS';
+      row.appendChild(dbLabel);
+
+      container.appendChild(row);
+      this._bigVURows.push({ rmsBar, peakBar, dbLabel });
+    }
+
+    // dBFS scale row
+    const scaleRow = document.createElement('div');
+    scaleRow.className = 'vu-scale';
+
+    const scaleSpacer = document.createElement('span');
+    scaleSpacer.className = 'vu-scale-spacer';
+    scaleRow.appendChild(scaleSpacer);
+
+    const scaleTrack = document.createElement('div');
+    scaleTrack.className = 'vu-scale-track';
+
+    const marks = [-60, -48, -36, -24, -12, -6, -3, 0];
+    for (const db of marks) {
+      const mark = document.createElement('span');
+      mark.className = 'vu-scale-mark';
+      mark.style.left = ((db + 60) / 60 * 100) + '%';
+      mark.textContent = db === 0 ? '0' : String(db);
+      scaleTrack.appendChild(mark);
+    }
+    scaleRow.appendChild(scaleTrack);
+
+    const dbSpacer = document.createElement('span');
+    dbSpacer.className = 'vu-scale-db-spacer';
+    scaleRow.appendChild(dbSpacer);
+
+    container.appendChild(scaleRow);
+    container.style.display = 'flex';
+  }
+
   _startVUMeter() {
-    const peak = document.getElementById('vu-peak');
-    const rms = document.getElementById('vu-rms');
+    const smallPeak = document.getElementById('vu-peak');
+    const smallRms = document.getElementById('vu-rms');
+    const bigRows = this._bigVURows;
+
     const update = () => {
       if (!this.audio.isPlaying) return;
+
+      // Small toolbar VU (mixed)
       const vu = this.audio.getVUMeter();
       const pWidth = Math.max(0, Math.min(100, (vu.peak + 60) / 60 * 100));
       const rWidth = Math.max(0, Math.min(100, (vu.rms + 60) / 60 * 100));
-      peak.style.width = pWidth + '%';
-      rms.style.width = rWidth + '%';
+      smallPeak.style.width = pWidth + '%';
+      smallRms.style.width = rWidth + '%';
+
+      // Big per-channel VU
+      if (bigRows.length > 0) {
+        const channels = this.audio.getChannelVUMeters();
+        for (let i = 0; i < bigRows.length && i < channels.length; i++) {
+          const ch = channels[i];
+          const rmsW = Math.max(0, Math.min(100, (ch.rms + 60) / 60 * 100));
+          const peakW = Math.max(0, Math.min(100, (ch.peak + 60) / 60 * 100));
+          bigRows[i].rmsBar.style.width = rmsW + '%';
+          bigRows[i].peakBar.style.left = peakW + '%';
+
+          // Clip indicator
+          if (ch.peak >= -0.1) {
+            bigRows[i].rmsBar.classList.add('vu-channel-clip');
+          } else {
+            bigRows[i].rmsBar.classList.remove('vu-channel-clip');
+          }
+
+          // dB readout
+          const dbText = ch.peak <= -100 ? '-∞ dBFS' : `${ch.peak.toFixed(1)} dBFS`;
+          bigRows[i].dbLabel.textContent = dbText;
+        }
+      }
+
       this._vuRAF = requestAnimationFrame(update);
     };
     this._vuRAF = requestAnimationFrame(update);
@@ -809,6 +909,13 @@ class App {
 
   _stopVUMeter() {
     if (this._vuRAF) cancelAnimationFrame(this._vuRAF);
+    // Reset big VU bars
+    for (const row of this._bigVURows) {
+      row.rmsBar.style.width = '0%';
+      row.peakBar.style.left = '0%';
+      row.rmsBar.classList.remove('vu-channel-clip');
+      row.dbLabel.textContent = '-∞ dBFS';
+    }
   }
 
   // Info strip updates run on a separate setInterval to avoid polluting the RAF loop
