@@ -901,8 +901,6 @@ class App {
   }
 
   _startVUMeter() {
-    const smallPeak = document.getElementById('vu-peak');
-    const smallRms = document.getElementById('vu-rms');
     const bigRows = this._bigVURows;
     let lastTime = performance.now();
 
@@ -910,13 +908,6 @@ class App {
       if (!this.audio.isPlaying) return;
       const dt = (now - lastTime) / 1000; // seconds since last frame
       lastTime = now;
-
-      // Small toolbar VU (mixed)
-      const vu = this.audio.getVUMeter();
-      const pWidth = Math.max(0, Math.min(100, (vu.peak + 60) / 60 * 100));
-      const rWidth = Math.max(0, Math.min(100, (vu.rms + 60) / 60 * 100));
-      smallPeak.style.width = pWidth + '%';
-      smallRms.style.width = rWidth + '%';
 
       // Big per-channel VU — skip if hidden
       if (bigRows.length > 0 && this._bigVUVisible) {

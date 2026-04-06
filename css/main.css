@@ -334,35 +334,26 @@ body.dark .toolbar-logo {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 10px 5px;
+  padding: 5px 10px;
   background: var(--bg-secondary);
   border-top: 2px solid var(--border);
   flex-wrap: wrap;
-  min-height: 42px;
+  min-height: 38px;
 }
 
 .control-section {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-  padding: 3px 8px;
-  position: relative;
 }
 
 .section-label {
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--text-secondary);
-  opacity: 0.6;
-  position: absolute;
-  top: -8px;
-  left: 6px;
-  background: var(--bg-secondary);
-  padding: 0 3px;
-  line-height: 1;
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .control-group {
@@ -385,39 +376,6 @@ body.dark .toolbar-logo {
   min-width: 48px;
   text-align: right;
   font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
-}
-
-/* --- VU Meter --- */
-
-.vu-group {
-  min-width: 80px;
-}
-
-.vu-meter {
-  width: 60px;
-  height: 12px;
-  background: var(--vu-bg);
-  border: 1px solid var(--vu-border);
-  border-radius: 1px;
-  position: relative;
-  overflow: hidden;
-}
-
-.vu-bar {
-  position: absolute;
-  left: 0;
-  height: 50%;
-  transition: width 50ms;
-}
-
-.vu-peak {
-  top: 0;
-  background: var(--accent);
-}
-
-.vu-rms {
-  bottom: 0;
-  background: #888;
 }
 
 /* --- Status bar --- */
