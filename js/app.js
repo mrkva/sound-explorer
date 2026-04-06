@@ -3,9 +3,9 @@
  */
 
 import { VERSION } from './version.js';
-import { WavParser } from './wav-parser.js?v=0.2.0';
-import { SpectrogramRenderer } from './spectrogram.js?v=0.2.0';
-import { AudioEngine } from './audio-engine.js?v=0.2.0';
+import { WavParser } from './wav-parser.js?v=0.2.1';
+import { SpectrogramRenderer } from './spectrogram.js?v=0.2.1';
+import { AudioEngine } from './audio-engine.js?v=0.2.1';
 
 class App {
   constructor() {
@@ -1089,3 +1089,64 @@ class App {
 document.addEventListener('DOMContentLoaded', () => {
   window.app = new App();
 });
+
+// --- Service Worker registration ---
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then((reg) => {
+      // Check for updates every 5 minutes
+      setInterval(() => reg.update(), 5 * 60 * 1000);
+
+      // A new SW is waiting — show update banner
+      const showUpdateBanner = () => {
+        const banner = document.getElementById('update-banner');
+        if (banner) banner.style.display = '';
+
+        const btnUpdate = document.getElementById('btn-update');
+        if (btnUpdate) {
+          btnUpdate.onclick = () => {
+            if (reg.waiting) {
+              reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            }
+          };
+        }
+        const btnDismiss = document.getElementById('btn-dismiss-update');
+        if (btnDismiss) {
+          btnDismiss.onclick = () => {
+            if (banner) banner.style.display = 'none';
+          };
+        }
+      };
+
+      if (reg.waiting) {
+        showUpdateBanner();
+      }
+
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            showUpdateBanner();
+          }
+        });
+      });
+    });
+
+    // When the new SW activates and takes over, reload the page
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true;
+        window.location.reload();
+      }
+    });
+
+    // Listen for messages from SW (e.g., version info)
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'SW_UPDATED') {
+        console.log(`Service worker updated to v${event.data.version}`);
+      }
+    });
+  });
+}
