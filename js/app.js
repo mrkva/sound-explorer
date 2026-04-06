@@ -903,29 +903,32 @@ class App {
   _startVUMeter() {
     const bigRows = this._bigVURows;
     let lastTime = performance.now();
+    let lastTextUpdate = 0;
 
     const update = (now) => {
       if (!this.audio.isPlaying) return;
-      const dt = (now - lastTime) / 1000; // seconds since last frame
+      const dt = (now - lastTime) / 1000;
       lastTime = now;
 
       // Big per-channel VU — skip if hidden
       if (bigRows.length > 0 && this._bigVUVisible) {
         const channels = this.audio.getChannelVUMeters();
+        const updateText = (now - lastTextUpdate) > 150;
+        if (updateText) lastTextUpdate = now;
+
         for (let i = 0; i < bigRows.length && i < channels.length; i++) {
           const ch = channels[i];
           const r = bigRows[i];
 
-          // RMS bar (via cover)
-          const rmsW = Math.max(0, Math.min(100, (ch.rms + 60) / 60 * 100));
-          r.cover.style.width = (100 - rmsW) + '%';
+          // Main bar shows instantaneous peak (so it reaches the hold line on transients)
+          const barW = Math.max(0, Math.min(100, (ch.peak + 60) / 60 * 100));
+          r.cover.style.width = (100 - barW) + '%';
 
-          // Peak hold: update if new peak is higher, otherwise decay
+          // Peak hold: latch at highest value, hold, then decay
           if (ch.peak >= r.peakHoldDb) {
             r.peakHoldDb = ch.peak;
             r.peakHoldTime = now;
           } else if (now - r.peakHoldTime > this._peakHoldDuration) {
-            // Decay after hold period
             r.peakHoldDb -= this._peakDecayRate * dt;
             if (r.peakHoldDb < -100) r.peakHoldDb = -100;
           }
@@ -940,11 +943,13 @@ class App {
             r.track.classList.remove('vu-channel-clip');
           }
 
-          // dB readout: RMS / Peak
-          const rmsText = ch.rms <= -100 ? '-∞' : `${ch.rms.toFixed(1)}`;
-          const peakText = ch.peak <= -100 ? '-∞' : `${ch.peak.toFixed(1)}`;
-          r.dbLabel.innerHTML =
-            `<span class="vu-db-rms">${rmsText}</span> / <span class="vu-db-peak">${peakText}</span>`;
+          // Throttle text updates to ~7 fps for readability
+          if (updateText) {
+            const peakText = r.peakHoldDb <= -100 ? ' -∞' : `${r.peakHoldDb.toFixed(1)}`;
+            const rmsText = ch.rms <= -100 ? ' -∞' : `${ch.rms.toFixed(1)}`;
+            r.dbLabel.innerHTML =
+              `<span class="vu-db-rms">${rmsText}</span> / <span class="vu-db-peak">${peakText}</span>`;
+          }
         }
       }
 
