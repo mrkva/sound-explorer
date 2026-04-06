@@ -4,18 +4,78 @@
   box-sizing: border-box;
 }
 
+/* ── Theme: Dark (default) — LOM-inspired minimal ─────────────────── */
 :root {
-  --bg-primary: #0f0f1a;
-  --bg-secondary: #1a1a2e;
-  --bg-tertiary: #252540;
-  --text-primary: #e0e0f0;
-  --text-secondary: #8888aa;
-  --accent: #4fc3f7;
-  --accent-hover: #29b6f6;
-  --danger: #ff4444;
-  --border: #333355;
-  --green: #66ff88;
-  --orange: #ff9800;
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #222222;
+  --bg-tertiary: #2e2e2e;
+  --text-primary: #e8e8e8;
+  --text-secondary: #888888;
+  --accent: #ffffff;
+  --accent-hover: #cccccc;
+  --danger: #dd4444;
+  --border: #3a3a3a;
+  --green: #5cb87a;
+  --orange: #d4863a;
+  --highlight: #5a9fd4;
+
+  /* Canvas-specific (drawn on dark spectrogram bg) */
+  --canvas-bg: #1a1a1a;
+  --canvas-axis-text: #aaaaaa;
+  --canvas-axis-grid: rgba(170, 170, 170, 0.2);
+  --canvas-tick: #555555;
+  --canvas-selection: rgba(90, 159, 212, 0.2);
+  --canvas-selection-stroke: rgba(90, 159, 212, 0.7);
+  --canvas-wall-time: #5cb87a;
+  --canvas-dim-text: #666666;
+  --canvas-label-bg: rgba(0,0,0,0.5);
+  --canvas-label-text: #ccc;
+  --canvas-file-boundary: rgba(255, 200, 80, 0.3);
+  --canvas-file-label: rgba(255, 200, 80, 0.5);
+  --canvas-divider: #666;
+
+  /* Button-specific */
+  --btn-hover: #383838;
+  --btn-active: #444444;
+  --btn-primary-bg: #e8e8e8;
+  --btn-primary-text: #1a1a1a;
+  --btn-primary-hover: #ffffff;
+}
+
+/* ── Theme: Light ─────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f3;
+  --bg-tertiary: #eaeae8;
+  --text-primary: #1a1a1a;
+  --text-secondary: #777777;
+  --accent: #1a1a1a;
+  --accent-hover: #333333;
+  --danger: #cc3333;
+  --border: #e0e0de;
+  --green: #2d8a4e;
+  --orange: #c4712e;
+  --highlight: #3a7abf;
+
+  --canvas-bg: #1a1a1a;
+  --canvas-axis-text: #999999;
+  --canvas-axis-grid: rgba(150, 150, 150, 0.25);
+  --canvas-tick: #444444;
+  --canvas-selection: rgba(58, 122, 191, 0.2);
+  --canvas-selection-stroke: rgba(58, 122, 191, 0.7);
+  --canvas-wall-time: #2d8a4e;
+  --canvas-dim-text: #777777;
+  --canvas-label-bg: rgba(0,0,0,0.5);
+  --canvas-label-text: #ddd;
+  --canvas-file-boundary: rgba(200, 170, 60, 0.3);
+  --canvas-file-label: rgba(200, 170, 60, 0.5);
+  --canvas-divider: #888;
+
+  --btn-hover: #e0e0de;
+  --btn-active: #d5d5d3;
+  --btn-primary-bg: #1a1a1a;
+  --btn-primary-text: #ffffff;
+  --btn-primary-hover: #333333;
 }
 
 body {
@@ -67,16 +127,16 @@ button {
   transition: background 0.15s;
 }
 
-button:hover { background: #303060; }
-button:active { background: #404070; }
+button:hover { background: var(--btn-hover); }
+button:active { background: var(--btn-active); }
 
 button.primary {
-  background: #1a3a5c;
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--btn-primary-bg);
+  border-color: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
   font-weight: 600;
 }
-button.primary:hover { background: #254a6e; }
+button.primary:hover { background: var(--btn-primary-hover); }
 
 /* Transport buttons - slightly larger */
 .transport-btn {
@@ -89,12 +149,12 @@ button.primary:hover { background: #254a6e; }
   border-color: var(--orange);
   color: var(--orange);
 }
-.annotations-btn:hover { background: rgba(255, 152, 0, 0.15); }
+.annotations-btn:hover { background: rgba(212, 134, 58, 0.15); }
 
 /* Selection actions (appears when a region is selected) */
 .selection-actions {
-  background: rgba(255, 152, 0, 0.1);
-  border: 1px solid rgba(255, 152, 0, 0.3);
+  background: rgba(212, 134, 58, 0.08);
+  border: 1px solid rgba(212, 134, 58, 0.3);
   border-radius: 4px;
   padding: 2px 8px;
 }
@@ -152,7 +212,7 @@ button.primary:hover { background: #254a6e; }
 
 .time-nav input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--highlight);
 }
 
 .time-nav label {
@@ -201,7 +261,8 @@ button.primary:hover { background: #254a6e; }
   gap: 4px;
   padding: 2px 8px;
   white-space: nowrap;
-  border-right: 1px solid rgba(51, 51, 85, 0.4);
+  border-right: 1px solid var(--border);
+  opacity: 0.8;
 }
 
 .info-cell:last-child {
@@ -222,7 +283,7 @@ button.primary:hover { background: #254a6e; }
 
 /* Fixed-width mono values prevent layout jumps */
 .mono-fixed {
-  color: var(--accent);
+  color: var(--highlight);
   min-width: 58px;
   text-align: right;
   display: inline-block;
@@ -280,7 +341,7 @@ button.primary:hover { background: #254a6e; }
 
 .info-file-cell:hover {
   background: var(--bg-tertiary);
-  color: var(--accent);
+  color: var(--highlight);
 }
 
 #file-info {
@@ -308,7 +369,7 @@ button.primary:hover { background: #254a6e; }
   flex: 1;
   position: relative;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: var(--canvas-bg);
   min-width: 0;
 }
 
@@ -409,7 +470,7 @@ button.primary:hover { background: #254a6e; }
 .control-item input[type="checkbox"] {
   width: 14px;
   height: 14px;
-  accent-color: var(--accent);
+  accent-color: var(--highlight);
   cursor: pointer;
 }
 
@@ -437,7 +498,7 @@ button.primary:hover { background: #254a6e; }
 .vu-meter {
   width: 60px;
   height: 8px;
-  background: #111122;
+  background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 2px;
   overflow: hidden;
@@ -446,7 +507,7 @@ button.primary:hover { background: #254a6e; }
 .vu-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, var(--green), #ffff00, var(--danger));
+  background: linear-gradient(90deg, var(--green), #ddaa00, var(--danger));
   transition: width 0.05s linear;
 }
 
@@ -471,7 +532,7 @@ button.primary:hover { background: #254a6e; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(15, 15, 26, 0.7);
+  background: rgba(0, 0, 0, 0.6);
   z-index: 20;
   pointer-events: none;
 }
@@ -483,7 +544,7 @@ button.primary:hover { background: #254a6e; }
   padding: 24px 40px;
   min-width: 320px;
   text-align: center;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 .computing-label {
@@ -503,7 +564,7 @@ button.primary:hover { background: #254a6e; }
 .computing-bar-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, var(--accent), var(--green));
+  background: linear-gradient(90deg, var(--highlight), var(--green));
   border-radius: 5px;
   transition: width 0.15s ease-out;
 }
@@ -512,7 +573,7 @@ button.primary:hover { background: #254a6e; }
   margin-top: 8px;
   font-family: 'SF Mono', 'Consolas', monospace;
   font-size: 13px;
-  color: var(--accent);
+  color: var(--highlight);
 }
 
 /* ── Welcome overlay ──────────────────────────────────────────────── */
@@ -523,7 +584,7 @@ button.primary:hover { background: #254a6e; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(15, 15, 26, 0.85);
+  background: rgba(0, 0, 0, 0.75);
   z-index: 10;
   pointer-events: none;
 }
@@ -531,12 +592,12 @@ button.primary:hover { background: #254a6e; }
 .welcome-overlay h2 {
   font-size: 20px;
   font-weight: 400;
-  color: var(--text-secondary);
+  color: #ccc;
   margin-bottom: 8px;
 }
 
 .welcome-overlay p {
-  color: var(--text-secondary);
+  color: #999;
   font-size: 13px;
   opacity: 0.7;
 }
@@ -544,7 +605,7 @@ button.primary:hover { background: #254a6e; }
 .welcome-overlay .shortcuts {
   margin-top: 20px;
   font-size: 11px;
-  color: var(--text-secondary);
+  color: #999;
   opacity: 0.5;
   text-align: center;
   line-height: 1.8;
@@ -570,7 +631,7 @@ button.primary:hover { background: #254a6e; }
   border: 1px solid var(--border);
   border-radius: 6px;
   z-index: 100;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
   overflow: hidden;
 }
 
@@ -603,7 +664,8 @@ button.primary:hover { background: #254a6e; }
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid rgba(51, 51, 85, 0.3);
+  border-bottom: 1px solid var(--border);
+  opacity: 0.8;
 }
 
 .file-list-item:hover { background: var(--bg-tertiary); }
@@ -621,7 +683,7 @@ button.primary:hover { background: #254a6e; }
   border: 1px solid var(--orange);
   border-radius: 6px;
   z-index: 100;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
   overflow: hidden;
 }
 
@@ -739,13 +801,14 @@ button.primary:hover { background: #254a6e; }
   padding: 8px 12px;
   font-size: 11px;
   cursor: pointer;
-  border-bottom: 1px solid rgba(51, 51, 85, 0.3);
+  border-bottom: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 3px;
+  opacity: 0.85;
 }
 
-.annotation-item:hover { background: var(--bg-tertiary); }
+.annotation-item:hover { background: var(--bg-tertiary); opacity: 1; }
 
 .annotation-item .ann-note {
   color: var(--text-primary);
@@ -778,11 +841,11 @@ button.primary:hover { background: #254a6e; }
 }
 
 .annotation-item .ann-actions button.export-btn {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--highlight);
+  border-color: var(--highlight);
 }
 .annotation-item .ann-actions button.export-btn:hover {
-  background: rgba(79, 195, 247, 0.2);
+  background: rgba(90, 159, 212, 0.15);
 }
 
 .annotation-item .ann-actions button.delete-btn {
@@ -792,7 +855,7 @@ button.primary:hover { background: #254a6e; }
 .annotation-item .ann-actions button.delete-btn:hover {
   color: var(--danger);
   border-color: var(--danger);
-  background: rgba(255, 68, 68, 0.15);
+  background: rgba(221, 68, 68, 0.1);
 }
 
 .annotation-item .ann-actions button.delete-btn.confirm {
@@ -822,4 +885,12 @@ button.primary:hover { background: #254a6e; }
   padding: 2px 4px;
   font-size: 11px;
   font-family: 'SF Mono', 'Consolas', monospace;
+}
+
+/* ── Theme toggle button ─────────────────────────────────────────── */
+#btn-theme {
+  min-width: 28px;
+  padding: 2px 6px;
+  font-size: 14px;
+  line-height: 1;
 }

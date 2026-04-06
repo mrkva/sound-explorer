@@ -539,6 +539,24 @@ class App {
     shortcutsModal.addEventListener('click', (e) => {
       if (e.target === shortcutsModal) shortcutsModal.style.display = 'none';
     });
+
+    // Theme toggle
+    const btnTheme = document.getElementById('btn-theme');
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    btnTheme.textContent = savedTheme === 'light' ? '\u2600' : '\u263D';
+    btnTheme.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      btnTheme.textContent = next === 'light' ? '\u2600' : '\u263D';
+      // Refresh spectrogram canvas colors
+      if (this.spectrogram) {
+        this.spectrogram._refreshThemeColors();
+        this.spectrogram.draw();
+      }
+    });
   }
 
   _setupDragAndDrop() {

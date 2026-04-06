@@ -13,6 +13,7 @@ export class SpectrogramRenderer {
   constructor(canvas, options = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    this._refreshThemeColors();
 
     // FFT settings
     this.fftSize = options.fftSize || 2048;
@@ -91,6 +92,27 @@ export class SpectrogramRenderer {
 
     this._setupInteraction();
     this._setupScrollbar();
+  }
+
+  _refreshThemeColors() {
+    const s = getComputedStyle(document.documentElement);
+    const v = (name) => s.getPropertyValue(name).trim();
+    this._theme = {
+      canvasBg: v('--canvas-bg') || '#1a1a1a',
+      axisText: v('--canvas-axis-text') || '#aaaaaa',
+      axisGrid: v('--canvas-axis-grid') || 'rgba(170,170,170,0.2)',
+      tick: v('--canvas-tick') || '#555555',
+      selection: v('--canvas-selection') || 'rgba(90,159,212,0.2)',
+      selectionStroke: v('--canvas-selection-stroke') || 'rgba(90,159,212,0.7)',
+      wallTime: v('--canvas-wall-time') || '#5cb87a',
+      dimText: v('--canvas-dim-text') || '#666666',
+      labelBg: v('--canvas-label-bg') || 'rgba(0,0,0,0.5)',
+      labelText: v('--canvas-label-text') || '#ccc',
+      fileBoundary: v('--canvas-file-boundary') || 'rgba(255,200,80,0.3)',
+      fileLabel: v('--canvas-file-label') || 'rgba(255,200,80,0.5)',
+      divider: v('--canvas-divider') || '#666',
+      orange: v('--orange') || '#d4863a',
+    };
   }
 
   /**
@@ -905,7 +927,7 @@ export class SpectrogramRenderer {
       const octx = offscreen.getContext('2d');
       octx.drawImage(bitmapA, 0, 0);
       // Divider line
-      octx.fillStyle = '#666';
+      octx.fillStyle = this._theme.divider;
       octx.fillRect(0, halfHeight, spectWidth, dividerHeight);
       octx.drawImage(bitmapB, 0, halfHeight + dividerHeight);
 
@@ -1005,7 +1027,8 @@ export class SpectrogramRenderer {
     }
     const cursorTime = this._lastPlaybackTime;
     const { width, height } = this.canvas;
-    this.ctx.fillStyle = '#0f0f1a';
+    const t = this._theme;
+    this.ctx.fillStyle = t.canvasBg;
     this.ctx.fillRect(0, 0, width, height);
 
     if (this._spectBitmap) {
@@ -1032,15 +1055,15 @@ export class SpectrogramRenderer {
       this.ctx.font = '10px monospace';
       this.ctx.textAlign = 'left';
       // Label A (top)
-      this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      this.ctx.fillStyle = t.labelBg;
       this.ctx.fillRect(52, 2, this.ctx.measureText(labelA).width + 6, 14);
-      this.ctx.fillStyle = '#ccc';
+      this.ctx.fillStyle = t.labelText;
       this.ctx.fillText(labelA, 55, 13);
       // Label B (bottom)
       const yB = halfHeight + 2;
-      this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      this.ctx.fillStyle = t.labelBg;
       this.ctx.fillRect(52, yB + 2, this.ctx.measureText(labelB).width + 6, 14);
-      this.ctx.fillStyle = '#ccc';
+      this.ctx.fillStyle = t.labelText;
       this.ctx.fillText(labelB, 55, yB + 13);
     }
 
@@ -1063,10 +1086,10 @@ export class SpectrogramRenderer {
         const viewDuration = this.viewEnd - this.viewStart;
         const x1 = 50 + ((selStart - this.viewStart) / viewDuration) * spectWidth;
         const x2 = 50 + ((selEnd - this.viewStart) / viewDuration) * spectWidth;
-        this.ctx.fillStyle = 'rgba(79, 195, 247, 0.2)';
+        this.ctx.fillStyle = t.selection;
         this.ctx.fillRect(x1, 0, x2 - x1, height - 40);
         // Selection edges
-        this.ctx.strokeStyle = 'rgba(79, 195, 247, 0.7)';
+        this.ctx.strokeStyle = t.selectionStroke;
         this.ctx.lineWidth = 1;
         this.ctx.setLineDash([3, 3]);
         this.ctx.beginPath();
@@ -1106,7 +1129,7 @@ export class SpectrogramRenderer {
     const spectHeight = canvasHeight - 40;
     const viewDuration = this.viewEnd - this.viewStart;
 
-    this.ctx.strokeStyle = 'rgba(255, 255, 100, 0.3)';
+    this.ctx.strokeStyle = this._theme.fileBoundary;
     this.ctx.lineWidth = 1;
     this.ctx.setLineDash([4, 4]);
 
@@ -1119,7 +1142,7 @@ export class SpectrogramRenderer {
         this.ctx.stroke();
 
         // File label
-        this.ctx.fillStyle = 'rgba(255, 255, 100, 0.5)';
+        this.ctx.fillStyle = this._theme.fileLabel;
         this.ctx.font = '9px monospace';
         this.ctx.textAlign = 'left';
         this.ctx.fillText(file.fileName, x + 3, 12);
@@ -1144,12 +1167,12 @@ export class SpectrogramRenderer {
       const barW = Math.max(3, x2 - x1);
 
       // Draw a small colored bar in the time axis area
-      this.ctx.fillStyle = 'rgba(255, 152, 0, 0.6)';
+      this.ctx.fillStyle = this._theme.orange + '99';
       this.ctx.fillRect(x1, axisY - 4, barW, 4);
 
       // Draw label if there's room
       if (barW > 20) {
-        this.ctx.fillStyle = 'rgba(255, 152, 0, 0.85)';
+        this.ctx.fillStyle = this._theme.orange + 'dd';
         this.ctx.font = '9px sans-serif';
         this.ctx.textAlign = 'left';
         const labelX = x1 + 2;
@@ -1257,7 +1280,7 @@ export class SpectrogramRenderer {
       }
 
       // Label text
-      this.ctx.fillStyle = '#fff';
+      this.ctx.fillStyle = t.labelText;
       this.ctx.textAlign = 'left';
       this.ctx.save();
       this.ctx.beginPath();
@@ -1269,12 +1292,12 @@ export class SpectrogramRenderer {
   }
 
   _drawFrequencyAxis(canvasHeight) {
-    this.ctx.fillStyle = '#0f0f1a';
+    this.ctx.fillStyle = this._theme.canvasBg;
     this.ctx.fillRect(0, 0, 50, canvasHeight);
-    this.ctx.fillStyle = '#aaaacc';
+    this.ctx.fillStyle = this._theme.axisText;
     this.ctx.font = '9px monospace';
     this.ctx.textAlign = 'right';
-    this.ctx.strokeStyle = 'rgba(170, 170, 204, 0.3)';
+    this.ctx.strokeStyle = this._theme.axisGrid;
     this.ctx.lineWidth = 1;
 
     const spectHeight = canvasHeight - 40;
@@ -1292,7 +1315,7 @@ export class SpectrogramRenderer {
         const isMajor = [100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000].includes(freq);
         if (isMajor) {
           let label = freq >= 1000 ? (freq / 1000).toFixed(freq >= 10000 ? 0 : 1) + 'k' : freq.toString();
-          this.ctx.fillStyle = '#aaaacc';
+          this.ctx.fillStyle = this._theme.axisText;
           this.ctx.fillText(label, 44, y + 3);
           // Tick mark
           this.ctx.beginPath();
@@ -1336,7 +1359,7 @@ export class SpectrogramRenderer {
           } else {
             label = Math.round(freq).toString();
           }
-          this.ctx.fillStyle = '#aaaacc';
+          this.ctx.fillStyle = this._theme.axisText;
           this.ctx.fillText(label, 44, y + 3);
           this.ctx.beginPath();
           this.ctx.moveTo(48, y);
@@ -1355,9 +1378,10 @@ export class SpectrogramRenderer {
 
   _drawTimeAxis(canvasWidth, canvasHeight) {
     const axisY = canvasHeight - 40;
-    this.ctx.fillStyle = '#0f0f1a';
+    const th = this._theme;
+    this.ctx.fillStyle = th.canvasBg;
     this.ctx.fillRect(0, axisY, canvasWidth, 40);
-    this.ctx.fillStyle = '#aaaacc';
+    this.ctx.fillStyle = th.axisText;
     this.ctx.font = '11px monospace';
     this.ctx.textAlign = 'center';
 
@@ -1375,26 +1399,24 @@ export class SpectrogramRenderer {
     for (let t = startTick; t <= this.viewEnd; t += interval) {
       const x = 50 + ((t - this.viewStart) / viewDuration) * spectWidth;
 
-      this.ctx.strokeStyle = '#333355';
+      this.ctx.strokeStyle = th.tick;
       this.ctx.beginPath();
       this.ctx.moveTo(x, axisY);
       this.ctx.lineTo(x, axisY + 5);
       this.ctx.stroke();
 
-      // Show wall-clock time if available, otherwise file position
       if (hasWallClock) {
         const wallSec = this.session.toWallClock(t);
         if (wallSec !== null) {
-          this.ctx.fillStyle = '#66ff88';
+          this.ctx.fillStyle = th.wallTime;
           this.ctx.fillText(this._formatWallTime(wallSec), x, axisY + 18);
         }
-        // Also show file position below
-        this.ctx.fillStyle = '#777799';
+        this.ctx.fillStyle = th.dimText;
         this.ctx.font = '9px monospace';
         this.ctx.fillText(this._formatDuration(t), x, axisY + 32);
         this.ctx.font = '11px monospace';
       } else {
-        this.ctx.fillStyle = '#aaaacc';
+        this.ctx.fillStyle = th.axisText;
         this.ctx.fillText(this._formatDuration(t), x, axisY + 20);
       }
     }
