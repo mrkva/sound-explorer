@@ -9,7 +9,7 @@
  * For speedup (rate > 1), we use playbackRate since browsers handle that fine.
  */
 
-import { WavParser } from './wav-parser.js?v=3';
+import { WavParser } from './wav-parser.js?v=4';
 
 export class AudioEngine {
   constructor() {
@@ -471,12 +471,18 @@ export class AudioEngine {
 
     for (const r of rates) {
       const effectiveRate = sr * r;
+      const displayRate = effectiveRate / 1000;
+      const rateStr = displayRate >= 1
+        ? displayRate.toFixed(displayRate % 1 === 0 ? 0 : 1)
+        : displayRate.toFixed(2);
       let label;
       if (r === 1) {
-        label = `${(sr / 1000).toFixed(sr % 1000 === 0 ? 0 : 1)}kHz (native)`;
+        label = `${rateStr}kHz — Original`;
+      } else if (r < 1) {
+        const factor = Math.round(1 / r);
+        label = `${rateStr}kHz — ${factor}x slower`;
       } else {
-        const displayRate = effectiveRate / 1000;
-        label = `${displayRate >= 1 ? displayRate.toFixed(displayRate % 1 === 0 ? 0 : 1) : displayRate.toFixed(2)}kHz (${r}x)`;
+        label = `${rateStr}kHz — ${r}x faster`;
       }
       options.push({ rate: r, label });
     }

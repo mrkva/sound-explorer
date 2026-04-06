@@ -562,8 +562,11 @@ export class SpectrogramRenderer {
     this.ctx.fillStyle = '#666';
     this.ctx.fillRect(MARGIN_LEFT, divY, w, 2);
 
+    // Capture the split view as a bitmap so _redraw() preserves it
+    this._lastBitmap = await createImageBitmap(this.canvas, MARGIN_LEFT, 0, w, totalH);
+
     this._drawAxes();
-    this._drawOverlays();
+    this._drawOverlaysOnly();
   }
 
   _onFFTResult(data) {

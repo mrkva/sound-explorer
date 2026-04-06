@@ -784,3 +784,189 @@ dialog h4 {
   gap: 6px;
   margin-bottom: 14px;
 }
+
+/* ==========================================================================
+   Mobile / touch layout (≤768px)
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  /* --- Toolbar: compact, two-row layout --- */
+  #toolbar {
+    gap: 4px;
+    padding: 4px 6px;
+  }
+
+  /* Bigger touch targets */
+  .toolbar-btn {
+    height: 36px;
+    padding: 0 10px;
+    font-size: 13px;
+    line-height: 34px;
+    min-width: 36px;
+  }
+
+  .btn-play-pause {
+    min-width: 80px;
+  }
+
+  /* Hide secondary controls on mobile */
+  .toolbar-title,
+  .toolbar-version,
+  #toolbar .toolbar-sep,
+  #toolbar .toolbar-label,
+  #btn-goto-mode,
+  #input-goto,
+  #btn-goto,
+  #btn-shortcuts {
+    display: none !important;
+  }
+
+  .toolbar-spacer {
+    flex: 0;
+    width: 0;
+  }
+
+  .toolbar-logo {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* Speed selector: compact */
+  #select-speed {
+    max-width: 160px;
+    font-size: 12px;
+    height: 36px;
+  }
+
+  /* --- Info strip: compact --- */
+  #info-strip {
+    gap: 10px;
+    padding: 3px 6px;
+    font-size: 11px;
+    min-height: 22px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #info-cursor,
+  #info-wallclock {
+    display: none;
+  }
+
+  /* --- Bottom bar: horizontal scroll, no wrap --- */
+  #bottom-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 6px;
+    gap: 6px;
+    min-height: 44px;
+  }
+
+  .control-section {
+    flex-shrink: 0;
+  }
+
+  .ctrl-label {
+    font-size: 10px;
+  }
+
+  .slider {
+    width: 60px;
+  }
+
+  .ctrl-value {
+    min-width: 36px;
+    font-size: 10px;
+  }
+
+  .select-small {
+    font-size: 10px;
+  }
+
+  /* Bigger VU meter button as touch target */
+  #btn-vu {
+    height: 36px;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  /* --- VU meter: taller bars for touch --- */
+  .vu-channel-row {
+    height: 28px;
+  }
+
+  .vu-channel-track {
+    height: 22px;
+  }
+
+  .vu-channel-label {
+    font-size: 12px;
+  }
+
+  .vu-channel-db {
+    font-size: 12px;
+    width: 110px;
+  }
+
+  /* --- Canvas: no annotations panel on mobile --- */
+  .annotations-panel {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    min-width: 0;
+    z-index: 50;
+    border-left: none;
+  }
+
+  /* --- Selection controls: compact --- */
+  #selection-controls {
+    flex-wrap: wrap;
+    gap: 3px;
+  }
+
+  #selection-controls .toolbar-label {
+    display: inline !important;
+    font-size: 10px;
+  }
+
+  #selection-controls .input-time {
+    width: 65px;
+    height: 36px;
+    font-size: 12px;
+  }
+
+  /* --- Drop zone: mobile friendly --- */
+  .drop-content h2 {
+    font-size: 22px;
+  }
+
+  #btn-open {
+    height: 44px;
+    padding: 0 24px;
+    font-size: 16px;
+  }
+
+  /* --- Dialog --- */
+  dialog {
+    width: 95vw;
+    padding: 16px;
+  }
+
+  /* --- Buttons: general touch size --- */
+  .btn {
+    min-height: 32px;
+  }
+
+  .btn-small {
+    min-height: 28px;
+  }
+
+  /* --- Export buttons --- */
+  #btn-export,
+  #btn-export-speed {
+    height: 36px;
+    font-size: 12px;
+    padding: 0 8px;
+  }
+}
