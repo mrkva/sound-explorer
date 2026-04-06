@@ -9,7 +9,7 @@
  * For speedup (rate > 1), we use playbackRate since browsers handle that fine.
  */
 
-import { WavParser } from './wav-parser.js?v=0.2.0';
+import { WavParser } from './wav-parser.js?v=0.2.2';
 
 export class AudioEngine {
   constructor() {
@@ -129,9 +129,93 @@ export class AudioEngine {
    *   Browser plays at rate=1 → audio plays slower, lower pitch = tape speed
    * - If effectiveSR > 48kHz: decimate by ceil(effectiveSR/48000),
    *   write header with SR = effectiveSR/decimationFactor, browser plays at rate=1
+   *   IMPORTANT: apply anti-aliasing low-pass filter before decimation to prevent
+   *   ultrasonic content from aliasing into the audible range
    * - For rate > 1 on low-SR files where effectiveSR <= 48kHz:
    *   include all samples, header SR = effectiveSR, browser plays at rate=1
    */
+
+  /**
+   * Design a windowed-sinc low-pass FIR filter for anti-aliasing before decimation.
+   * @param {number} decimFactor - decimation factor (N)
+   * @returns {Float32Array} filter kernel
+   */
+  _designAAFilter(decimFactor) {
+    // Cutoff at 0.8 / decimFactor (relative to Nyquist) — slight rolloff margin
+    const fc = 0.8 / decimFactor;
+    // Filter length: longer for higher decimation factors, but cap for performance
+    const halfLen = Math.min(decimFactor * 10, 128);
+    const len = 2 * halfLen + 1;
+    const kernel = new Float32Array(len);
+    let sum = 0;
+
+    for (let i = 0; i < len; i++) {
+      const n = i - halfLen;
+      // Sinc
+      let sinc;
+      if (n === 0) {
+        sinc = 2 * Math.PI * fc;
+      } else {
+        sinc = Math.sin(2 * Math.PI * fc * n) / n;
+      }
+      // Blackman window
+      const w = 0.42 - 0.5 * Math.cos(2 * Math.PI * i / (len - 1))
+                     + 0.08 * Math.cos(4 * Math.PI * i / (len - 1));
+      kernel[i] = sinc * w;
+      sum += kernel[i];
+    }
+
+    // Normalize for unity gain at DC
+    for (let i = 0; i < len; i++) kernel[i] /= sum;
+    return kernel;
+  }
+
+  /**
+   * Apply FIR filter to a single channel of samples and decimate.
+   * @param {Float32Array} samples - input samples for one channel
+   * @param {Float32Array} kernel - FIR filter kernel
+   * @param {number} decimFactor - decimation factor
+   * @param {Float32Array} prevTail - tail from previous chunk for overlap (kernel.length-1 samples)
+   * @returns {{output: Float32Array, tail: Float32Array}}
+   */
+  _filterAndDecimate(samples, kernel, decimFactor, prevTail) {
+    const halfLen = (kernel.length - 1) / 2;
+    const totalLen = prevTail.length + samples.length;
+    const outLen = Math.floor((totalLen - kernel.length + 1) / decimFactor);
+    const output = new Float32Array(outLen);
+
+    for (let i = 0; i < outLen; i++) {
+      const center = i * decimFactor + halfLen;
+      let acc = 0;
+      for (let k = 0; k < kernel.length; k++) {
+        const srcIdx = center - halfLen + k;
+        let val;
+        if (srcIdx < prevTail.length) {
+          val = prevTail[srcIdx];
+        } else {
+          val = samples[srcIdx - prevTail.length];
+        }
+        acc += val * kernel[k];
+      }
+      output[i] = acc;
+    }
+
+    // Save tail for next chunk overlap
+    const tailLen = kernel.length - 1;
+    const newTail = new Float32Array(tailLen);
+    for (let i = 0; i < tailLen; i++) {
+      const srcIdx = samples.length - tailLen + i;
+      if (srcIdx >= 0) {
+        newTail[i] = samples[srcIdx];
+      } else {
+        // Still in prevTail territory
+        newTail[i] = prevTail[prevTail.length + srcIdx] || 0;
+      }
+    }
+
+    return { output, tail: newTail };
+  }
+
   async _buildBlob(rate) {
     const wavInfo = this.wavInfo;
     const origSR = wavInfo.sampleRate;
@@ -177,6 +261,17 @@ export class AudioEngine {
     ws('data');
     hv.setUint32(o, outDataSize, true); o += 4;
 
+    // Design anti-aliasing filter if decimating
+    let aaKernel = null;
+    let channelTails = null;
+    if (decimFactor > 1) {
+      aaKernel = this._designAAFilter(decimFactor);
+      channelTails = [];
+      for (let ch = 0; ch < outChannels; ch++) {
+        channelTails.push(new Float32Array(aaKernel.length - 1));
+      }
+    }
+
     // Process in chunks, yielding between each to allow incremental GC
     const chunkFrames = 4 * 1024 * 1024;
     const parts = [header];
@@ -205,36 +300,57 @@ export class AudioEngine {
         }
         parts.push(outBuf);
       } else {
-        const firstOutIdx = Math.ceil(pos / decimFactor);
-        const lastSample = pos + count;
-        const lastOutIdx = Math.ceil(lastSample / decimFactor);
-        const outCount = lastOutIdx - firstOutIdx;
-        if (outCount <= 0) continue;
-
-        const outBuf = new ArrayBuffer(outCount * outBlockAlign);
-        const outView = new DataView(outBuf);
-        let outOff = 0;
-
-        for (let i = firstOutIdx; i < lastOutIdx; i++) {
-          const srcFrame = i * decimFactor;
-          if (srcFrame < pos || srcFrame >= lastSample) continue;
-          const localFrame = srcFrame - pos;
-          const frameOff = localFrame * wavInfo.blockAlign;
-
+        // Deinterleave channels into separate Float32Arrays
+        const channelData = [];
+        for (let ch = 0; ch < outChannels; ch++) {
+          channelData.push(new Float32Array(count));
+        }
+        for (let i = 0; i < count; i++) {
+          const frameOff = i * wavInfo.blockAlign;
           for (let ch = 0; ch < outChannels; ch++) {
             const sampleOff = frameOff + ch * (wavInfo.bitsPerSample / 8);
-            const val = WavParser._readSample(view, sampleOff, wavInfo.format, wavInfo.bitsPerSample);
+            channelData[ch][i] = WavParser._readSample(view, sampleOff, wavInfo.format, wavInfo.bitsPerSample);
+          }
+        }
+
+        // Filter and decimate each channel
+        const decimatedChannels = [];
+        let minLen = Infinity;
+        for (let ch = 0; ch < outChannels; ch++) {
+          const result = this._filterAndDecimate(channelData[ch], aaKernel, decimFactor, channelTails[ch]);
+          channelTails[ch] = result.tail;
+          decimatedChannels.push(result.output);
+          minLen = Math.min(minLen, result.output.length);
+        }
+
+        if (minLen <= 0) continue;
+
+        // Interleave back to 16-bit PCM
+        const outBuf = new ArrayBuffer(minLen * outBlockAlign);
+        const outView = new DataView(outBuf);
+        let outOff = 0;
+        for (let i = 0; i < minLen; i++) {
+          for (let ch = 0; ch < outChannels; ch++) {
+            const val = decimatedChannels[ch][i];
             const int16 = Math.max(-32768, Math.min(32767, Math.round(val * 32767)));
             outView.setInt16(outOff, int16, true);
             outOff += 2;
           }
         }
-
-        if (outOff > 0) {
-          parts.push(outBuf.slice(0, outOff));
-        }
+        parts.push(outBuf);
       }
     }
+
+    // Compute actual data size from parts (skip header at index 0)
+    let actualDataSize = 0;
+    for (let i = 1; i < parts.length; i++) {
+      actualDataSize += parts[i].byteLength;
+    }
+    // Patch the header with the correct data size
+    const actualOutSamples = actualDataSize / outBlockAlign;
+    const hPatch = new DataView(header);
+    hPatch.setUint32(4, 36 + actualDataSize, true);  // RIFF chunk size
+    hPatch.setUint32(40, actualDataSize, true);       // data chunk size
 
     const blob = new Blob(parts, { type: 'audio/wav' });
     // Release references to chunk buffers so GC can collect them
@@ -243,10 +359,10 @@ export class AudioEngine {
     await new Promise(r => setTimeout(r, 50));
     const url = URL.createObjectURL(blob);
 
-    // The blob duration = outSamples / headerSR
+    // The blob duration = actualOutSamples / headerSR
     // Original duration = totalSamples / origSR
     // timeScale = blobDuration / originalDuration
-    this._blobDuration = outSamples / headerSR;
+    this._blobDuration = actualOutSamples / headerSR;
     this._timeScale = this._blobDuration / (wavInfo.totalSamples / origSR);
 
     return url;
