@@ -2,9 +2,10 @@
  * Main application controller — wires together WAV parser, spectrogram, audio engine, and UI.
  */
 
-import { WavParser } from './wav-parser.js?v=4';
-import { SpectrogramRenderer } from './spectrogram.js?v=4';
-import { AudioEngine } from './audio-engine.js?v=4';
+import { VERSION } from './version.js';
+import { WavParser } from './wav-parser.js?v=0.2.0';
+import { SpectrogramRenderer } from './spectrogram.js?v=0.2.0';
+import { AudioEngine } from './audio-engine.js?v=0.2.0';
 
 class App {
   constructor() {
@@ -19,6 +20,16 @@ class App {
     this._initDragDrop();
     this._initKeyboard();
     this._initAudioCallbacks();
+    this._applyVersion();
+  }
+
+  _applyVersion() {
+    const v = `v${VERSION}`;
+    document.querySelectorAll('.drop-version, .toolbar-version').forEach(el => {
+      el.textContent = v;
+    });
+    document.title = `Sound Explorer ${v}`;
+    console.log(`Sound Explorer ${v}`);
   }
 
   // --- UI References ---
