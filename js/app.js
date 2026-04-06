@@ -794,23 +794,15 @@ class App {
 
   // --- VU Meter ---
 
-  _bigVURows = []; // [{cover, peakBar, track, dbLabel}]
+  _bigVURows = []; // [{cover, peakBar, track, dbLabel, peakHoldDb, peakHoldTime}]
   _bigVUVisible = true;
+  _peakHoldDuration = 1500; // ms to hold peak before decay
+  _peakDecayRate = 15;      // dB/s decay speed
 
   _buildBigVUMeter(numChannels) {
     const container = document.getElementById('vu-meter-big');
     container.innerHTML = '';
     this._bigVURows = [];
-
-    // Header with hide button
-    const header = document.createElement('div');
-    header.className = 'vu-meter-header';
-    const hideBtn = document.createElement('button');
-    hideBtn.className = 'vu-meter-hide';
-    hideBtn.textContent = 'Hide VU';
-    hideBtn.addEventListener('click', () => this._toggleBigVU());
-    header.appendChild(hideBtn);
-    container.appendChild(header);
 
     const labels = ['L', 'R', 'C', 'LFE', 'LS', 'RS'];
 
@@ -841,11 +833,15 @@ class App {
 
       const dbLabel = document.createElement('span');
       dbLabel.className = 'vu-channel-db';
-      dbLabel.textContent = '-∞ dBFS';
+      dbLabel.innerHTML = '<span class="vu-db-rms">-∞</span> / <span class="vu-db-peak">-∞</span>';
       row.appendChild(dbLabel);
 
       container.appendChild(row);
-      this._bigVURows.push({ cover, peakBar, track, dbLabel });
+      this._bigVURows.push({
+        cover, peakBar, track, dbLabel,
+        peakHoldDb: -100,
+        peakHoldTime: 0,
+      });
     }
 
     // dBFS scale row
@@ -871,6 +867,7 @@ class App {
 
     const dbSpacer = document.createElement('span');
     dbSpacer.className = 'vu-scale-db-spacer';
+    dbSpacer.textContent = 'RMS / Peak';
     scaleRow.appendChild(dbSpacer);
 
     container.appendChild(scaleRow);
@@ -879,16 +876,25 @@ class App {
     const saved = localStorage.getItem('bigVU');
     this._bigVUVisible = saved !== 'hidden';
     container.style.display = this._bigVUVisible ? 'flex' : 'none';
-    document.getElementById('btn-vu').textContent =
-      this._bigVUVisible ? 'VU ✓' : 'VU';
+    this._updateVUButton();
+  }
+
+  _updateVUButton() {
+    const btn = document.getElementById('btn-vu');
+    if (this._bigVUVisible) {
+      btn.textContent = 'VU Meter';
+      btn.classList.add('active');
+    } else {
+      btn.textContent = 'VU Meter';
+      btn.classList.remove('active');
+    }
   }
 
   _toggleBigVU() {
     this._bigVUVisible = !this._bigVUVisible;
     document.getElementById('vu-meter-big').style.display =
       this._bigVUVisible ? 'flex' : 'none';
-    document.getElementById('btn-vu').textContent =
-      this._bigVUVisible ? 'VU ✓' : 'VU';
+    this._updateVUButton();
     localStorage.setItem('bigVU', this._bigVUVisible ? 'visible' : 'hidden');
   }
 
@@ -896,9 +902,12 @@ class App {
     const smallPeak = document.getElementById('vu-peak');
     const smallRms = document.getElementById('vu-rms');
     const bigRows = this._bigVURows;
+    let lastTime = performance.now();
 
-    const update = () => {
+    const update = (now) => {
       if (!this.audio.isPlaying) return;
+      const dt = (now - lastTime) / 1000; // seconds since last frame
+      lastTime = now;
 
       // Small toolbar VU (mixed)
       const vu = this.audio.getVUMeter();
@@ -912,22 +921,37 @@ class App {
         const channels = this.audio.getChannelVUMeters();
         for (let i = 0; i < bigRows.length && i < channels.length; i++) {
           const ch = channels[i];
+          const r = bigRows[i];
+
+          // RMS bar (via cover)
           const rmsW = Math.max(0, Math.min(100, (ch.rms + 60) / 60 * 100));
-          const peakW = Math.max(0, Math.min(100, (ch.peak + 60) / 60 * 100));
-          // Cover width is the inverse — 100% = silent, 0% = full scale
-          bigRows[i].cover.style.width = (100 - rmsW) + '%';
-          bigRows[i].peakBar.style.left = peakW + '%';
+          r.cover.style.width = (100 - rmsW) + '%';
+
+          // Peak hold: update if new peak is higher, otherwise decay
+          if (ch.peak >= r.peakHoldDb) {
+            r.peakHoldDb = ch.peak;
+            r.peakHoldTime = now;
+          } else if (now - r.peakHoldTime > this._peakHoldDuration) {
+            // Decay after hold period
+            r.peakHoldDb -= this._peakDecayRate * dt;
+            if (r.peakHoldDb < -100) r.peakHoldDb = -100;
+          }
+
+          const peakW = Math.max(0, Math.min(100, (r.peakHoldDb + 60) / 60 * 100));
+          r.peakBar.style.left = peakW + '%';
 
           // Clip indicator
           if (ch.peak >= -0.1) {
-            bigRows[i].track.classList.add('vu-channel-clip');
+            r.track.classList.add('vu-channel-clip');
           } else {
-            bigRows[i].track.classList.remove('vu-channel-clip');
+            r.track.classList.remove('vu-channel-clip');
           }
 
-          // dB readout
-          const dbText = ch.peak <= -100 ? '-∞ dBFS' : `${ch.peak.toFixed(1)} dBFS`;
-          bigRows[i].dbLabel.textContent = dbText;
+          // dB readout: RMS / Peak
+          const rmsText = ch.rms <= -100 ? '-∞' : `${ch.rms.toFixed(1)}`;
+          const peakText = ch.peak <= -100 ? '-∞' : `${ch.peak.toFixed(1)}`;
+          r.dbLabel.innerHTML =
+            `<span class="vu-db-rms">${rmsText}</span> / <span class="vu-db-peak">${peakText}</span>`;
         }
       }
 
@@ -943,7 +967,9 @@ class App {
       row.cover.style.width = '100%';
       row.peakBar.style.left = '0%';
       row.track.classList.remove('vu-channel-clip');
-      row.dbLabel.textContent = '-∞ dBFS';
+      row.peakHoldDb = -100;
+      row.peakHoldTime = 0;
+      row.dbLabel.innerHTML = '<span class="vu-db-rms">-∞</span> / <span class="vu-db-peak">-∞</span>';
     }
   }
 

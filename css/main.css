@@ -393,22 +393,6 @@ body.dark .toolbar-logo {
   gap: 3px;
 }
 
-.vu-meter-header {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 2px;
-}
-
-.vu-meter-hide {
-  background: none;
-  border: none;
-  color: #666;
-  font-size: 11px;
-  cursor: pointer;
-  padding: 0 2px;
-}
-.vu-meter-hide:hover { color: #aaa; }
-
 .vu-channel-row {
   display: flex;
   align-items: center;
@@ -450,7 +434,6 @@ body.dark .toolbar-logo {
   width: 2px;
   height: 100%;
   background: #ffffff;
-  transition: left 80ms linear;
 }
 
 .vu-channel-clip .vu-channel-cover {
@@ -458,12 +441,22 @@ body.dark .toolbar-logo {
 }
 
 .vu-channel-db {
-  font-size: 10px;
+  font-size: 11px;
   font-family: 'SF Mono', 'Consolas', monospace;
-  color: #888;
-  width: 52px;
+  color: #ccc;
+  width: 120px;
   text-align: right;
   flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.vu-channel-db .vu-db-peak {
+  color: #fff;
+  font-weight: 500;
+}
+
+.vu-channel-db .vu-db-rms {
+  color: #888;
 }
 
 .vu-scale {
@@ -495,8 +488,12 @@ body.dark .toolbar-logo {
 }
 
 .vu-scale-db-spacer {
-  width: 52px;
+  width: 120px;
   flex-shrink: 0;
+  font-size: 9px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  color: #555;
+  text-align: right;
 }
 
 #status-bar {
