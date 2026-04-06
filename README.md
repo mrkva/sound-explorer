@@ -6,26 +6,64 @@ A desktop application for reviewing, navigating, and annotating long-duration fi
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
 
-> **Warning: This application is vibe-coded.** It was developed with AI assistance and has not been rigorously tested across all edge cases. Use at your own risk. Do not rely on it for critical work without verifying results independently. Always keep backups of your original recordings — the app never modifies source files, but exported WAV segments should be spot-checked.
+> **Warning: This application is vibe-coded.** It was developed with AI assistance and has not been rigorously tested across all edge cases. Use at your own risk. Always keep backups of your original recordings — the app never modifies source files.
 
-## What it does
+## What this project does
 
-Field Recording Explorer loads WAV files — single files or entire folders of them — and presents them as one continuous, scrollable, zoomable spectrogram. If the files contain Broadcast Wave Format (BWF) metadata with embedded timecodes, they are automatically stitched together in chronological order, with wall-clock time displayed alongside the recording timeline.
+Field Recording Explorer loads WAV files — single files or entire folders — and presents them as one continuous, scrollable, zoomable spectrogram. Files containing Broadcast Wave Format (BWF) metadata are automatically stitched together in chronological order with wall-clock time navigation. You can visually scan hours of audio for events of interest, select and loop time ranges, annotate them with notes, and export segments as new WAV files — including speed-shifted exports for ultrasonic content.
 
-You can visually scan hours of audio for events of interest (bird calls, animal vocalizations, weather, human activity), select time ranges, loop them for focused listening, annotate them with notes, and export annotated segments directly as new WAV files — all without leaving the application.
+## Features
 
-### Key capabilities
+### Spectrogram
+- On-demand FFT computed only for the visible time window, parallelized across CPU cores via Web Workers
+- Subsampled mode for zoomed-out views of 30+ minute recordings (scattered reads transfer ~20 MB instead of ~4 GB)
+- Tile cache for instant scrolling through previously viewed regions
+- FFT sizes from 128 to 32768 bins; six colormaps (Viridis, Magma, Inferno, Grayscale, Green, Hot)
+- Linear or logarithmic frequency scale with presets (Birds, Voice, Low, Mid, Full)
+- Adjustable spectrogram gain (0–80 dB) and dynamic range (30–140 dB)
+- Per-channel display or mono downmix; split-channel view for stereo files
 
-- **Multi-file session stitching** — Open a folder of WAV files recorded by the same device. Files are sorted by BWF timecode and presented as a single continuous timeline. Gaps between files are preserved accurately.
-- **High-resolution spectrogram** — Computes FFT on-demand for the visible time window only, using a pool of Web Workers for parallel computation across CPU cores. Cached tiles allow instant scrolling through previously viewed regions.
-- **Wall-clock time navigation** — If files contain BWF `bext` chunk metadata (origination date/time or timecode reference), the interface shows real wall-clock times. Type a time like `22:35` to jump directly to that moment in the recording.
-- **Flexible frequency display** — Adjustable frequency range with presets (Birds 100-10kHz, Voice 80-4kHz, Low 20-500Hz, Mid 200-8kHz, Full), logarithmic frequency scale option, and configurable FFT size from 512 to 32768 bins.
-- **Audio gain amplification** — Separate audio gain (amplifies playback through Web Audio API) and spectrogram gain (visual boost) controls. Hear faint sounds like distant wolf howls by boosting audio gain up to +60 dB without affecting the source file.
-- **Time range selection and looping** — Click and drag on the spectrogram to select a time range. The selection immediately begins looping for focused listening. Adjust the selection, annotate it, or export it as a WAV file.
-- **Annotation system** — Save notes about interesting segments with precise file references, wall-clock timestamps, and session positions. Annotations appear as color-coded overlays on the spectrogram with stacked labels for overlapping regions.
-- **Direct WAV export** — Export any selection or annotation as a standalone WAV file in the original format (no transcoding, no quality loss). Filenames use ISO 8601 date-time ranges for easy sorting: `2026-03-01T12:30:00--2026-03-01T12:45:00_wolf howling.wav`.
-- **Batch export** — Export all annotations at once to a chosen folder.
-- **Annotation persistence** — Save annotations to JSON and reload them later. A companion shell script using `ffmpeg` is also generated alongside the JSON for command-line batch processing.
+### Audio
+- Playback through Web Audio API with gain amplification up to +60 dB
+- VU meter with dBFS scale (-60 to 0), peak hold indicator, and numeric readout
+- "Play as" speed selector (0.125x–4x) with tape-speed pitch behavior for ultrasonic demodulation
+- Audio output device selection
+- High sample rate files (up to 384 kHz) decimated to 48 kHz for browser playback
+
+### Navigation
+- Pinch-to-zoom and horizontal two-finger scroll on trackpads
+- Keyboard zoom (+/-), pan (scroll left/right), and seek (arrow keys)
+- Right-click drag to pan the view
+- Wall-clock or position-based time jump input
+- Horizontal scrollbar for overview navigation
+- Timecode offset correction (-12h to +12h)
+
+### Selection and annotation
+- Click-drag to select a time range; selection immediately starts looping
+- Editable From/To time inputs with duration presets (5s to 5m)
+- Zoom to selection (`S` key)
+- Annotate selections with notes — displayed as color-coded overlays with stacked labels
+- Annotations sidebar with Go To, Export WAV, and Delete per annotation
+- Save annotations to JSON (+ companion `ffmpeg` shell script); load from JSON
+- Auto-loads `*.annotations.json` files found in the recording folder
+
+### Export
+- Export selection or annotation as WAV — bit-perfect PCM copy at original format and sample rate
+- Speed-shifted export: writes the same PCM data with a different sample rate in the WAV header, so any player reproduces it at the altered speed/pitch
+- Batch export all annotations to a folder
+- Exported files include BWF bext metadata (origination date/time, timecode reference)
+- ISO 8601 filenames: `2026-03-01T12:30:00--2026-03-01T12:45:00_wolf howling.wav`
+
+### Multi-file sessions
+- Open a folder of WAV files from the same recording device
+- Files sorted by BWF timecode and stitched into a single continuous timeline
+- Wall-clock time display and navigation; midnight crossing handled correctly
+- File boundaries marked on the spectrogram; click file info to see file list
+
+### Theming
+- Dark mode (default) and light mode, toggled via toolbar button
+- Theme preference saved to localStorage
+- LOM-inspired minimal aesthetic with CSS custom properties
 
 ## Supported formats
 
@@ -33,20 +71,18 @@ You can visually scan hours of audio for events of interest (bird calls, animal 
 |--------|-----------|-------------|-------|
 | PCM WAV | 16-bit, 24-bit, 32-bit | Any (tested up to 384 kHz) | Standard integer PCM |
 | IEEE Float WAV | 32-bit | Any | Floating-point samples |
-| WAVE_FORMAT_EXTENSIBLE | All above | Any | Handles container/valid bit mismatch (e.g., 24-bit in 32-bit container) |
+| WAVE_FORMAT_EXTENSIBLE | All above | Any | Handles container/valid bit mismatch |
 | BWF (Broadcast Wave) | All above | Any | Reads `bext` chunk for timecode and origination metadata |
 | iXML | — | — | Extracts timecode from embedded iXML metadata |
 
 Multi-channel files are downmixed to mono for spectrogram computation. Playback preserves all channels.
 
+## Requirements / prerequisites
+
+- [Node.js](https://nodejs.org/) 18 or later (includes npm)
+- No runtime dependencies — only `electron` and `electron-builder` as devDependencies
+
 ## Installation
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) 18 or later
-- npm (comes with Node.js)
-
-### Setup
 
 ```bash
 git clone https://github.com/mrkva/field-recording-explorer.git
@@ -58,53 +94,60 @@ npm start
 ### Building distributable packages
 
 ```bash
-# macOS
-npm run dist
-
-# Or platform-specific
-npx electron-builder --mac
-npx electron-builder --win
-npx electron-builder --linux
+npm run dist          # Build for current platform (cleans dist/ first)
+npm run pack          # Build unpacked (for testing)
+npm run clean         # Remove dist/ folder
 ```
 
-Produces `.dmg` (macOS), `.exe`/portable (Windows), or `.AppImage`/`.deb` (Linux) in the `dist/` folder.
+Platform-specific builds:
+
+```bash
+npx electron-builder --mac     # .dmg
+npx electron-builder --win     # .exe (NSIS) + portable
+npx electron-builder --linux   # .AppImage + .deb
+```
+
+Output goes to the `dist/` folder.
+
+## Configuration
+
+All settings are in the bottom bar of the UI and take effect immediately:
+
+| Section | Controls |
+|---------|----------|
+| **Audio** | Gain (0–60 dB), Volume (0–100%), VU meter, Output device |
+| **Spectrogram** | Gain (0–80 dB), Dynamic range (30–140 dB), FFT size (128–32768), Colormap, Channel |
+| **Frequency** | Min/Max Hz, Preset (Full/Birds/Voice/Low/Mid), Log scale toggle |
+
+Additional controls in the toolbar and info strip:
+- **Play as** — Playback speed / sample rate reinterpretation (0.125x–4x)
+- **TC offset** — Timecode offset correction (-12h to +12h)
+- **Theme toggle** — Dark/light mode (saved to localStorage)
 
 ## Usage
 
 ### Opening recordings
 
-- **Open Folder** — Select a folder containing WAV files from the same recording session. Files are sorted by BWF timecode and stitched into a continuous timeline.
-- **Open File(s)** — Select one or more individual WAV files. Multiple files are stitched the same way as a folder.
+- **Open Folder** — Select a folder of WAV files. Files are sorted by BWF timecode and stitched into a continuous timeline.
+- **Open File(s)** — Select one or more WAV files.
+- **Drag and drop** — Drop WAV files or a folder onto the window.
 
-### Navigating the spectrogram
+### Navigating
 
 | Action | How |
 |--------|-----|
-| **Zoom in/out** | Scroll wheel, `+`/`-` keys, or toolbar buttons |
-| **Pan** | Right-click and drag |
-| **Seek** | Click on the spectrogram |
-| **Jump to time** | Type a wall-clock time (e.g., `22:35`) in the time input and press Enter or click Go |
-| **Fit entire recording** | `F` key or Fit All button |
-| **Adjust spectrogram brightness** | Arrow keys `Up`/`Down` |
+| Zoom in/out | Pinch (trackpad), Ctrl+scroll, `+`/`-` keys, or toolbar buttons |
+| Pan in time | Two-finger horizontal scroll, or right-click drag |
+| Seek | Click on the spectrogram |
+| Jump to time | Type a time (e.g. `22:35`) in the time input and press Enter |
+| Fit entire recording | `F` key or Fit button |
 
-### Selecting and annotating
+### Selecting and exporting
 
-1. **Select a range** — Click and drag on the spectrogram. The selection starts looping immediately.
-2. **Listen** — The selected range plays in a loop. Adjust selection by making a new one.
-3. **Annotate** — Click the Annotate button in the toolbar. Enter a descriptive note (e.g., "wolf howling") and save. Click Annotate again to dismiss the dialog.
-4. **Export** — Click Export WAV to save the selected segment as a standalone file.
-
-Annotations appear as color-coded overlays on the spectrogram. Each annotation gets a distinct color, and overlapping annotations stack their labels vertically so everything remains readable.
-
-### Managing annotations
-
-- **Annotations panel** — Click the Annotations button to open the list of all annotations.
-- **Go to** — Jump the view to any annotation.
-- **Export WAV** — Export a single annotation as a WAV file.
-- **Export All** — Batch-export every annotation to a folder.
-- **Save** — Export annotations to a JSON file (plus a companion `ffmpeg` shell script).
-- **Load** — Import previously saved annotations from a JSON file.
-- **Delete** — Two-click confirmation to prevent accidental deletion.
+1. **Select** — Click and drag on the spectrogram. The selection loops automatically.
+2. **Annotate** — Click Annotate, type a note, and save.
+3. **Export WAV** — Exports the selection at the original sample rate and bit depth.
+4. **Export Slowed** — Appears when playback speed is not 1x. Exports the same PCM data with the modified sample rate baked into the WAV header.
 
 ### Keyboard shortcuts
 
@@ -116,129 +159,54 @@ Annotations appear as color-coded overlays on the spectrogram. Each annotation g
 | `Home` / `End` | Jump to start / end |
 | `+` / `-` | Zoom in / out |
 | `F` | Fit entire recording in view |
+| `S` | Zoom to selection |
 | `G` | Focus the time input field |
 | `Up` / `Down` | Adjust spectrogram gain ±5 dB |
-| `Scroll wheel` | Zoom at cursor position |
-| `Escape` | Clear selection |
+| `Esc` | Clear selection |
 
-### Spectrogram settings
+Trackpad and mouse:
 
-All settings are in the bottom bar:
+| Gesture | Action |
+|---------|--------|
+| Pinch / Ctrl+scroll | Zoom at cursor |
+| Scroll left/right | Pan in time |
+| Left-drag | Select time range |
+| Right-drag | Pan view |
+| Drag & drop | Open WAV files |
 
-- **Audio Gain** — Amplifies playback volume (0 to +60 dB). Does not affect the source file.
-- **Volume** — Standard volume control (0–100%).
-- **VU Meter** — Real-time peak level indicator.
-- **Spectrogram Gain** — Visual brightness boost (0 to +80 dB). Changes are instant, no recomputation.
-- **Dynamic Range** — Controls the contrast range (30–140 dB). Lower values increase contrast.
-- **FFT Size** — Frequency resolution (512–32768). Larger = finer frequency detail but coarser time detail. Auto-increased to 4096 for sample rates above 48 kHz.
-- **Min/Max Frequency** — Restrict the displayed frequency range.
-- **Frequency Presets** — Quick presets for common use cases (Birds, Voice, Low, Mid, Full).
-- **Log Frequency** — Toggle logarithmic frequency scale (useful for music and voice).
+### Managing annotations
 
-## Architecture
+- **Annotations panel** — Click the Annotations button to open the sidebar.
+- **Go to** — Jump the view to any annotation.
+- **Export WAV** — Export a single annotation.
+- **Export All** — Batch-export every annotation to a folder.
+- **Save** — Export annotations to JSON (+ companion `ffmpeg` shell script).
+- **Load** — Import previously saved annotations from JSON.
+- **Auto-load** — On session load, the app checks the recording folder for `<filename>.annotations.json` or `annotations.json` and loads them automatically.
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Electron Main Process                        │
-│                             (main.js)                               │
-│                                                                     │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
-│  │  WAV/BWF Parser   │  │ Local HTTP Server │  │   WAV Exporter   │  │
-│  │  (header reading)  │  │ (audio streaming) │  │ (segment export) │  │
-│  └──────────────────┘  └──────────────────┘  └──────────────────┘  │
-│           │                     │                      │            │
-│           └─────────────────────┼──────────────────────┘            │
-│                                 │  IPC                              │
-├─────────────────────────────────┼───────────────────────────────────┤
-│                        preload.js (bridge)                          │
-├─────────────────────────────────┼───────────────────────────────────┤
-│                        Renderer Process                             │
-│                                                                     │
-│  ┌──────────────┐  ┌───────────────────┐  ┌────────────────────┐   │
-│  │   Session     │  │    Spectrogram    │  │   Audio Engine     │   │
-│  │  (session.js) │  │ (spectrogram.js)  │  │ (audio-engine.js)  │   │
-│  │              │  │                   │  │                    │   │
-│  │ File sorting  │  │ On-demand FFT     │  │ <audio> element    │   │
-│  │ Timeline      │  │ Worker pool       │  │ Web Audio API      │   │
-│  │ Wall clock    │  │ Tile cache        │  │ GainNode           │   │
-│  │ mapping       │  │ Canvas 2D render  │  │ AnalyserNode       │   │
-│  └──────────────┘  └───────┬───────────┘  └────────────────────┘   │
-│                            │                                        │
-│                    ┌───────┴───────┐                                │
-│                    │  FFT Workers   │                                │
-│                    │ (fft-worker.js)│                                │
-│                    │  ×N cores      │                                │
-│                    └───────────────┘                                │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                    App Controller (app.js)                    │   │
-│  │  UI wiring, annotations, export, selection, keyboard, VU     │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                  BWF Parser (bwf-parser.js)                   │   │
-│  │  RIFF/WAVE chunk parsing, bext, iXML, timecode extraction     │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### How the spectrogram works
-
-1. **On-demand computation** — Only the visible time window is computed. Zooming out over hours of audio uses subsampled FFT (evenly spaced windows) for speed; zooming in computes continuous overlapping frames.
-
-2. **Web Worker pool** — FFT frames are distributed across `N` workers (one per CPU core, up to 8). Each worker receives batches of windowed audio frames and returns magnitude spectra in dB.
-
-3. **FFT implementation** — Cooley-Tukey radix-2 with Hann windowing. Bit-reversal permutation, butterfly stages, magnitudes computed as `20 * log10(|FFT|)`.
-
-4. **Tile cache** — Computed spectrogram tiles are cached by view range and FFT size. Scrolling back to a previously viewed region is instant.
-
-5. **Two-pass rendering** — The FFT data is rendered to an ImageData buffer (frequency-to-pixel mapping with linear interpolation between bins). Gain and dynamic range adjustments re-render from cached FFT data without recomputation.
-
-6. **Color presets** — Six colormaps: Viridis (perceptually uniform, default), Magma, Inferno, Grayscale, Green, and Hot. All use multi-stop interpolation for smooth gradients.
-
-### How audio playback works
-
-The main process runs a local HTTP server that presents all session files as a single virtual WAV file. The server:
-
-- Builds a standard 16-bit PCM WAV header with the correct total size
-- Converts source audio (16/24/32-bit int or 32-bit float) to 16-bit on the fly
-- Supports HTTP Range requests for seeking
-- Streams data in chunks to handle multi-gigabyte sessions
-
-The renderer connects an `<audio>` element to this server URL, then routes it through Web Audio API: `MediaElementSource → GainNode → AnalyserNode → destination`. The GainNode provides amplification; the AnalyserNode feeds the VU meter.
-
-For high sample rate files (e.g., 192 kHz ultrasonic recordings), server-side decimation reduces the sample rate to a browser-compatible rate (max 48 kHz). The "Play as" selector in the toolbar lets you choose the output rate — useful for demodulating ultrasonic bat calls by listening at a lower rate.
-
-**Playback quality note:** Audio is always converted to 16-bit PCM for browser playback. This is a limitation of the HTML5 `<audio>` element. The info strip shows the actual playback format (sample rate, bit depth). This application is designed for review, navigation, and annotation — not for critical or audiophile listening. Use a dedicated audio editor for high-fidelity playback.
-
-### How BWF timecode works
-
-Broadcast Wave Format files embed recording metadata in a `bext` chunk:
-
-- **Origination Date** — `YYYY-MM-DD` when the recording started
-- **Origination Time** — `HH:MM:SS` wall-clock time
-- **Timecode Reference** — Sample-accurate start time (sample count since midnight)
-
-When files from the same session are loaded, they are sorted by timecode and stitched into a continuous timeline. The interface translates between session position (seconds from start) and wall-clock time in both directions, handling midnight crossings correctly.
-
-## File structure
+## Project structure
 
 ```
 field-recording-explorer/
-├── main.js              # Electron main process: IPC, audio server, WAV parser, file I/O
-├── preload.js           # Context bridge: exposes IPC methods to renderer
-├── index.html           # Application layout: toolbar, info strip, canvas, bottom bar
-├── package.json         # Dependencies and build configuration
+├── main.js              Electron main process: IPC handlers, HTTP audio server, WAV export
+├── preload.js           Context bridge: exposes IPC methods to renderer
+├── index.html           Application layout: toolbar, info strip, canvas, bottom bar, modals
+├── package.json         App metadata, build config, scripts
 ├── src/
-│   ├── app.js           # Main app controller: UI wiring, annotations, export
-│   ├── session.js       # Multi-file session manager: timeline, wall-clock mapping
-│   ├── spectrogram.js   # Spectrogram renderer: FFT, workers, canvas, interaction
-│   ├── audio-engine.js  # Audio playback: Web Audio API, gain, looping, VU
-│   ├── bwf-parser.js    # BWF/WAV header parser: fmt, bext, iXML chunks
-│   └── fft-worker.js    # Web Worker: parallel FFT computation
-└── styles/
-    └── main.css         # Dark theme UI styles
+│   ├── app.js           App controller: UI wiring, annotations, keyboard, VU meter, themes
+│   ├── session.js       Multi-file session manager: timeline stitching, wall-clock mapping
+│   ├── spectrogram.js   Spectrogram renderer: on-demand FFT, worker pool, tile cache, canvas
+│   ├── audio-engine.js  Audio playback: Web Audio API, gain, looping, level metering
+│   ├── bwf-parser.js    WAV/BWF header parser: fmt, bext, iXML chunk extraction
+│   ├── fft-worker.js    Web Worker: parallel FFT computation (Cooley-Tukey radix-2)
+│   └── render-worker.js Web Worker: spectrogram pixel rendering with colormap LUTs
+├── styles/
+│   └── main.css         Dark/light theme via CSS custom properties
+└── docs/
+    └── ARCHITECTURE.md  Detailed architecture: module APIs, IPC channels, data flow diagrams
 ```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed module documentation, all IPC channels, and data flow diagrams.
 
 ## License
 
