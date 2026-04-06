@@ -3,9 +3,9 @@
  */
 
 import { VERSION } from './version.js';
-import { WavParser } from './wav-parser.js?v=0.2.1';
-import { SpectrogramRenderer } from './spectrogram.js?v=0.2.1';
-import { AudioEngine } from './audio-engine.js?v=0.2.1';
+import { WavParser } from './wav-parser.js?v=0.2.2';
+import { SpectrogramRenderer } from './spectrogram.js?v=0.2.2';
+import { AudioEngine } from './audio-engine.js?v=0.2.2';
 
 class App {
   constructor() {

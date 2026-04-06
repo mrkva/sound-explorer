@@ -42,12 +42,16 @@ body.dark {
   color: #fff;
 }
 
+html {
+  height: 100%;
+}
+
 body {
   font-family: Helvetica, Arial, sans-serif;
   font-size: 13px;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   color: var(--text-primary);
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
   user-select: none;
   -webkit-font-smoothing: antialiased;
@@ -117,7 +121,7 @@ body.dark .drop-logo {
 #main-ui {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
 }
 
 /* --- Toolbar --- */
@@ -127,6 +131,11 @@ body.dark .drop-logo {
   align-items: center;
   gap: 5px;
   padding: 4px 10px;
+  /* iOS 11.0-11.1 */
+  padding-top: calc(4px + constant(safe-area-inset-top, 0px));
+  padding-left: calc(10px + constant(safe-area-inset-left, 0px));
+  padding-right: calc(10px + constant(safe-area-inset-right, 0px));
+  /* iOS 11.2+ */
   padding-top: calc(4px + env(safe-area-inset-top, 0px));
   padding-left: calc(10px + env(safe-area-inset-left, 0px));
   padding-right: calc(10px + env(safe-area-inset-right, 0px));
@@ -207,6 +216,8 @@ body.dark .toolbar-logo {
   align-items: center;
   gap: 20px;
   padding: 5px 10px;
+  padding-left: calc(10px + constant(safe-area-inset-left, 0px));
+  padding-right: calc(10px + constant(safe-area-inset-right, 0px));
   padding-left: calc(10px + env(safe-area-inset-left, 0px));
   padding-right: calc(10px + env(safe-area-inset-right, 0px));
   background: var(--bg-secondary);
@@ -347,6 +358,8 @@ body.dark .toolbar-logo {
   align-items: center;
   gap: 8px;
   padding: 5px 10px;
+  padding-left: calc(10px + constant(safe-area-inset-left, 0px));
+  padding-right: calc(10px + constant(safe-area-inset-right, 0px));
   padding-left: calc(10px + env(safe-area-inset-left, 0px));
   padding-right: calc(10px + env(safe-area-inset-right, 0px));
   background: var(--bg-secondary);
@@ -510,6 +523,11 @@ body.dark .toolbar-logo {
 
 #status-bar {
   padding: 3px 10px;
+  /* iOS 11.0-11.1 */
+  padding-bottom: calc(3px + constant(safe-area-inset-bottom, 0px));
+  padding-left: calc(10px + constant(safe-area-inset-left, 0px));
+  padding-right: calc(10px + constant(safe-area-inset-right, 0px));
+  /* iOS 11.2+ */
   padding-bottom: calc(3px + env(safe-area-inset-bottom, 0px));
   padding-left: calc(10px + env(safe-area-inset-left, 0px));
   padding-right: calc(10px + env(safe-area-inset-right, 0px));
