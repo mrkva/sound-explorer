@@ -60,13 +60,42 @@ export class AudioEngine {
     if (this.audioCtx) return;
     this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     this.gainNode = this.audioCtx.createGain();
+
+    // Main analyser for backward compat
     this.analyser = this.audioCtx.createAnalyser();
     this.analyser.fftSize = 256;
     this._vuBuffer = new Float32Array(this.analyser.fftSize);
     this._vuResult = { peak: -100, rms: -100 };
 
+    // Per-channel analysers (set up when file is loaded and channel count is known)
+    this._channelAnalysers = [];
+    this._channelBuffers = [];
+    this._channelSplitter = null;
+
     this.gainNode.connect(this.analyser);
     this.analyser.connect(this.audioCtx.destination);
+  }
+
+  _setupChannelAnalysers(numChannels) {
+    // Clean up previous splitter
+    if (this._channelSplitter) {
+      this._channelSplitter.disconnect();
+    }
+    this._channelAnalysers = [];
+    this._channelBuffers = [];
+
+    if (numChannels <= 1) return;
+
+    this._channelSplitter = this.audioCtx.createChannelSplitter(numChannels);
+    this.gainNode.connect(this._channelSplitter);
+
+    for (let i = 0; i < numChannels; i++) {
+      const analyser = this.audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      this._channelSplitter.connect(analyser, i);
+      this._channelAnalysers.push(analyser);
+      this._channelBuffers.push(new Float32Array(analyser.fftSize));
+    }
   }
 
   _connectSource() {
@@ -85,6 +114,7 @@ export class AudioEngine {
 
     // Pre-warm the AudioContext so first play() doesn't need to initialize it.
     this._initAudioContext();
+    this._setupChannelAnalysers(wavInfo.channels);
     if (this.audioCtx.state === 'suspended') {
       await this.audioCtx.resume();
     }
@@ -398,6 +428,36 @@ export class AudioEngine {
     this._vuResult.peak = 20 * Math.log10(Math.max(peak, 1e-10));
     this._vuResult.rms = 20 * Math.log10(Math.max(rms, 1e-10));
     return this._vuResult;
+  }
+
+  /**
+   * Get per-channel VU meter values.
+   * @returns {Array<{peak: number, rms: number}>} array of {peak, rms} in dBFS per channel
+   */
+  getChannelVUMeters() {
+    if (this._channelAnalysers.length === 0) {
+      // Mono — return main analyser as single channel
+      return [this.getVUMeter()];
+    }
+    const results = [];
+    for (let ch = 0; ch < this._channelAnalysers.length; ch++) {
+      const analyser = this._channelAnalysers[ch];
+      const buf = this._channelBuffers[ch];
+      analyser.getFloatTimeDomainData(buf);
+      let peak = 0;
+      let sumSq = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const v = Math.abs(buf[i]);
+        if (v > peak) peak = v;
+        sumSq += buf[i] * buf[i];
+      }
+      const rms = Math.sqrt(sumSq / buf.length);
+      results.push({
+        peak: 20 * Math.log10(Math.max(peak, 1e-10)),
+        rms: 20 * Math.log10(Math.max(rms, 1e-10)),
+      });
+    }
+    return results;
   }
 
   /**
