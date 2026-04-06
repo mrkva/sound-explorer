@@ -577,59 +577,60 @@ class App {
 
   // --- Export ---
 
-  async _exportWav() {
-    if (this.spectrogram.selectionStart === null) {
-      this._setStatus('Select a region first');
-      return;
-    }
+  _getExportRange() {
+    const start = this.spectrogram.selectionStart !== null ? this.spectrogram.selectionStart : 0;
+    const end = this.spectrogram.selectionEnd !== null ? this.spectrogram.selectionEnd : this.spectrogram.totalSamples;
+    return { startSample: start, endSample: end, numSamples: end - start };
+  }
 
-    this._setStatus('Exporting WAV...');
+  _buildBextInfo(info, startSample, outputSampleRate) {
+    if (!info.bext) return null;
+    const startTotalSec = (info.bext.timeReference + startSample) / info.sampleRate;
+    return {
+      description: info.bext.description,
+      originator: info.bext.originator,
+      originatorReference: info.bext.originatorReference,
+      originationDate: info.bext.originationDate,
+      originationTime: this._formatHMS(startTotalSec),
+      timeReference: Math.round(startTotalSec * outputSampleRate),
+    };
+  }
 
-    const info = this.wavInfos[0];
-    const startSample = this.spectrogram.selectionStart;
-    const endSample = this.spectrogram.selectionEnd;
-    const numSamples = endSample - startSample;
+  _formatHMS(totalSec) {
+    const h = Math.floor(totalSec / 3600) % 24;
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = Math.floor(totalSec % 60);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
 
-    let bextInfo = null;
-    if (info.bext) {
-      const startTimeRef = info.bext.timeReference + startSample;
-      const startTotalSec = startTimeRef / info.sampleRate;
-      const h = Math.floor(startTotalSec / 3600);
-      const m = Math.floor((startTotalSec % 3600) / 60);
-      const s = Math.floor(startTotalSec % 60);
-
-      bextInfo = {
-        description: info.bext.description,
-        originator: info.bext.originator,
-        originatorReference: info.bext.originatorReference,
-        originationDate: info.bext.originationDate,
-        originationTime: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`,
-        timeReference: startTimeRef,
-      };
-    }
-
-    const blob = await WavParser.buildWavBlob(info, startSample, numSamples, bextInfo);
-
-    // Generate filename
-    let filename;
+  _buildExportFilename(info, startSample, endSample, suffix = '') {
     if (info.bext) {
       const startSec = (info.bext.timeReference + startSample) / info.sampleRate;
       const endSec = (info.bext.timeReference + endSample) / info.sampleRate;
       const startStr = this._formatWallClockISO(info.bext.originationDate, startSec);
       const endStr = this._formatWallClockISO(info.bext.originationDate, endSec);
-      filename = `${startStr}--${endStr}.wav`;
-    } else {
-      filename = `export_${this._formatTime(startSample / info.sampleRate).replace(/:/g, '-')}.wav`;
+      return `${startStr}--${endStr}${suffix}.wav`;
     }
+    return `export_${this._formatTime(startSample / info.sampleRate).replace(/:/g, '-')}${suffix}.wav`;
+  }
 
-    // Trigger download
+  _triggerDownload(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
 
+  async _exportWav() {
+    this._setStatus('Exporting WAV...');
+    const info = this.wavInfos[0];
+    const { startSample, endSample, numSamples } = this._getExportRange();
+    const bextInfo = this._buildBextInfo(info, startSample, info.sampleRate);
+    const blob = await WavParser.buildWavBlob(info, startSample, numSamples, bextInfo);
+    const filename = this._buildExportFilename(info, startSample, endSample);
+    this._triggerDownload(blob, filename);
     this._setStatus(`Exported: ${filename}`);
   }
 
@@ -644,71 +645,21 @@ class App {
   }
 
   async _exportWavAtSpeed() {
-    if (this.spectrogram.selectionStart === null) {
-      this._setStatus('Select a region first');
-      return;
-    }
-
     const rate = this.audio.playbackRate;
     if (rate === 1) return;
-
     const info = this.wavInfos[0];
-    const startSample = this.spectrogram.selectionStart;
-    const endSample = this.spectrogram.selectionEnd;
-    const numSamples = endSample - startSample;
-
     const targetSR = Math.round(info.sampleRate * rate);
     this._setStatus(`Exporting WAV at ${targetSR}Hz (${rate}x)...`);
-
-    let bextInfo = null;
-    if (info.bext) {
-      // Recompute timeReference for the target sample rate
-      const origTimeRef = info.bext.timeReference + startSample;
-      const startTotalSec = origTimeRef / info.sampleRate;
-      const h = Math.floor(startTotalSec / 3600);
-      const m = Math.floor((startTotalSec % 3600) / 60);
-      const s = Math.floor(startTotalSec % 60);
-
-      bextInfo = {
-        description: info.bext.description,
-        originator: info.bext.originator,
-        originatorReference: info.bext.originatorReference,
-        originationDate: info.bext.originationDate,
-        originationTime: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`,
-        timeReference: Math.round(startTotalSec * targetSR),
-      };
-    }
-
-    // Same raw PCM, different sample rate in header
+    const { startSample, endSample, numSamples } = this._getExportRange();
+    const bextInfo = this._buildBextInfo(info, startSample, targetSR);
     const blob = await WavParser.buildWavBlob(info, startSample, numSamples, bextInfo, targetSR);
-
-    // Generate filename with speed suffix
-    let filename;
-    if (info.bext) {
-      const startSec = (info.bext.timeReference + startSample) / info.sampleRate;
-      const endSec = (info.bext.timeReference + endSample) / info.sampleRate;
-      const startStr = this._formatWallClockISO(info.bext.originationDate, startSec);
-      const endStr = this._formatWallClockISO(info.bext.originationDate, endSec);
-      filename = `${startStr}--${endStr}_${rate}x.wav`;
-    } else {
-      filename = `export_${this._formatTime(startSample / info.sampleRate).replace(/:/g, '-')}_${rate}x.wav`;
-    }
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-
+    const filename = this._buildExportFilename(info, startSample, endSample, `_${rate}x`);
+    this._triggerDownload(blob, filename);
     this._setStatus(`Exported: ${filename}`);
   }
 
   _formatWallClockISO(date, totalSec) {
-    const h = Math.floor(totalSec / 3600) % 24;
-    const m = Math.floor((totalSec % 3600) / 60);
-    const s = Math.floor(totalSec % 60);
-    return `${date}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${date}T${this._formatHMS(totalSec)}`;
   }
 
   // --- Go To ---
@@ -822,12 +773,7 @@ class App {
   _exportAnnotations() {
     const json = JSON.stringify(this.annotations, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'annotations.json';
-    a.click();
-    URL.revokeObjectURL(url);
+    this._triggerDownload(blob, 'annotations.json');
   }
 
   async _importAnnotations(file) {

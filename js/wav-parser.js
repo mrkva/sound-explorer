@@ -247,8 +247,13 @@ export class WavParser {
     const bytesPerSample = bitsPerSample / 8;
     const dataSize = numSamples * blockAlign;
 
-    // Read raw PCM data
-    const pcmData = await WavParser.readSamples(wavInfo, startSample, numSamples);
+    // Read raw PCM data in chunks to avoid loading entire file into memory
+    const maxChunkSamples = Math.floor(8 * 1024 * 1024 / blockAlign);
+    const pcmParts = [];
+    for (let pos = startSample; pos < startSample + numSamples; pos += maxChunkSamples) {
+      const count = Math.min(maxChunkSamples, startSample + numSamples - pos);
+      pcmParts.push(await WavParser.readSamples(wavInfo, pos, count));
+    }
 
     // Calculate sizes
     const bextChunkSize = bextInfo ? 8 + 602 : 0;
@@ -317,7 +322,7 @@ export class WavParser {
     writeStr('data');
     hView.setUint32(off, dataSize, true); off += 4;
 
-    return new Blob([header, pcmData], { type: 'audio/wav' });
+    return new Blob([header, ...pcmParts], { type: 'audio/wav' });
   }
 
   /**
