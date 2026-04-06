@@ -447,3 +447,52 @@ The app registers as a handler for `.wav` files. Files opened via OS double-clic
 electron . /path/to/recording.wav
 electron . /path/to/file1.wav /path/to/file2.wav
 ```
+
+## Edge cases, limitations, and critical implementation notes
+
+### Edge cases explicitly handled
+
+| Case | How handled |
+|------|-------------|
+| **Files >4 GB** | RIFF/data chunk sizes capped to `0xFFFFFFFF` in output headers. Data chunk size corrected from actual file size if declared as `0`, `0xFFFFFFFF`, or exceeding file size. Browser audio duration passed explicitly (`knownDuration`) because the `<audio>` element can't parse sizes beyond uint32. |
+| **WAVE_FORMAT_EXTENSIBLE (0xFFFE)** | Real format (PCM/float) extracted from SubFormat GUID at fmt+24. **`bitsPerSample` is NOT overridden by `wValidBitsPerSample`** — container size must be preserved for correct `blockAlign`. Overriding causes byte misalignment and spectral artifacts (e.g. bright line at sampleRate/3). |
+| **Midnight-crossing recordings** | When sorting BWF files by timecode, if two times differ by >12 hours, the earlier one is treated as next-day. Same logic applied in `fromWallClock()` conversion. |
+| **Corrupt WAV headers** | RIFF size field ignored; parser scans entire 1 MB buffer. Chunk IDs validated as printable ASCII, sizes checked against `0xFFFFFFF0` sentinel. Parsing stops on first invalid chunk. |
+| **High sample rates (96–384 kHz)** | Decimated to ≤48 kHz for browser playback (`decimationFactor = round(sourceRate / 48000)`). FFT size auto-bumped to 4096 when source rate >48 kHz. |
+| **24-bit PCM** | Custom 3-byte decode: read b0/b1 as unsigned + b2 as signed, reconstruct 24-bit value, sign-extend, right-shift to 16-bit with clamping. |
+| **32-bit float PCM** | Read as `Float32LE`, multiply by 32767, round, clamp to `[-32768, 32767]`. |
+| **iXML chunk** | Capped at 8192 bytes to avoid parsing huge XML blobs. Used as timecode fallback only when bext is absent. |
+| **Memory limit for spectrogram** | Full-mode reads capped at 16M samples (~64 MB). Beyond that, subsampled mode kicks in using scattered reads (~20 MB transfer instead of ~4 GB). |
+| **Incompatible files in folder** | Files with mismatched sample rate, channels, or bit depth are silently skipped with a console warning. |
+
+### Critical implementation notes
+
+1. **`blockAlign = channels × (bitsPerSample / 8)`** — must use container `bitsPerSample`, never `validBitsPerSample`. Every byte offset in the app depends on this being correct.
+
+2. **Uint64 timecode reference** — JavaScript lacks native uint64. Read as two uint32 values: `timeHigh * 0x100000000 + timeLow`. Do not use bitwise ops (limited to 32-bit).
+
+3. **Audio output is always 16-bit PCM** regardless of source format. All conversion happens in the HTTP server's `convert16bit()`. The spectrogram reads raw source bytes directly (no conversion).
+
+4. **`preservesPitch = false`** on the `<audio>` element — this is intentional tape-speed behavior. Slower playback = lower pitch. Required for the speed-shifted export feature to make sense.
+
+5. **Spectrogram gain is applied at render time**, not during FFT. FFT magnitudes are stored in dB as computed. Gain and dynamic range are added during the pixel-mapping step, allowing instant re-render without recomputing FFT.
+
+6. **File descriptor cache** (10s TTL) — avoids repeated `open()`/`close()` on the same file during rapid sequential reads. All cached FDs must be closed on session change and app quit.
+
+7. **Tile cache key must include channel** — key format is `${startSample}-${endSample}-${fftSize}-${targetFrames}-ch${channel}`. Without the channel suffix, switching channels shows stale data.
+
+8. **Speed-shifted export writes identical PCM bytes** — only the WAV header's sample rate field changes. No resampling, no transcoding. This is the entire implementation.
+
+9. **`AudioContext` created with system default sample rate**, not the file's rate. Forcing the file's rate (e.g. 96 kHz) may fail on hardware that doesn't support it. The `<audio>` element + `MediaElementSource` handles resampling internally.
+
+10. **Drag-and-drop requires `webUtils.getPathForFile()`** in Electron 33+. The old `File.path` property was removed. Falls back to `file.path` for older Electron versions.
+
+### Known limitations
+
+- No dithering on 24/32-bit → 16-bit downconversion (simple truncation/rounding).
+- No anti-alias filter before decimation — simple sample-skipping only.
+- Loop region enforcement checked per-frame in rAF; seeking near loop end may briefly play outside bounds.
+- Single-threaded IPC for PCM reads — worker pool is for FFT only, not I/O.
+- No RF64/BW64 support — files >4 GB work via size correction heuristics, not via the ds64 chunk.
+- Annotation autoload only checks the recording folder, not subdirectories.
+- Theme preference is the only setting persisted across sessions (via `localStorage`).
