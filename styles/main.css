@@ -424,7 +424,7 @@ button.primary:hover { background: var(--btn-primary-hover); }
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  padding: 4px 12px;
+  padding: 6px 12px 10px;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
   font-size: 11px;
@@ -492,23 +492,71 @@ button.primary:hover { background: var(--btn-primary-hover); }
 
 /* VU meter */
 .vu-meter-container {
-  margin-left: 2px;
+  margin-left: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .vu-meter {
-  width: 60px;
-  height: 8px;
+  width: 180px;
+  height: 18px;
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 2px;
-  overflow: hidden;
+  position: relative;
+  overflow: visible;
 }
 
 .vu-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, var(--green), #ddaa00, var(--danger));
-  transition: width 0.05s linear;
+  background: linear-gradient(90deg,
+    var(--green) 0%,
+    var(--green) 55%,
+    #ddaa00 75%,
+    var(--danger) 100%
+  );
+  transition: width 0.04s linear;
+  border-radius: 1px 0 0 1px;
+}
+
+.vu-peak-hold {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: var(--text-primary);
+  opacity: 0.8;
+  left: 0%;
+  transition: left 0.04s linear;
+}
+
+.vu-scale {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 10px;
+  pointer-events: none;
+}
+
+.vu-scale span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 8px;
+  color: var(--text-secondary);
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.vu-dbfs-value {
+  font-size: 10px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  color: var(--text-secondary);
+  min-width: 38px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 /* ── Status bar ───────────────────────────────────────────────────── */

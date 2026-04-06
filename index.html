@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Field Recording Explorer v0.1.5</title>
+  <title>Field Recording Explorer v0.2.4</title>
   <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
@@ -77,6 +77,7 @@
       <span class="selection-info" id="selection-info"></span>
       <button id="btn-annotate-selection" class="annotations-btn">Annotate</button>
       <button id="btn-export-selection" title="Export selection as WAV">Export WAV</button>
+      <button id="btn-export-slowed" title="Export selection with current playback speed applied" style="display:none;">Export Slowed</button>
     </div>
 
     <div class="toolbar-group">
@@ -226,7 +227,18 @@
       <div class="control-item vu-meter-container">
         <div class="vu-meter">
           <div class="vu-fill" id="vu-fill"></div>
+          <div class="vu-peak-hold" id="vu-peak-hold"></div>
+          <div class="vu-scale">
+            <span style="left:0%">-60</span>
+            <span style="left:16.7%">-50</span>
+            <span style="left:33.3%">-40</span>
+            <span style="left:50%">-30</span>
+            <span style="left:66.7%">-20</span>
+            <span style="left:83.3%">-10</span>
+            <span style="left:100%">0</span>
+          </div>
         </div>
+        <span class="vu-dbfs-value" id="vu-dbfs-value">-∞</span>
       </div>
       <div class="control-item">
         <label for="audio-output">Output</label>

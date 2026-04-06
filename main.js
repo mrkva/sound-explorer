@@ -52,7 +52,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'Field Recording Explorer v0.2.2',
+    title: 'Field Recording Explorer v0.2.4',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -547,6 +547,106 @@ ipcMain.handle('export-wav-segment', async (event, segments, outputPath, bextMet
   }
 
   return { success: true, outputPath, totalDataBytes };
+});
+
+// Export WAV with modified sample rate (for speed-shifted export)
+// Same raw PCM data but header declares a different sample rate,
+// so playback in any DAW/player reproduces at that speed.
+ipcMain.handle('export-wav-resampled', async (event, segments, outputPath, targetSampleRate, bextMeta) => {
+  const ref = segments[0];
+
+  let totalDataBytes = 0;
+  for (const seg of segments) {
+    totalDataBytes += seg.endByte - seg.startByte;
+  }
+
+  const bitsPerSample = ref.bitsPerSample;
+  const channels = ref.channels;
+  const format = ref.format || 1;
+  const isFloat = (format === 3);
+  const bytesPerSample = bitsPerSample / 8;
+  const blockAlign = channels * bytesPerSample;
+  const byteRate = targetSampleRate * blockAlign;
+
+  // Build bext chunk
+  let bextChunk = null;
+  if (bextMeta) {
+    const BEXT_SIZE = 602;
+    bextChunk = Buffer.alloc(BEXT_SIZE + 8);
+    bextChunk.write('bext', 0);
+    bextChunk.writeUInt32LE(BEXT_SIZE, 4);
+    bextChunk.write((bextMeta.description || '').slice(0, 256).padEnd(256, '\0'), 8, 'ascii');
+    bextChunk.write((bextMeta.originator || '').slice(0, 32).padEnd(32, '\0'), 264, 'ascii');
+    bextChunk.write((bextMeta.originatorReference || '').slice(0, 32).padEnd(32, '\0'), 296, 'ascii');
+    bextChunk.write((bextMeta.originationDate || '').slice(0, 10).padEnd(10, '\0'), 328, 'ascii');
+    bextChunk.write((bextMeta.originationTime || '').slice(0, 8).padEnd(8, '\0'), 338, 'ascii');
+    const timeRef = Math.max(0, bextMeta.timeReference || 0);
+    const timeLow = timeRef % 0x100000000;
+    const timeHigh = Math.floor(timeRef / 0x100000000);
+    bextChunk.writeUInt32LE(timeLow >>> 0, 346);
+    bextChunk.writeUInt32LE(timeHigh >>> 0, 350);
+    bextChunk.writeUInt16LE(0, 354);
+  }
+
+  const bextSize = bextChunk ? bextChunk.length : 0;
+  const fmtSize = 16;
+  const headerSize = 12 + (8 + fmtSize) + bextSize + 8;
+
+  const header = Buffer.alloc(headerSize);
+  let pos = 0;
+
+  header.write('RIFF', pos); pos += 4;
+  header.writeUInt32LE(Math.min(headerSize - 8 + totalDataBytes, 0xFFFFFFFF), pos); pos += 4;
+  header.write('WAVE', pos); pos += 4;
+
+  header.write('fmt ', pos); pos += 4;
+  header.writeUInt32LE(fmtSize, pos); pos += 4;
+  header.writeUInt16LE(isFloat ? 3 : 1, pos); pos += 2;
+  header.writeUInt16LE(channels, pos); pos += 2;
+  header.writeUInt32LE(targetSampleRate, pos); pos += 4;  // <-- the modified rate
+  header.writeUInt32LE(byteRate, pos); pos += 4;
+  header.writeUInt16LE(blockAlign, pos); pos += 2;
+  header.writeUInt16LE(bitsPerSample, pos); pos += 2;
+
+  if (bextChunk) {
+    bextChunk.copy(header, pos);
+    pos += bextChunk.length;
+  }
+
+  header.write('data', pos); pos += 4;
+  header.writeUInt32LE(Math.min(totalDataBytes, 0xFFFFFFFF), pos); pos += 4;
+
+  const outFd = await fs.promises.open(outputPath, 'w');
+  try {
+    let writePos = 0;
+    await outFd.write(header, 0, header.length, writePos);
+    writePos += header.length;
+
+    const CHUNK_SIZE = 4 * 1024 * 1024;
+    for (const seg of segments) {
+      const srcFd = await fs.promises.open(seg.filePath, 'r');
+      try {
+        let remaining = seg.endByte - seg.startByte;
+        let srcPos = seg.dataOffset + seg.startByte;
+        while (remaining > 0) {
+          const toRead = Math.min(CHUNK_SIZE, remaining);
+          const buf = Buffer.alloc(toRead);
+          const { bytesRead } = await srcFd.read(buf, 0, toRead, srcPos);
+          if (bytesRead === 0) break;
+          await outFd.write(buf, 0, bytesRead, writePos);
+          writePos += bytesRead;
+          srcPos += bytesRead;
+          remaining -= bytesRead;
+        }
+      } finally {
+        await srcFd.close();
+      }
+    }
+  } finally {
+    await outFd.close();
+  }
+
+  return { success: true, outputPath, totalDataBytes, targetSampleRate };
 });
 
 // Scan folder for WAV files and return their headers

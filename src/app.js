@@ -422,6 +422,11 @@ class App {
       this._exportSelectionAsWav();
     });
 
+    this.btnExportSlowed = document.getElementById('btn-export-slowed');
+    this.btnExportSlowed.addEventListener('click', () => {
+      this._exportSelectionSlowed();
+    });
+
     document.getElementById('btn-close-sidebar').addEventListener('click', () => {
       this.annotationsSidebar.classList.remove('open');
       this._resizeCanvas();
@@ -875,14 +880,55 @@ class App {
 
 
   _startVUMeter() {
+    const peakHold = document.getElementById('vu-peak-hold');
+    const dbfsValue = document.getElementById('vu-dbfs-value');
+    let peakHoldLevel = 0;
+    let peakHoldTimer = 0;
+    const PEAK_HOLD_MS = 1500;
+    const PEAK_DECAY_RATE = 0.0005; // per ms
+    let lastTime = performance.now();
+
+    // Map dBFS to meter percentage (range: -60 to 0 dBFS)
+    const dbToPercent = (db) => Math.max(0, Math.min(100, (db + 60) / 60 * 100));
+
     const update = () => {
+      const now = performance.now();
+      const dt = now - lastTime;
+      lastTime = now;
+
       if (this.engine.isPlaying) {
         const { peak } = this.engine.getLevels();
-        // Convert to percentage, with some scaling for visibility
-        const pct = Math.min(100, peak * 100 * 1.5);
+        const dbfs = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
+        const pct = dbToPercent(dbfs);
         this.vuFill.style.width = pct + '%';
+
+        // Peak hold
+        if (pct >= peakHoldLevel) {
+          peakHoldLevel = pct;
+          peakHoldTimer = PEAK_HOLD_MS;
+        } else {
+          peakHoldTimer -= dt;
+          if (peakHoldTimer <= 0) {
+            peakHoldLevel = Math.max(pct, peakHoldLevel - PEAK_DECAY_RATE * dt * 100);
+          }
+        }
+        peakHold.style.left = peakHoldLevel + '%';
+        peakHold.style.display = peakHoldLevel > 0 ? '' : 'none';
+
+        // dBFS readout
+        if (dbfs > -60) {
+          dbfsValue.textContent = dbfs.toFixed(1) + ' dB';
+          dbfsValue.style.color = dbfs > -3 ? 'var(--danger)' : dbfs > -10 ? 'var(--orange)' : '';
+        } else {
+          dbfsValue.textContent = '-\u221E';
+          dbfsValue.style.color = '';
+        }
       } else {
         this.vuFill.style.width = '0%';
+        peakHold.style.display = 'none';
+        peakHoldLevel = 0;
+        dbfsValue.textContent = '-\u221E';
+        dbfsValue.style.color = '';
       }
       requestAnimationFrame(update);
     };
@@ -962,6 +1008,7 @@ class App {
     const dur = end - start;
     this.selectionInfo.textContent = this._formatTimePrecise(dur);
     this.selectionActions.style.display = 'flex';
+    this._updateExportSlowedButton();
 
     // Populate precise time inputs
     this.selectionStartInput.value = this._formatTimePrecise(start);
@@ -1339,6 +1386,65 @@ class App {
     await this._exportAnnotationAsWav(ann);
   }
 
+  async _exportSelectionSlowed() {
+    if (!this._pendingSelection || !this.session) return;
+    const speed = parseFloat(this.outputSampleRateSelect.value) || 1;
+    if (speed === 1) return;
+
+    const { start, end } = this._pendingSelection;
+    const note = this.annotationNoteInput.value.trim() || 'selection';
+    const targetSampleRate = Math.round(this.session.sampleRate * speed);
+    const speedLabel = speed < 1 ? `${speed}x-slow` : `${speed}x-fast`;
+
+    const segments = this._getSelectionSegments(start, end);
+
+    let defaultName = `${note}_${speedLabel}_${targetSampleRate}Hz.wav`;
+    if (this.session.sessionStartTime !== null) {
+      const wallStart = this.session.toWallClock(start);
+      const date = this.session.sessionDate || '2000-01-01';
+      if (wallStart !== null) {
+        const iso = this._wallClockToISO(date, wallStart);
+        defaultName = `${iso}_${note}_${speedLabel}.wav`;
+      }
+    }
+    defaultName = defaultName.replace(/[<>:"/\\|?*]/g, '_');
+
+    // Default to WAV folder
+    const folderPath = this.session.files[0].filePath.replace(/[/\\][^/\\]+$/, '');
+    const outputPath = await window.electronAPI.saveFileDialog({
+      title: `Export at ${speedLabel} (${targetSampleRate} Hz)`,
+      defaultPath: folderPath + '/' + defaultName,
+      filters: [
+        { name: 'WAV Audio', extensions: ['wav'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    if (!outputPath) return;
+
+    try {
+      this._setStatus(`Exporting at ${speedLabel}...`);
+      const exportSegments = segments.map(seg => ({
+        filePath: seg.filePath,
+        dataOffset: this.session.files.find(f => f.filePath === seg.filePath)?.dataOffset || 0,
+        startByte: Math.floor(seg.startInFile * this.session.sampleRate) * this.session.blockAlign,
+        endByte: Math.ceil(seg.endInFile * this.session.sampleRate) * this.session.blockAlign,
+        bitsPerSample: this.session.bitsPerSample,
+        channels: this.session.channels,
+        sampleRate: this.session.sampleRate,
+        format: this.session.format
+      }));
+
+      const result = await window.electronAPI.exportWavResampled(
+        exportSegments, outputPath, targetSampleRate, null
+      );
+      const sizeMB = (result.totalDataBytes / (1024 * 1024)).toFixed(1);
+      this._setStatus(`Exported ${speedLabel} (${sizeMB} MB, ${targetSampleRate} Hz) to ${outputPath.split(/[/\\]/).pop()}`);
+    } catch (err) {
+      this._setStatus(`Export error: ${err.message}`);
+      console.error('Export slowed error:', err);
+    }
+  }
+
   _buildBextMetadata(ann) {
     const session = this.session;
     if (!session || session.sessionStartTime === null) return null;
@@ -1561,6 +1667,20 @@ class App {
       this._setStatus(`Playing as ${label} (${speed}x speed)`);
     }
     this._updatePlaybackFormat();
+    this._updateExportSlowedButton();
+  }
+
+  _updateExportSlowedButton() {
+    const speed = parseFloat(this.outputSampleRateSelect.value) || 1;
+    const btn = this.btnExportSlowed;
+    if (speed !== 1 && this._pendingSelection) {
+      btn.style.display = '';
+      const label = speed < 1 ? `${speed}x` : `${speed}x`;
+      btn.textContent = `Export ${label}`;
+      btn.title = `Export selection with playback speed ${label} baked in (sample rate ${Math.round(this.session.sampleRate * speed)} Hz)`;
+    } else {
+      btn.style.display = 'none';
+    }
   }
 
   // ── Annotations sidebar ──────────────────────────────────────────
