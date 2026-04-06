@@ -241,8 +241,9 @@ export class WavParser {
   /**
    * Build a WAV file Blob for export.
    */
-  static async buildWavBlob(wavInfo, startSample, numSamples, bextInfo = null) {
-    const { channels, bitsPerSample, sampleRate, format, blockAlign } = wavInfo;
+  static async buildWavBlob(wavInfo, startSample, numSamples, bextInfo = null, overrideSampleRate = null) {
+    const { channels, bitsPerSample, format, blockAlign } = wavInfo;
+    const sampleRate = overrideSampleRate || wavInfo.sampleRate;
     const bytesPerSample = bitsPerSample / 8;
     const dataSize = numSamples * blockAlign;
 

@@ -216,11 +216,68 @@ body.dark .toolbar-logo {
 
 /* --- Canvas --- */
 
+#spec-area {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
 #canvas-container {
   flex: 1;
   position: relative;
   overflow: hidden;
   background: var(--bg-primary);
+}
+
+.annotations-panel {
+  width: 280px;
+  min-width: 280px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.annotations-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.annotations-panel-header h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.annotations-panel .annotations-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.annotations-panel .annotation-add {
+  display: flex;
+  gap: 4px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.annotations-panel .annotation-add .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.annotations-panel .annotation-actions {
+  display: flex;
+  gap: 4px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
 }
 
 #spectrogram-canvas {

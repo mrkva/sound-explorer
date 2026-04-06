@@ -76,6 +76,7 @@
         <span id="label-sel-duration" class="info-text"></span>
         <button id="btn-loop" class="btn toolbar-btn">Loop</button>
         <button id="btn-export" class="btn btn-accent toolbar-btn">Export WAV</button>
+        <button id="btn-export-speed" class="btn btn-accent toolbar-btn" style="display:none">Export 0.25x</button>
       </div>
 
       <span class="toolbar-spacer"></span>
@@ -94,11 +95,29 @@
       <span id="info-file" class="info-cell"></span>
     </div>
 
-    <!-- Canvas container -->
-    <div id="canvas-container">
-      <canvas id="spectrogram-canvas"></canvas>
-      <div id="cursor-line" class="cursor-line"></div>
-      <div id="computing-indicator" class="computing-indicator" style="display:none">Computing...</div>
+    <!-- Spectrogram + annotations area -->
+    <div id="spec-area">
+      <div id="canvas-container">
+        <canvas id="spectrogram-canvas"></canvas>
+        <div id="cursor-line" class="cursor-line"></div>
+        <div id="computing-indicator" class="computing-indicator" style="display:none">Computing...</div>
+      </div>
+      <div id="annotations-panel" class="annotations-panel" style="display:none">
+        <div class="annotations-panel-header">
+          <h3>Annotations</h3>
+          <button id="btn-close-annotations" class="btn btn-small">&times;</button>
+        </div>
+        <div id="annotations-list" class="annotations-list"></div>
+        <div class="annotation-add">
+          <input id="input-annotation-note" type="text" class="input" placeholder="Annotation note...">
+          <button id="btn-add-annotation" class="btn btn-small">Add</button>
+        </div>
+        <div class="annotation-actions">
+          <button id="btn-export-annotations" class="btn btn-small">Export JSON</button>
+          <button id="btn-import-annotations" class="btn btn-small">Import JSON</button>
+          <input type="file" id="annotations-import-input" accept=".json" style="display:none">
+        </div>
+      </div>
     </div>
 
     <!-- Bottom bar -->
@@ -215,21 +234,6 @@
     <button id="btn-close-shortcuts" class="btn">Close</button>
   </dialog>
 
-  <!-- Annotations dialog -->
-  <dialog id="annotations-dialog">
-    <h3>Annotations</h3>
-    <div id="annotations-list" class="annotations-list"></div>
-    <div class="annotation-add">
-      <input id="input-annotation-note" type="text" class="input" placeholder="Annotation note...">
-      <button id="btn-add-annotation" class="btn btn-small">Add</button>
-    </div>
-    <div class="annotation-actions">
-      <button id="btn-export-annotations" class="btn btn-small">Export JSON</button>
-      <button id="btn-import-annotations" class="btn btn-small">Import JSON</button>
-      <input type="file" id="annotations-import-input" accept=".json" style="display:none">
-    </div>
-    <button id="btn-close-annotations" class="btn">Close</button>
-  </dialog>
 
   <script type="module" src="js/app.js?v=3"></script>
 </body>

@@ -64,11 +64,13 @@ class App {
     // Speed selector
     document.getElementById('select-speed').addEventListener('change', async (e) => {
       const sel = e.target;
+      const rate = parseFloat(sel.value);
       sel.disabled = true;
       this._setStatus('Rebuilding audio for new speed...');
-      await this.audio.setPlaybackRate(parseFloat(sel.value));
+      await this.audio.setPlaybackRate(rate);
       sel.disabled = false;
       this._setStatus('Ready');
+      this._updateExportSpeedButton(rate);
     });
 
     // Selection controls
@@ -76,10 +78,11 @@ class App {
     document.getElementById('input-sel-to').addEventListener('change', (e) => this._onSelectionInput());
     document.getElementById('select-duration-preset').addEventListener('change', (e) => this._onDurationPreset(e.target.value));
     document.getElementById('btn-export').addEventListener('click', () => this._exportWav());
+    document.getElementById('btn-export-speed').addEventListener('click', () => this._exportWavAtSpeed());
     document.getElementById('btn-loop').addEventListener('click', () => this._toggleLoop());
 
-    // Annotations
-    document.getElementById('btn-annotations').addEventListener('click', () => this._showAnnotationsDialog());
+    // Annotations panel toggle
+    document.getElementById('btn-annotations').addEventListener('click', () => this._toggleAnnotationsPanel());
 
     // Dark mode toggle
     const savedTheme = localStorage.getItem('theme');
@@ -205,9 +208,9 @@ class App {
         `${this._formatFreq(freq)} @ ${this._formatTime(timeSec)}`;
     };
 
-    // Annotations dialog
+    // Annotations panel
     document.getElementById('btn-close-annotations').addEventListener('click', () => {
-      document.getElementById('annotations-dialog').close();
+      this._toggleAnnotationsPanel(false);
     });
     document.getElementById('btn-add-annotation').addEventListener('click', () => this._addAnnotation());
     document.getElementById('btn-export-annotations').addEventListener('click', () => this._exportAnnotations());
@@ -630,6 +633,77 @@ class App {
     this._setStatus(`Exported: ${filename}`);
   }
 
+  _updateExportSpeedButton(rate) {
+    const btn = document.getElementById('btn-export-speed');
+    if (rate === 1) {
+      btn.style.display = 'none';
+    } else {
+      btn.style.display = '';
+      btn.textContent = `Export ${rate}x`;
+    }
+  }
+
+  async _exportWavAtSpeed() {
+    if (this.spectrogram.selectionStart === null) {
+      this._setStatus('Select a region first');
+      return;
+    }
+
+    const rate = this.audio.playbackRate;
+    if (rate === 1) return;
+
+    const info = this.wavInfos[0];
+    const startSample = this.spectrogram.selectionStart;
+    const endSample = this.spectrogram.selectionEnd;
+    const numSamples = endSample - startSample;
+
+    const targetSR = Math.round(info.sampleRate * rate);
+    this._setStatus(`Exporting WAV at ${targetSR}Hz (${rate}x)...`);
+
+    let bextInfo = null;
+    if (info.bext) {
+      // Recompute timeReference for the target sample rate
+      const origTimeRef = info.bext.timeReference + startSample;
+      const startTotalSec = origTimeRef / info.sampleRate;
+      const h = Math.floor(startTotalSec / 3600);
+      const m = Math.floor((startTotalSec % 3600) / 60);
+      const s = Math.floor(startTotalSec % 60);
+
+      bextInfo = {
+        description: info.bext.description,
+        originator: info.bext.originator,
+        originatorReference: info.bext.originatorReference,
+        originationDate: info.bext.originationDate,
+        originationTime: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`,
+        timeReference: Math.round(startTotalSec * targetSR),
+      };
+    }
+
+    // Same raw PCM, different sample rate in header
+    const blob = await WavParser.buildWavBlob(info, startSample, numSamples, bextInfo, targetSR);
+
+    // Generate filename with speed suffix
+    let filename;
+    if (info.bext) {
+      const startSec = (info.bext.timeReference + startSample) / info.sampleRate;
+      const endSec = (info.bext.timeReference + endSample) / info.sampleRate;
+      const startStr = this._formatWallClockISO(info.bext.originationDate, startSec);
+      const endStr = this._formatWallClockISO(info.bext.originationDate, endSec);
+      filename = `${startStr}--${endStr}_${rate}x.wav`;
+    } else {
+      filename = `export_${this._formatTime(startSample / info.sampleRate).replace(/:/g, '-')}_${rate}x.wav`;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    this._setStatus(`Exported: ${filename}`);
+  }
+
   _formatWallClockISO(date, totalSec) {
     const h = Math.floor(totalSec / 3600) % 24;
     const m = Math.floor((totalSec % 3600) / 60);
@@ -671,9 +745,19 @@ class App {
 
   // --- Annotations ---
 
-  _showAnnotationsDialog() {
-    this._renderAnnotationsList();
-    document.getElementById('annotations-dialog').showModal();
+  _toggleAnnotationsPanel(forceShow) {
+    const panel = document.getElementById('annotations-panel');
+    const btn = document.getElementById('btn-annotations');
+    const show = forceShow !== undefined ? forceShow : panel.style.display === 'none';
+    panel.style.display = show ? 'flex' : 'none';
+    btn.classList.toggle('active', show);
+    if (show) this._renderAnnotationsList();
+    // Canvas resized — trigger spectrogram redraw
+    setTimeout(() => {
+      this.spectrogram._updateCanvasSize();
+      this.spectrogram._tileCache.clear();
+      this.spectrogram.render();
+    }, 50);
   }
 
   _addAnnotation() {
