@@ -4,41 +4,41 @@
   box-sizing: border-box;
 }
 
-/* ── Theme: Dark (default) — LOM-inspired minimal ─────────────────── */
+/* ── Theme: Dark (default) — LOM color scheme, dark background ────── */
 :root {
-  --bg-primary: #1a1a1a;
-  --bg-secondary: #222222;
-  --bg-tertiary: #2e2e2e;
-  --text-primary: #e8e8e8;
-  --text-secondary: #888888;
-  --accent: #ffffff;
-  --accent-hover: #cccccc;
-  --danger: #dd4444;
-  --border: #3a3a3a;
-  --green: #5cb87a;
-  --orange: #d4863a;
-  --highlight: #5a9fd4;
+  --bg-primary: #111111;
+  --bg-secondary: #191919;
+  --bg-tertiary: #252525;
+  --text-primary: #e0e0e0;
+  --text-secondary: #808080;
+  --accent: #e0e0e0;
+  --accent-hover: #ffffff;
+  --danger: #cc4444;
+  --border: #333333;
+  --green: #7aba8a;
+  --orange: #d4944a;
+  --highlight: #8ab4d6;
 
   /* Canvas-specific (drawn on dark spectrogram bg) */
-  --canvas-bg: #1a1a1a;
-  --canvas-axis-text: #aaaaaa;
-  --canvas-axis-grid: rgba(170, 170, 170, 0.2);
-  --canvas-tick: #555555;
-  --canvas-selection: rgba(90, 159, 212, 0.2);
-  --canvas-selection-stroke: rgba(90, 159, 212, 0.7);
-  --canvas-wall-time: #5cb87a;
+  --canvas-bg: #111111;
+  --canvas-axis-text: #999999;
+  --canvas-axis-grid: rgba(150, 150, 150, 0.15);
+  --canvas-tick: #444444;
+  --canvas-selection: rgba(138, 180, 214, 0.2);
+  --canvas-selection-stroke: rgba(138, 180, 214, 0.6);
+  --canvas-wall-time: #7aba8a;
   --canvas-dim-text: #666666;
-  --canvas-label-bg: rgba(0,0,0,0.5);
+  --canvas-label-bg: rgba(0,0,0,0.6);
   --canvas-label-text: #ccc;
-  --canvas-file-boundary: rgba(255, 200, 80, 0.3);
-  --canvas-file-label: rgba(255, 200, 80, 0.5);
-  --canvas-divider: #666;
+  --canvas-file-boundary: rgba(220, 200, 140, 0.25);
+  --canvas-file-label: rgba(220, 200, 140, 0.45);
+  --canvas-divider: #555;
 
   /* Button-specific */
-  --btn-hover: #383838;
-  --btn-active: #444444;
-  --btn-primary-bg: #e8e8e8;
-  --btn-primary-text: #1a1a1a;
+  --btn-hover: #2a2a2a;
+  --btn-active: #353535;
+  --btn-primary-bg: #e0e0e0;
+  --btn-primary-text: #111111;
   --btn-primary-hover: #ffffff;
 }
 
