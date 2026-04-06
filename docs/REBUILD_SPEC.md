@@ -490,7 +490,7 @@ electron . /path/to/file1.wav /path/to/file2.wav
 ### Known limitations
 
 - No dithering on 24/32-bit → 16-bit downconversion (simple truncation/rounding).
-- No anti-alias filter before decimation — simple sample-skipping only.
+- Anti-alias filter is a simple moving-average (boxcar) — adequate but not as sharp as a windowed-sinc FIR.
 - Loop region enforcement checked per-frame in rAF; seeking near loop end may briefly play outside bounds.
 - Single-threaded IPC for PCM reads — worker pool is for FFT only, not I/O.
 - No RF64/BW64 support — files >4 GB work via size correction heuristics, not via the ds64 chunk.

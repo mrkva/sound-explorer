@@ -255,48 +255,69 @@ async function serveBytes(res, wavHeader, start, end) {
 }
 
 /**
+ * Read one source sample as a normalized float (-1.0 to +1.0).
+ */
+function readSampleFloat(srcBuf, offset, srcBits, isFloat) {
+  if (srcBits === 16) {
+    return srcBuf.readInt16LE(offset) / 32768;
+  } else if (srcBits === 24) {
+    const b0 = srcBuf[offset];
+    const b1 = srcBuf[offset + 1];
+    const b2 = srcBuf[offset + 2];
+    let val24 = (b2 << 16) | (b1 << 8) | b0;
+    if (val24 >= 0x800000) val24 -= 0x1000000;
+    return val24 / 8388608;
+  } else if (srcBits === 32 && isFloat) {
+    return srcBuf.readFloatLE(offset);
+  } else if (srcBits === 32) {
+    return srcBuf.readInt32LE(offset) / 2147483648;
+  }
+  return 0;
+}
+
+/**
  * Convert source PCM buffer to 16-bit PCM with optional decimation.
  * Handles 16-bit, 24-bit, 32-bit integer, and 32-bit float sources.
- * When decFactor > 1, takes every decFactor-th sample (simple decimation).
+ * When decFactor > 1, applies a moving-average (boxcar) anti-alias filter
+ * over D consecutive samples before decimating, preventing ultrasonic
+ * frequencies from folding into the audible range.
  */
 function convert16bit(srcBuf, numSamples, channels, srcBits, srcFormat, decFactor = 1) {
   const outSamples = Math.floor(numSamples / decFactor);
   const outBuf = Buffer.alloc(outSamples * channels * 2);
   const srcBytesPerSample = srcBits / 8;
+  const srcBlockAlign = channels * srcBytesPerSample;
   const isFloat = (srcFormat === 3);
 
-  for (let o = 0; o < outSamples; o++) {
-    const i = o * decFactor; // source sample index
-    for (let ch = 0; ch < channels; ch++) {
-      const srcOff = (i * channels + ch) * srcBytesPerSample;
-      const outOff = (o * channels + ch) * 2;
-
-      if (srcOff + srcBytesPerSample > srcBuf.length) break;
-
-      let sample16;
-      if (srcBits === 16) {
-        sample16 = srcBuf.readInt16LE(srcOff);
-      } else if (srcBits === 24) {
-        // 24-bit signed: reconstruct from 3 bytes, sign-extend MSB
-        const b0 = srcBuf[srcOff];
-        const b1 = srcBuf[srcOff + 1];
-        const b2 = srcBuf[srcOff + 2]; // unsigned 0-255
-        // Build 24-bit signed value, then take top 16 bits
-        let val24 = (b2 << 16) | (b1 << 8) | b0;
-        if (val24 >= 0x800000) val24 -= 0x1000000; // sign extend
-        sample16 = Math.max(-32768, Math.min(32767, val24 >> 8));
-      } else if (srcBits === 32 && isFloat) {
-        // 32-bit IEEE float (-1.0 to +1.0)
-        const f = srcBuf.readFloatLE(srcOff);
-        sample16 = Math.max(-32768, Math.min(32767, Math.round(f * 32767)));
-      } else if (srcBits === 32) {
-        // 32-bit integer: take top 16 bits
-        sample16 = srcBuf.readInt32LE(srcOff) >> 16;
-      } else {
-        sample16 = 0;
+  if (decFactor <= 1) {
+    // No decimation — direct conversion, no filter needed
+    for (let o = 0; o < outSamples; o++) {
+      for (let ch = 0; ch < channels; ch++) {
+        const srcOff = (o * channels + ch) * srcBytesPerSample;
+        if (srcOff + srcBytesPerSample > srcBuf.length) break;
+        const sample16 = Math.max(-32768, Math.min(32767,
+          Math.round(readSampleFloat(srcBuf, srcOff, srcBits, isFloat) * 32767)));
+        outBuf.writeInt16LE(sample16, (o * channels + ch) * 2);
       }
-
-      outBuf.writeInt16LE(sample16, outOff);
+    }
+  } else {
+    // Decimation with anti-alias filter: average D consecutive samples per channel
+    const D = decFactor;
+    const invD = 1 / D;
+    for (let o = 0; o < outSamples; o++) {
+      const baseIdx = o * D;
+      for (let ch = 0; ch < channels; ch++) {
+        let sum = 0;
+        const lastSample = Math.min(baseIdx + D, numSamples);
+        for (let k = baseIdx; k < lastSample; k++) {
+          const srcOff = (k * channels + ch) * srcBytesPerSample;
+          if (srcOff + srcBytesPerSample > srcBuf.length) break;
+          sum += readSampleFloat(srcBuf, srcOff, srcBits, isFloat);
+        }
+        const avg = sum * invD;
+        const sample16 = Math.max(-32768, Math.min(32767, Math.round(avg * 32767)));
+        outBuf.writeInt16LE(sample16, (o * channels + ch) * 2);
+      }
     }
   }
 
