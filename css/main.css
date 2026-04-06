@@ -127,6 +127,9 @@ body.dark .drop-logo {
   align-items: center;
   gap: 5px;
   padding: 4px 10px;
+  padding-top: calc(4px + env(safe-area-inset-top, 0px));
+  padding-left: calc(10px + env(safe-area-inset-left, 0px));
+  padding-right: calc(10px + env(safe-area-inset-right, 0px));
   background: var(--bg-secondary);
   border-bottom: 2px solid var(--border);
   flex-wrap: wrap;
@@ -204,6 +207,8 @@ body.dark .toolbar-logo {
   align-items: center;
   gap: 20px;
   padding: 5px 10px;
+  padding-left: calc(10px + env(safe-area-inset-left, 0px));
+  padding-right: calc(10px + env(safe-area-inset-right, 0px));
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
@@ -342,6 +347,8 @@ body.dark .toolbar-logo {
   align-items: center;
   gap: 8px;
   padding: 5px 10px;
+  padding-left: calc(10px + env(safe-area-inset-left, 0px));
+  padding-right: calc(10px + env(safe-area-inset-right, 0px));
   background: var(--bg-secondary);
   border-top: 2px solid var(--border);
   flex-wrap: wrap;
@@ -503,6 +510,9 @@ body.dark .toolbar-logo {
 
 #status-bar {
   padding: 3px 10px;
+  padding-bottom: calc(3px + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(10px + env(safe-area-inset-left, 0px));
+  padding-right: calc(10px + env(safe-area-inset-right, 0px));
   background: var(--bg-tertiary);
   border-top: 1px solid var(--border);
   font-size: 11px;
