@@ -157,17 +157,24 @@ body.dark .toolbar-logo {
 }
 
 .toolbar-btn {
-  height: 26px;
+  height: 28px;
   padding: 0 10px;
   font-size: 12px;
-  line-height: 24px;
+  line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
 }
 
 .btn-play-pause {
   min-width: 72px;
+}
+
+/* Selects in toolbar should match button height */
+#toolbar .select {
+  height: 28px;
+  box-sizing: border-box;
 }
 
 .toolbar-sep {
@@ -582,9 +589,9 @@ body.dark .toolbar-logo {
   font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
 }
 
-#toolbar .input,
-#toolbar .select {
-  height: 26px;
+#toolbar .input {
+  height: 28px;
+  box-sizing: border-box;
 }
 
 .input:focus {
@@ -812,11 +819,12 @@ dialog h4 {
   }
 
   .toolbar-btn {
-    height: 34px;
+    height: 36px;
     padding: 0 8px;
     font-size: 12px;
-    line-height: 32px;
-    min-width: 34px;
+    line-height: 1;
+    min-width: 36px;
+    box-sizing: border-box;
   }
 
   .btn-play-pause {
@@ -847,15 +855,12 @@ dialog h4 {
   #select-speed {
     max-width: 140px;
     font-size: 11px;
-    height: 34px;
+    height: 36px;
+    box-sizing: border-box;
   }
 
-  /* Export buttons compact */
-  #btn-export,
-  #btn-export-speed {
-    height: 34px;
-    font-size: 11px;
-    padding: 0 6px;
+  #toolbar .input {
+    height: 36px;
   }
 
   /* --- Info strip: minimal --- */
