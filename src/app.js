@@ -6,6 +6,7 @@ import { BWFParser } from './bwf-parser.js';
 import { SpectrogramRenderer } from './spectrogram.js';
 import { AudioEngine } from './audio-engine.js';
 import { Session } from './session.js';
+import { parseFRM, serializeFRM, autoPopulateFromSession, annotationsToFRM, annotationsFromFRM } from './frm.js';
 
 class App {
   constructor() {
@@ -74,6 +75,11 @@ class App {
     this._currentOutputSampleRate = 48000;
     this._currentDecimationFactor = 1;
 
+    // FRM session metadata
+    this._sessionFolderPath = null;
+    this._frmData = null;   // Parsed .frm.txt content
+    this._frmLoaded = false; // Whether loaded from existing file
+
     this._setupCanvas();
     this._setupSpectrogram();
     this._setupEventListeners();
@@ -81,6 +87,7 @@ class App {
     this._setupDragAndDrop();
     this._startVUMeter();
     this._populateAudioOutputDevices();
+    this._setupFRM();
   }
 
   _setupCanvas() {
@@ -689,6 +696,14 @@ class App {
   async _initSession() {
     const session = this.session;
 
+    // Track session folder path for FRM file operations
+    if (session.files.length > 0) {
+      this._sessionFolderPath = session.files[0].filePath.replace(/[/\\][^/\\]+$/, '');
+    }
+    // Reset FRM state
+    this._frmData = null;
+    this._frmLoaded = false;
+
     // Clear previous annotations
     this.annotations = [];
     this._updateAnnotationsList();
@@ -776,8 +791,8 @@ class App {
     this._setStatus(this._readyStatusMessage());
     this._updateTimeDisplays(0);
 
-    // Try to auto-load annotations from the same folder
-    this._autoloadAnnotations();
+    // Try to auto-load session.frm.txt first, then fall back to annotations.json
+    await this._autoloadSessionData();
   }
 
   _buildFileList() {
@@ -1252,7 +1267,20 @@ class App {
       return;
     }
 
-    // Default to saving in the same folder as the WAV files
+    // Default to saving as session.frm.txt if we have a session folder
+    if (this._sessionFolderPath) {
+      // If FRM data exists, update it with current annotations and save
+      if (!this._frmData) this._frmData = autoPopulateFromSession(this.session);
+      this._frmData.annotations = annotationsToFRM(this.annotations, this.session);
+      const yaml = serializeFRM(this._frmData);
+      const frmPath = this._sessionFolderPath + '/session.frm.txt';
+      await window.electronAPI.writeFile(frmPath, yaml);
+      this._frmLoaded = true;
+      this._setStatus(`Saved ${this.annotations.length} annotations to session.frm.txt`);
+      return;
+    }
+
+    // Fallback: save as JSON if no session folder
     let defaultPath = 'annotations.json';
     if (this.session && this.session.files.length > 0) {
       const dir = this.session.files[0].filePath.replace(/[/\\][^/\\]+$/, '');
@@ -1542,7 +1570,32 @@ class App {
     const filePaths = await window.electronAPI.openFileDialog();
     if (!filePaths || filePaths.length === 0) return;
 
-    const jsonPath = filePaths.find(p => p.endsWith('.json')) || filePaths[0];
+    const filePath = filePaths[0];
+
+    // Handle .frm.txt files
+    if (filePath.endsWith('.frm.txt')) {
+      try {
+        const content = await window.electronAPI.readTextFile(filePath);
+        const frmData = parseFRM(content);
+        if (frmData.annotations && frmData.annotations.length > 0) {
+          const appAnns = annotationsFromFRM(frmData.annotations, this.session);
+          this.annotations.push(...appAnns);
+          this._updateAnnotationsList();
+          this.spectrogram.annotations = this.annotations;
+          this.spectrogram.draw();
+          if (!this.annotationsSidebar.classList.contains('open')) {
+            this._toggleAnnotationsSidebar();
+          }
+          this._setStatus(`Loaded ${appAnns.length} annotations from ${filePath.split(/[/\\]/).pop()}`);
+        }
+      } catch (err) {
+        this._setStatus('Error loading FRM file: ' + err.message);
+      }
+      return;
+    }
+
+    // JSON files
+    const jsonPath = filePaths.find(p => p.endsWith('.json')) || filePath;
     const count = await this._loadAnnotationsFromFile(jsonPath);
     if (count > 0) {
       if (!this.annotationsSidebar.classList.contains('open')) {
@@ -1585,14 +1638,18 @@ class App {
     }
   }
 
-  async _autoloadAnnotations() {
+  async _autoloadSessionData() {
     if (!this.session || this.session.files.length === 0) return;
 
-    // Look for annotations.json in the same folder as the first WAV file
-    const firstFilePath = this.session.files[0].filePath;
-    const folderPath = firstFilePath.replace(/[/\\][^/\\]+$/, '');
+    const folderPath = this._sessionFolderPath;
+    if (!folderPath) return;
 
-    // Try: annotations.json, then <first-filename>.annotations.json
+    // Try session.frm.txt first
+    const frmLoaded = await this._loadFRMFile(folderPath);
+    if (frmLoaded) return;
+
+    // Fall back to annotations.json
+    const firstFilePath = this.session.files[0].filePath;
     const baseName = firstFilePath.replace(/^.*[/\\]/, '').replace(/\.[^.]+$/, '');
     const candidates = [
       folderPath + '/annotations.json',
@@ -1894,6 +1951,339 @@ class App {
       opt.value = d;
       opt.textContent = d;
       this.dateInput.appendChild(opt);
+    }
+  }
+
+  // ── FRM session metadata ────────────────────────────────────────────
+
+  _setupFRM() {
+    const modal = document.getElementById('frm-modal');
+    const closeBtn = document.getElementById('frm-close');
+    const saveBtn = document.getElementById('frm-save');
+    const saveAsBtn = document.getElementById('frm-save-as');
+    const openBtn = document.getElementById('btn-session-meta');
+
+    openBtn.addEventListener('click', () => this._openFRMModal());
+    closeBtn.addEventListener('click', () => { modal.style.display = 'none'; });
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.style.display = 'none';
+    });
+    saveBtn.addEventListener('click', () => this._saveFRM());
+    saveAsBtn.addEventListener('click', () => this._saveFRMAs());
+
+    // Add mic button
+    document.getElementById('frm-add-mic').addEventListener('click', () => {
+      this._addMicRow();
+    });
+
+    // Stop keyboard shortcuts when typing in the modal
+    modal.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') modal.style.display = 'none';
+    });
+  }
+
+  _openFRMModal() {
+    if (!this.session) {
+      this._setStatus('Open a recording session first');
+      return;
+    }
+
+    // If no FRM data yet, auto-populate from session
+    if (!this._frmData) {
+      this._frmData = autoPopulateFromSession(this.session);
+    }
+
+    this._populateFRMForm(this._frmData);
+    document.getElementById('frm-modal').style.display = 'flex';
+    document.getElementById('frm-status').textContent =
+      this._frmLoaded ? 'Loaded from session.frm.txt' : 'Auto-populated from BWF metadata';
+  }
+
+  _populateFRMForm(data) {
+    const s = data.session || {};
+    const dt = data.datetime || {};
+    const loc = data.location || {};
+    const cond = data.conditions || {};
+    const eq = data.equipment || {};
+    const rec = eq.recorder || {};
+
+    document.getElementById('frm-title').value = s.title || '';
+    document.getElementById('frm-project').value = s.project || '';
+    document.getElementById('frm-recordist').value = s.recordist || '';
+    document.getElementById('frm-license').value = s.license || '';
+    document.getElementById('frm-tags').value = (s.tags || []).join(', ');
+
+    document.getElementById('frm-dt-start').value = dt.start || '';
+    document.getElementById('frm-dt-end').value = dt.end || '';
+    document.getElementById('frm-dt-tz').value = dt.timezone || '';
+
+    document.getElementById('frm-loc-name').value = loc.name || '';
+    document.getElementById('frm-loc-region').value = loc.region || '';
+    document.getElementById('frm-loc-lat').value = loc.latitude != null ? loc.latitude : '';
+    document.getElementById('frm-loc-lon').value = loc.longitude != null ? loc.longitude : '';
+    document.getElementById('frm-loc-elev').value = loc.elevation_m != null ? loc.elevation_m : '';
+    document.getElementById('frm-loc-env').value = loc.environment || '';
+
+    document.getElementById('frm-cond-weather').value = cond.weather || '';
+    document.getElementById('frm-cond-temp').value = cond.temperature_c != null ? cond.temperature_c : '';
+    document.getElementById('frm-cond-hum').value = cond.humidity_pct != null ? cond.humidity_pct : '';
+    document.getElementById('frm-cond-wind').value = cond.wind || '';
+    document.getElementById('frm-cond-noise').value = cond.noise_floor || '';
+
+    document.getElementById('frm-eq-model').value = rec.model || '';
+    document.getElementById('frm-eq-sr').value = rec.sample_rate || '';
+    document.getElementById('frm-eq-bits').value = rec.bit_depth || '';
+    document.getElementById('frm-eq-phantom').checked = !!rec.phantom_power;
+    document.getElementById('frm-eq-pip').checked = !!rec.plug_in_power;
+    document.getElementById('frm-eq-limiter').checked = !!rec.limiter;
+    document.getElementById('frm-eq-gain').value = Array.isArray(rec.gain_db)
+      ? rec.gain_db.join(', ') : (rec.gain_db || '');
+    document.getElementById('frm-eq-hp').value = rec.highpass_hz != null
+      ? (rec.highpass_hz === false ? 'off' : rec.highpass_hz) : '';
+    document.getElementById('frm-eq-setup').value = eq.setup || '';
+    document.getElementById('frm-eq-acc').value = (eq.accessories || []).join(', ');
+
+    document.getElementById('frm-notes').value =
+      typeof data.notes === 'string' ? data.notes.replace(/\n$/, '') : '';
+
+    // Microphones
+    const micsList = document.getElementById('frm-mics-list');
+    micsList.innerHTML = '';
+    const mics = eq.microphones || [];
+    for (const mic of mics) {
+      this._addMicRow(mic);
+    }
+
+    // Channels
+    const channelsList = document.getElementById('frm-channels-list');
+    channelsList.innerHTML = '';
+    const channels = data.channels || {};
+    for (const [num, ch] of Object.entries(channels)) {
+      const row = document.createElement('div');
+      row.className = 'frm-channel-entry';
+      row.innerHTML = `
+        <span>${num}</span>
+        <input type="text" class="frm-ch-label" value="${this._escapeHtml(ch.label || '')}" placeholder="Label">
+        <input type="text" class="frm-ch-source" value="${this._escapeHtml(ch.source || '')}" placeholder="Mic ID">
+      `;
+      channelsList.appendChild(row);
+    }
+  }
+
+  _addMicRow(mic = {}) {
+    const list = document.getElementById('frm-mics-list');
+    const row = document.createElement('div');
+    row.className = 'frm-mic-entry';
+    row.innerHTML = `
+      <input type="text" class="frm-mic-id" value="${this._escapeHtml(mic.id || '')}" placeholder="ID">
+      <input type="text" class="frm-mic-model" value="${this._escapeHtml(mic.model || '')}" placeholder="Model">
+      <input type="text" class="frm-mic-type" value="${this._escapeHtml(mic.type || '')}" placeholder="Type">
+      <button class="frm-remove-btn" title="Remove">&times;</button>
+    `;
+    row.querySelector('.frm-remove-btn').addEventListener('click', () => row.remove());
+    list.appendChild(row);
+  }
+
+  _readFRMForm() {
+    const data = {};
+
+    // Session
+    const title = document.getElementById('frm-title').value.trim();
+    const project = document.getElementById('frm-project').value.trim();
+    const recordist = document.getElementById('frm-recordist').value.trim();
+    const license = document.getElementById('frm-license').value.trim();
+    const tagsStr = document.getElementById('frm-tags').value.trim();
+    const session = {};
+    if (title) session.title = title;
+    if (project) session.project = project;
+    if (recordist) session.recordist = recordist;
+    if (license) session.license = license;
+    if (tagsStr) session.tags = tagsStr.split(',').map(t => t.trim()).filter(Boolean);
+    if (Object.keys(session).length) data.session = session;
+
+    // Datetime
+    const dtStart = document.getElementById('frm-dt-start').value.trim();
+    const dtEnd = document.getElementById('frm-dt-end').value.trim();
+    const dtTz = document.getElementById('frm-dt-tz').value.trim();
+    const datetime = {};
+    if (dtStart) datetime.start = dtStart;
+    if (dtEnd) datetime.end = dtEnd;
+    if (dtTz) datetime.timezone = dtTz;
+    if (Object.keys(datetime).length) data.datetime = datetime;
+
+    // Location
+    const loc = {};
+    const locName = document.getElementById('frm-loc-name').value.trim();
+    const locRegion = document.getElementById('frm-loc-region').value.trim();
+    const locLat = document.getElementById('frm-loc-lat').value.trim();
+    const locLon = document.getElementById('frm-loc-lon').value.trim();
+    const locElev = document.getElementById('frm-loc-elev').value.trim();
+    const locEnv = document.getElementById('frm-loc-env').value.trim();
+    if (locName) loc.name = locName;
+    if (locRegion) loc.region = locRegion;
+    if (locLat) loc.latitude = parseFloat(locLat);
+    if (locLon) loc.longitude = parseFloat(locLon);
+    if (locElev) loc.elevation_m = parseFloat(locElev);
+    if (locEnv) loc.environment = locEnv;
+    if (Object.keys(loc).length) data.location = loc;
+
+    // Conditions
+    const cond = {};
+    const weather = document.getElementById('frm-cond-weather').value.trim();
+    const temp = document.getElementById('frm-cond-temp').value.trim();
+    const hum = document.getElementById('frm-cond-hum').value.trim();
+    const wind = document.getElementById('frm-cond-wind').value.trim();
+    const noise = document.getElementById('frm-cond-noise').value.trim();
+    if (weather) cond.weather = weather;
+    if (temp) cond.temperature_c = parseFloat(temp);
+    if (hum) cond.humidity_pct = parseFloat(hum);
+    if (wind) cond.wind = wind;
+    if (noise) cond.noise_floor = noise;
+    if (Object.keys(cond).length) data.conditions = cond;
+
+    // Equipment
+    const eq = {};
+    const rec = {};
+    const model = document.getElementById('frm-eq-model').value.trim();
+    const sr = document.getElementById('frm-eq-sr').value.trim();
+    const bits = document.getElementById('frm-eq-bits').value.trim();
+    const gainStr = document.getElementById('frm-eq-gain').value.trim();
+    const hpStr = document.getElementById('frm-eq-hp').value.trim();
+    if (model) rec.model = model;
+    if (sr) rec.sample_rate = parseInt(sr);
+    if (bits) rec.bit_depth = /float/i.test(bits) ? bits : parseInt(bits);
+    if (document.getElementById('frm-eq-phantom').checked) rec.phantom_power = true;
+    if (document.getElementById('frm-eq-pip').checked) rec.plug_in_power = true;
+    if (document.getElementById('frm-eq-limiter').checked) rec.limiter = true;
+    if (gainStr) {
+      const gains = gainStr.split(',').map(g => parseFloat(g.trim())).filter(g => !isNaN(g));
+      rec.gain_db = gains.length === 1 ? gains[0] : gains;
+    }
+    if (hpStr) rec.highpass_hz = hpStr.toLowerCase() === 'off' ? false : parseFloat(hpStr);
+    if (Object.keys(rec).length) eq.recorder = rec;
+
+    // Microphones
+    const micRows = document.querySelectorAll('#frm-mics-list .frm-mic-entry');
+    const mics = [];
+    for (const row of micRows) {
+      const id = row.querySelector('.frm-mic-id').value.trim();
+      const micModel = row.querySelector('.frm-mic-model').value.trim();
+      const micType = row.querySelector('.frm-mic-type').value.trim();
+      if (id || micModel) {
+        const mic = {};
+        if (id) mic.id = id;
+        if (micModel) mic.model = micModel;
+        if (micType) mic.type = micType;
+        mics.push(mic);
+      }
+    }
+    if (mics.length) eq.microphones = mics;
+
+    const setup = document.getElementById('frm-eq-setup').value.trim();
+    if (setup) eq.setup = setup;
+    const accStr = document.getElementById('frm-eq-acc').value.trim();
+    if (accStr) eq.accessories = accStr.split(',').map(a => a.trim()).filter(Boolean);
+    if (Object.keys(eq).length) data.equipment = eq;
+
+    // Channels
+    const chRows = document.querySelectorAll('#frm-channels-list .frm-channel-entry');
+    const channels = {};
+    for (const row of chRows) {
+      const num = row.querySelector('span').textContent.trim();
+      const label = row.querySelector('.frm-ch-label').value.trim();
+      const source = row.querySelector('.frm-ch-source').value.trim();
+      if (label || source) channels[num] = { label, source };
+    }
+    if (Object.keys(channels).length) data.channels = channels;
+
+    // Files from existing FRM data (auto-populated, not editable in form)
+    if (this._frmData?.files?.length) data.files = this._frmData.files;
+
+    // Annotations from app state
+    if (this.annotations.length > 0 && this.session) {
+      data.annotations = annotationsToFRM(this.annotations, this.session);
+    }
+
+    // Notes
+    const notes = document.getElementById('frm-notes').value.trim();
+    if (notes) data.notes = notes + '\n';
+
+    // Preserve custom keys from loaded FRM
+    if (this._frmData) {
+      for (const key of Object.keys(this._frmData)) {
+        if (key.startsWith('x-') && !(key in data)) {
+          data[key] = this._frmData[key];
+        }
+      }
+    }
+
+    return data;
+  }
+
+  async _saveFRM() {
+    if (!this._sessionFolderPath) {
+      this._setStatus('No session folder path — use Save As...');
+      return this._saveFRMAs();
+    }
+    const frmPath = this._sessionFolderPath + '/session.frm.txt';
+    await this._writeFRM(frmPath);
+  }
+
+  async _saveFRMAs() {
+    let defaultPath = 'session.frm.txt';
+    if (this._sessionFolderPath) {
+      defaultPath = this._sessionFolderPath + '/session.frm.txt';
+    }
+    const filePath = await window.electronAPI.saveFileDialog({
+      title: 'Save Session Metadata',
+      defaultPath,
+      filters: [
+        { name: 'FRM Metadata', extensions: ['frm.txt'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    if (!filePath) return;
+    await this._writeFRM(filePath);
+  }
+
+  async _writeFRM(frmPath) {
+    const data = this._readFRMForm();
+    const yaml = serializeFRM(data);
+    await window.electronAPI.writeFile(frmPath, yaml);
+    this._frmData = data;
+    this._frmLoaded = true;
+    document.getElementById('frm-status').textContent = 'Saved';
+    this._setStatus(`Saved session metadata to ${frmPath.split(/[/\\]/).pop()}`);
+  }
+
+  async _loadFRMFile(folderPath) {
+    const frmPath = folderPath + '/session.frm.txt';
+    try {
+      const exists = await window.electronAPI.fileExists(frmPath);
+      if (!exists) return false;
+      const content = await window.electronAPI.readTextFile(frmPath);
+      this._frmData = parseFRM(content);
+      this._frmLoaded = true;
+
+      // Load annotations from FRM
+      if (this._frmData.annotations && this._frmData.annotations.length > 0) {
+        const appAnns = annotationsFromFRM(this._frmData.annotations, this.session);
+        if (appAnns.length > 0) {
+          this.annotations = appAnns;
+          this._updateAnnotationsList();
+          this.spectrogram.annotations = this.annotations;
+          if (!this.annotationsSidebar.classList.contains('open')) {
+            this._toggleAnnotationsSidebar();
+          }
+        }
+      }
+
+      this._setStatus(`Loaded session.frm.txt (${this._frmData.session?.title || 'untitled'})`);
+      return true;
+    } catch (err) {
+      console.warn('Could not load session.frm.txt:', err.message);
+      return false;
     }
   }
 }

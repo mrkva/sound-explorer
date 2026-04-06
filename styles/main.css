@@ -942,3 +942,190 @@ button.primary:hover { background: var(--btn-primary-hover); }
   font-size: 14px;
   line-height: 1;
 }
+
+/* ── FRM Metadata Modal ──────────────────────────────────────────────── */
+
+.frm-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.frm-modal-content {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: min(680px, 90vw);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.frm-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 14px;
+}
+.frm-modal-header button {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  cursor: pointer;
+}
+.frm-status {
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--text-dim);
+}
+.frm-modal-body {
+  overflow-y: auto;
+  padding: 8px 16px 16px;
+  flex: 1;
+}
+.frm-modal-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  justify-content: flex-end;
+}
+.frm-primary-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.frm-primary-btn:hover { filter: brightness(1.15); }
+.frm-secondary-btn {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.frm-section {
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.frm-section summary {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--bg-secondary);
+  user-select: none;
+}
+.frm-section > label,
+.frm-section > .frm-row,
+.frm-section > textarea,
+.frm-section > div {
+  padding: 3px 10px;
+}
+.frm-section label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.frm-section label input[type="text"],
+.frm-section label textarea {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 3px 6px;
+  font-size: 11px;
+  font-family: inherit;
+  border-radius: 3px;
+}
+.frm-section textarea {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 6px;
+  font-size: 11px;
+  font-family: inherit;
+  border-radius: 3px;
+  resize: vertical;
+}
+.frm-section label input[type="text"]:focus,
+.frm-section textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.frm-section label input[readonly] {
+  opacity: 0.6;
+}
+.frm-row {
+  display: flex;
+  gap: 8px;
+}
+.frm-narrow {
+  max-width: 100px;
+}
+.frm-subsection-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 4px 0 2px;
+}
+.frm-small-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.frm-mic-entry, .frm-channel-entry {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 0;
+  font-size: 11px;
+}
+.frm-mic-entry input, .frm-channel-entry input {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 2px 5px;
+  font-size: 11px;
+  border-radius: 3px;
+}
+.frm-mic-entry .frm-mic-id { width: 60px; }
+.frm-mic-entry .frm-mic-model { flex: 1; }
+.frm-mic-entry .frm-mic-type { width: 120px; }
+.frm-remove-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+}
+.frm-channel-entry span { min-width: 24px; text-align: right; }
+.frm-channel-entry .frm-ch-label { flex: 1; }
+.frm-channel-entry .frm-ch-source { width: 80px; }

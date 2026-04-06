@@ -82,6 +82,7 @@
 
     <div class="toolbar-group">
       <button id="btn-annotations" class="annotations-btn">Annotations</button>
+      <button id="btn-session-meta" class="annotations-btn" title="Session metadata (.frm.txt)">Session</button>
     </div>
 
     <div class="toolbar-group" style="margin-left: auto;">
@@ -193,6 +194,94 @@
         <p style="margin-top: 16px; font-size: 10px; opacity: 0.4;">
           Audio playback is converted to 16-bit and limited by browser capabilities. Not for critical listening.
         </p>
+      </div>
+    </div>
+
+    <!-- FRM Metadata Modal -->
+    <div class="frm-modal" id="frm-modal" style="display:none;">
+      <div class="frm-modal-content">
+        <div class="frm-modal-header">
+          <span>Session Metadata</span>
+          <span id="frm-status" class="frm-status"></span>
+          <button id="frm-close" title="Close">&times;</button>
+        </div>
+        <div class="frm-modal-body">
+
+          <details class="frm-section" open>
+            <summary>Session</summary>
+            <label>Title <input type="text" id="frm-title" placeholder="Descriptive session title"></label>
+            <label>Project <input type="text" id="frm-project" placeholder="Parent project or collection"></label>
+            <label>Recordist <input type="text" id="frm-recordist" placeholder="Person who recorded"></label>
+            <label>License <input type="text" id="frm-license" placeholder="e.g. CC BY-SA 4.0"></label>
+            <label>Tags <input type="text" id="frm-tags" placeholder="comma-separated: dawn-chorus, urban, birds"></label>
+          </details>
+
+          <details class="frm-section" open>
+            <summary>Time</summary>
+            <label>Start <input type="text" id="frm-dt-start" placeholder="2026-04-04T05:12:00+02:00"></label>
+            <label>End <input type="text" id="frm-dt-end" placeholder="2026-04-04T07:30:00+02:00"></label>
+            <label>Timezone <input type="text" id="frm-dt-tz" placeholder="Europe/Bratislava"></label>
+          </details>
+
+          <details class="frm-section" open>
+            <summary>Location</summary>
+            <label>Name <input type="text" id="frm-loc-name" placeholder="Human-readable place name"></label>
+            <label>Region <input type="text" id="frm-loc-region" placeholder="City, country"></label>
+            <div class="frm-row">
+              <label>Lat <input type="text" id="frm-loc-lat" placeholder="48.1486" class="frm-narrow"></label>
+              <label>Lon <input type="text" id="frm-loc-lon" placeholder="17.1077" class="frm-narrow"></label>
+              <label>Elev (m) <input type="text" id="frm-loc-elev" placeholder="145" class="frm-narrow"></label>
+            </div>
+            <label>Environment <input type="text" id="frm-loc-env" placeholder="Free-text habitat/setting"></label>
+          </details>
+
+          <details class="frm-section">
+            <summary>Conditions</summary>
+            <label>Weather <input type="text" id="frm-cond-weather" placeholder="Overcast, dry"></label>
+            <div class="frm-row">
+              <label>Temp (&deg;C) <input type="text" id="frm-cond-temp" placeholder="11" class="frm-narrow"></label>
+              <label>Humidity (%) <input type="text" id="frm-cond-hum" placeholder="65" class="frm-narrow"></label>
+            </div>
+            <label>Wind <input type="text" id="frm-cond-wind" placeholder="Moderate, 15 km/h from W"></label>
+            <label>Noise floor <input type="text" id="frm-cond-noise" placeholder="Qualitative ambient noise"></label>
+          </details>
+
+          <details class="frm-section">
+            <summary>Equipment</summary>
+            <label>Recorder model <input type="text" id="frm-eq-model" placeholder="Sound Devices MixPre-3 II"></label>
+            <div class="frm-row">
+              <label>Sample rate <input type="text" id="frm-eq-sr" placeholder="48000" class="frm-narrow" readonly></label>
+              <label>Bit depth <input type="text" id="frm-eq-bits" placeholder="24" class="frm-narrow" readonly></label>
+            </div>
+            <div class="frm-row">
+              <label><input type="checkbox" id="frm-eq-phantom"> Phantom 48V</label>
+              <label><input type="checkbox" id="frm-eq-pip"> Plug-in power</label>
+              <label><input type="checkbox" id="frm-eq-limiter"> Limiter</label>
+            </div>
+            <label>Gain (dB) <input type="text" id="frm-eq-gain" placeholder="30 or 30, 30, 20"></label>
+            <label>Highpass (Hz) <input type="text" id="frm-eq-hp" placeholder="80 or off"></label>
+            <label>Setup <textarea id="frm-eq-setup" rows="2" placeholder="Mic arrangement, spacing, height, stereo technique"></textarea></label>
+            <label>Accessories <input type="text" id="frm-eq-acc" placeholder="comma-separated: windscreens, stands"></label>
+            <div id="frm-mics-container">
+              <div class="frm-subsection-header">Microphones <button id="frm-add-mic" class="frm-small-btn">+ Add</button></div>
+              <div id="frm-mics-list"></div>
+            </div>
+            <div id="frm-channels-container">
+              <div class="frm-subsection-header">Channel Routing</div>
+              <div id="frm-channels-list"></div>
+            </div>
+          </details>
+
+          <details class="frm-section">
+            <summary>Notes</summary>
+            <textarea id="frm-notes" rows="6" placeholder="Free-text session diary. Species lists, observations, plans, context."></textarea>
+          </details>
+
+        </div>
+        <div class="frm-modal-footer">
+          <button id="frm-save" class="frm-primary-btn">Save session.frm.txt</button>
+          <button id="frm-save-as" class="frm-secondary-btn">Save As...</button>
+        </div>
       </div>
     </div>
 

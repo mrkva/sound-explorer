@@ -439,6 +439,14 @@ ipcMain.handle('save-file-dialog', async (event, options) => {
   return result.filePath;
 });
 
+// Check if a file exists
+ipcMain.handle('file-exists', async (event, filePath) => {
+  try {
+    await fs.promises.access(filePath);
+    return true;
+  } catch { return false; }
+});
+
 // Write a text file
 ipcMain.handle('write-file', async (event, filePath, content) => {
   await fs.promises.writeFile(filePath, content, 'utf-8');
