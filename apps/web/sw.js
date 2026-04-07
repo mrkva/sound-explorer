@@ -20,6 +20,8 @@ const APP_SHELL = [
   './js/version.js',
   './js/fft-core.js',
   './js/colormaps.js',
+  './js/ixml.js',
+  './js/frm.js',
   './img/logo_black.png',
   './img/logo_white.png',
   './img/icon.svg',

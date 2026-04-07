@@ -96,6 +96,7 @@
       <span class="toolbar-spacer"></span>
 
       <button id="btn-annotations" class="btn toolbar-btn">Annotations</button>
+      <button id="btn-metadata" class="btn toolbar-btn">Metadata</button>
       <button id="btn-theme" class="btn toolbar-btn btn-theme" title="Toggle dark mode">&#x263E;</button>
       <button id="btn-shortcuts" class="btn toolbar-btn btn-help" title="Keyboard shortcuts">?</button>
     </div>
@@ -116,20 +117,113 @@
         <div id="cursor-line" class="cursor-line"></div>
         <div id="computing-indicator" class="computing-indicator" style="display:none">Computing...</div>
       </div>
-      <div id="annotations-panel" class="annotations-panel" style="display:none">
-        <div class="annotations-panel-header">
-          <h3>Annotations</h3>
-          <button id="btn-close-annotations" class="btn btn-small">&times;</button>
+      <div id="app-sidebar" class="app-sidebar">
+        <div class="sidebar-tabs">
+          <button class="sidebar-tab active" data-tab="annotations">Annotations</button>
+          <button class="sidebar-tab" data-tab="metadata">Metadata</button>
+          <button id="btn-close-sidebar" class="sidebar-close">&times;</button>
         </div>
-        <div id="annotations-list" class="annotations-list"></div>
-        <div class="annotation-add">
-          <input id="input-annotation-note" type="text" class="input" placeholder="Annotation note...">
-          <button id="btn-add-annotation" class="btn btn-small">Add</button>
+
+        <!-- Annotations tab -->
+        <div class="sidebar-pane active" data-tab="annotations">
+          <div id="annotations-list" class="sidebar-body annotations-list"></div>
+          <div class="annotation-add">
+            <input id="input-annotation-note" type="text" class="input" placeholder="Annotation note...">
+            <button id="btn-add-annotation" class="btn btn-small">Add</button>
+          </div>
+          <div class="annotation-actions">
+            <button id="btn-export-annotations" class="btn btn-small">Export JSON</button>
+            <button id="btn-import-annotations" class="btn btn-small">Import JSON</button>
+            <input type="file" id="annotations-import-input" accept=".json" style="display:none">
+          </div>
         </div>
-        <div class="annotation-actions">
-          <button id="btn-export-annotations" class="btn btn-small">Export JSON</button>
-          <button id="btn-import-annotations" class="btn btn-small">Import JSON</button>
-          <input type="file" id="annotations-import-input" accept=".json" style="display:none">
+
+        <!-- Metadata tab -->
+        <div class="sidebar-pane" data-tab="metadata">
+          <div class="sidebar-meta-status">
+            <span id="meta-status" class="meta-status"></span>
+          </div>
+          <div class="sidebar-body meta-body">
+
+            <details class="frm-section" open>
+              <summary>Session</summary>
+              <label>Title <input type="text" id="frm-title" placeholder="Descriptive session title"></label>
+              <label>Project <input type="text" id="frm-project" placeholder="Parent project or collection"></label>
+              <label>Recordist <input type="text" id="frm-recordist" placeholder="Person who recorded"></label>
+              <label>License <input type="text" id="frm-license" placeholder="e.g. CC BY-SA 4.0"></label>
+              <label>Tags <input type="text" id="frm-tags" placeholder="comma-separated: dawn-chorus, urban, birds"></label>
+            </details>
+
+            <details class="frm-section" open>
+              <summary>Time</summary>
+              <label>Start <input type="text" id="frm-dt-start" placeholder="2026-04-04T05:12:00+02:00"></label>
+              <label>End <input type="text" id="frm-dt-end" placeholder="2026-04-04T07:30:00+02:00"></label>
+              <label>Timezone <input type="text" id="frm-dt-tz" placeholder="Europe/Bratislava"></label>
+            </details>
+
+            <details class="frm-section" open>
+              <summary>Location</summary>
+              <div class="frm-row">
+                <label>Preset <select id="frm-loc-preset"><option value="">-- pick --</option></select></label>
+                <button id="frm-loc-save-preset" class="btn btn-small" title="Save preset">+</button>
+                <button id="frm-loc-del-preset" class="btn btn-small" title="Delete preset">&minus;</button>
+              </div>
+              <label>Name <input type="text" id="frm-loc-name" placeholder="Place name"></label>
+              <label>Region <input type="text" id="frm-loc-region" placeholder="City, country"></label>
+              <div class="frm-row">
+                <label>GPS <input type="text" id="frm-loc-gps" placeholder="48.1486, 17.1077" class="frm-wide"></label>
+                <label>Elev (m) <input type="text" id="frm-loc-elev" placeholder="145" class="frm-narrow"></label>
+              </div>
+              <label>Environment <input type="text" id="frm-loc-env" placeholder="Habitat/setting"></label>
+            </details>
+
+            <details class="frm-section">
+              <summary>Conditions</summary>
+              <label>Weather <input type="text" id="frm-cond-weather" placeholder="Overcast, dry"></label>
+              <div class="frm-row">
+                <label>Temp (&deg;C) <input type="text" id="frm-cond-temp" placeholder="11" class="frm-narrow"></label>
+                <label>Humidity (%) <input type="text" id="frm-cond-hum" placeholder="65" class="frm-narrow"></label>
+              </div>
+              <label>Wind <input type="text" id="frm-cond-wind" placeholder="Moderate, 15 km/h from W"></label>
+              <label>Noise floor <input type="text" id="frm-cond-noise" placeholder="Qualitative ambient noise"></label>
+            </details>
+
+            <details class="frm-section">
+              <summary>Equipment</summary>
+              <label>Recorder model <input type="text" id="frm-eq-model" placeholder="Sound Devices MixPre-3 II"></label>
+              <div class="frm-row">
+                <label>SR <input type="text" id="frm-eq-sr" placeholder="48000" class="frm-narrow" readonly></label>
+                <label>Bits <input type="text" id="frm-eq-bits" placeholder="24" class="frm-narrow" readonly></label>
+              </div>
+              <div class="frm-row frm-checkboxes">
+                <label><input type="checkbox" id="frm-eq-phantom"> Phantom 48V</label>
+                <label><input type="checkbox" id="frm-eq-pip"> Plug-in power</label>
+                <label><input type="checkbox" id="frm-eq-limiter"> Limiter</label>
+              </div>
+              <label>Gain (dB) <input type="text" id="frm-eq-gain" placeholder="30 or 30, 30"></label>
+              <label>Highpass (Hz) <input type="text" id="frm-eq-hp" placeholder="80 or off"></label>
+              <label>Setup <textarea id="frm-eq-setup" rows="2" placeholder="Mic arrangement, stereo technique"></textarea></label>
+              <label>Accessories <input type="text" id="frm-eq-acc" placeholder="windscreens, stands"></label>
+              <div id="frm-mics-container">
+                <div class="frm-subsection-header">Microphones <button id="frm-add-mic" class="btn btn-small">+ Add</button></div>
+                <div id="frm-mics-list"></div>
+              </div>
+              <div id="frm-channels-container">
+                <div class="frm-subsection-header">Channel Routing</div>
+                <div id="frm-channels-list"></div>
+              </div>
+            </details>
+
+            <details class="frm-section">
+              <summary>Notes</summary>
+              <textarea id="frm-notes" rows="6" placeholder="Free-text session diary. Species lists, observations, context."></textarea>
+            </details>
+
+          </div>
+          <div class="sidebar-meta-footer">
+            <button id="frm-download" class="btn btn-small btn-accent">Download .frm.txt</button>
+            <label class="meta-apply-label"><input type="checkbox" id="frm-apply-export" checked> Embed in exports</label>
+          </div>
         </div>
       </div>
     </div>

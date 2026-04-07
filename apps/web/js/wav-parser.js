@@ -40,6 +40,7 @@ export class WavParser {
       totalSamples: 0,     // total sample frames
       duration: 0,         // seconds
       bext: null,          // BWF metadata if present
+      ixml: null,          // raw iXML string if present
     };
 
     // Walk RIFF chunks starting at offset 12
@@ -84,13 +85,19 @@ export class WavParser {
       } else if (chunkId === 'bext') {
         await ensureBytes(offset, 8 + Math.min(chunkSize, 700));
         result.bext = WavParser._parseBext(bufView, offset + 8, chunkSize);
+      } else if (chunkId === 'iXML' || chunkId === 'IXML') {
+        const ixmlSize = Math.min(chunkSize, 262144); // cap at 256KB
+        await ensureBytes(offset, 8 + ixmlSize);
+        const decoder = new TextDecoder('utf-8');
+        const bytes = new Uint8Array(buf, offset + 8, ixmlSize);
+        result.ixml = decoder.decode(bytes);
       }
 
       // Move to next chunk (chunks are word-aligned)
       offset += 8 + chunkSize;
       if (chunkSize % 2 !== 0) offset += 1;
 
-      if (fmtFound && dataFound && result.bext !== null) break;
+      if (fmtFound && dataFound && result.bext !== null && result.ixml !== null) break;
     }
 
     if (!fmtFound) throw new Error('WAV file missing fmt chunk');

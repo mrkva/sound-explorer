@@ -282,54 +282,254 @@ body.dark .toolbar-logo {
   background: var(--bg-primary);
 }
 
-.annotations-panel {
-  width: 280px;
-  min-width: 280px;
+/* ── Tabbed sidebar ──────────────────────────────────────────────── */
+.app-sidebar {
+  width: 0;
+  min-width: 0;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: width 0.2s ease, min-width 0.2s ease;
+  flex-shrink: 0;
 }
 
-.annotations-panel-header {
+.app-sidebar.open {
+  width: 340px;
+  min-width: 340px;
+}
+
+.sidebar-tabs {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
+  align-items: stretch;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.annotations-panel-header h3 {
-  margin: 0;
-  font-size: 13px;
+.sidebar-tab {
+  flex: 1;
+  padding: 7px 8px;
+  font-size: 11px;
   font-weight: 600;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.sidebar-tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+.sidebar-tab:hover:not(.active) {
   color: var(--text-primary);
 }
 
-.annotations-panel .annotations-list {
+.sidebar-close {
+  padding: 4px 10px;
+  font-size: 14px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sidebar-pane {
+  display: none;
+  flex-direction: column;
   flex: 1;
+  overflow: hidden;
+}
+
+.sidebar-pane.active {
+  display: flex;
+}
+
+.sidebar-body {
   overflow-y: auto;
+  flex: 1;
   padding: 6px;
 }
 
-.annotations-panel .annotation-add {
+.annotation-add {
   display: flex;
   gap: 4px;
   padding: 6px 10px;
   border-top: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
-.annotations-panel .annotation-add .input {
+.annotation-add .input {
   flex: 1;
   min-width: 0;
 }
 
-.annotations-panel .annotation-actions {
+.annotation-actions {
   display: flex;
   gap: 4px;
   padding: 6px 10px;
   border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* Metadata tab */
+.sidebar-meta-status {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.meta-status {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.meta-body {
+  padding: 6px 8px;
+}
+
+.sidebar-meta-footer {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.meta-apply-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* FRM form styling */
+.frm-section {
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.frm-section summary {
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--bg-primary);
+  user-select: none;
+  color: var(--text-primary);
+}
+
+.frm-section > label,
+.frm-section > .frm-row,
+.frm-section > textarea,
+.frm-section > div {
+  padding: 2px 8px;
+}
+
+.frm-section label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.frm-section label input[type="text"],
+.frm-section label textarea,
+.frm-section label select {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 2px 4px;
+  font-size: 10px;
+  font-family: inherit;
+  border-radius: 3px;
+  min-width: 0;
+}
+
+.frm-section textarea {
+  width: 100%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 4px;
+  font-size: 10px;
+  font-family: inherit;
+  border-radius: 3px;
+  resize: vertical;
+}
+
+.frm-section label input[type="text"]:focus,
+.frm-section textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.frm-section label input[readonly] {
+  opacity: 0.5;
+}
+
+.frm-row {
+  display: flex;
+  gap: 6px;
+}
+
+.frm-checkboxes label {
+  font-size: 10px;
+}
+
+.frm-narrow {
+  max-width: 70px;
+}
+
+.frm-wide {
+  min-width: 120px;
+}
+
+.frm-subsection-header {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 4px 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.frm-mic-row {
+  display: flex;
+  gap: 4px;
+  padding: 2px 0;
+  align-items: center;
+}
+
+.frm-mic-row input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 2px 4px;
+  font-size: 10px;
+  border-radius: 3px;
+}
+
+.frm-channel-row {
+  display: flex;
+  gap: 4px;
+  padding: 2px 0;
+  font-size: 10px;
+  color: var(--text-secondary);
+  align-items: center;
 }
 
 #spectrogram-canvas {
@@ -852,22 +1052,6 @@ dialog h4 {
 
 .btn-del-annotation:hover {
   color: #d94444;
-}
-
-.annotation-add {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.annotation-add .input {
-  flex: 1;
-}
-
-.annotation-actions {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 14px;
 }
 
 /* ==========================================================================

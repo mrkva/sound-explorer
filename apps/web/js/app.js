@@ -6,6 +6,8 @@ import { VERSION } from './version.js';
 import { WavParser } from './wav-parser.js?v=0.2.3';
 import { SpectrogramRenderer } from './spectrogram.js?v=0.2.3';
 import { AudioEngine } from './audio-engine.js?v=0.2.3';
+import { parseIXML, buildIXML, formDataToIXML, ixmlToFormData } from './ixml.js';
+import { parseFRM, serializeFRM } from './frm.js';
 
 class App {
   constructor() {
@@ -97,9 +99,17 @@ class App {
     document.getElementById('btn-export-speed').addEventListener('click', () => this._exportWavAtSpeed());
     document.getElementById('btn-loop').addEventListener('click', () => this._toggleLoop());
 
-    // Annotations panel toggle
-    document.getElementById('btn-annotations').addEventListener('click', () => this._toggleAnnotationsPanel());
+    // Sidebar (annotations + metadata tabs)
+    document.getElementById('btn-annotations').addEventListener('click', () => this._toggleSidebar('annotations'));
+    document.getElementById('btn-metadata').addEventListener('click', () => this._toggleSidebar('metadata'));
+    document.getElementById('btn-close-sidebar').addEventListener('click', () => this._closeSidebar());
+    document.getElementById('app-sidebar').querySelectorAll('.sidebar-tab').forEach(tab => {
+      tab.addEventListener('click', () => { if (tab.dataset.tab) this._switchSidebarTab(tab.dataset.tab); });
+    });
     document.getElementById('btn-vu').addEventListener('click', () => this._toggleBigVU());
+
+    // Metadata form
+    this._setupMetadataForm();
 
     // Dark mode toggle
     const savedTheme = localStorage.getItem('theme');
@@ -220,10 +230,7 @@ class App {
         `${this._formatFreq(freq)} @ ${this._formatTime(timeSec)}`;
     };
 
-    // Annotations panel
-    document.getElementById('btn-close-annotations').addEventListener('click', () => {
-      this._toggleAnnotationsPanel(false);
-    });
+    // Annotations controls
     document.getElementById('btn-add-annotation').addEventListener('click', () => this._addAnnotation());
     document.getElementById('btn-export-annotations').addEventListener('click', () => this._exportAnnotations());
     document.getElementById('btn-import-annotations').addEventListener('click', () => {
@@ -773,21 +780,61 @@ class App {
     this._updateInfoStrip();
   }
 
-  // --- Annotations ---
+  // --- Sidebar (Annotations + Metadata) ---
 
-  _toggleAnnotationsPanel(forceShow) {
-    const panel = document.getElementById('annotations-panel');
-    const btn = document.getElementById('btn-annotations');
-    const show = forceShow !== undefined ? forceShow : panel.style.display === 'none';
-    panel.style.display = show ? 'flex' : 'none';
-    btn.classList.toggle('active', show);
-    if (show) this._renderAnnotationsList();
-    // Canvas resized — trigger spectrogram redraw
+  _toggleSidebar(tab) {
+    const sidebar = document.getElementById('app-sidebar');
+    const isOpen = sidebar.classList.contains('open');
+    const currentTab = sidebar.querySelector('.sidebar-tab.active')?.dataset.tab;
+
+    if (isOpen && currentTab === tab) {
+      this._closeSidebar();
+    } else {
+      sidebar.classList.add('open');
+      this._switchSidebarTab(tab);
+      if (tab === 'annotations') this._renderAnnotationsList();
+      if (tab === 'metadata') this._populateMetadataForm();
+    }
+    this._resizeSidebar();
+  }
+
+  _closeSidebar() {
+    document.getElementById('app-sidebar').classList.remove('open');
+    this._resizeSidebar();
+  }
+
+  _switchSidebarTab(tab) {
+    const sidebar = document.getElementById('app-sidebar');
+    sidebar.querySelectorAll('.sidebar-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.tab === tab);
+    });
+    sidebar.querySelectorAll('.sidebar-pane').forEach(p => {
+      p.classList.toggle('active', p.dataset.tab === tab);
+    });
+    if (tab === 'metadata') this._populateMetadataForm();
+  }
+
+  _resizeSidebar() {
     setTimeout(() => {
       this.spectrogram._updateCanvasSize();
       this.spectrogram._tileCache.clear();
       this.spectrogram.render();
     }, 50);
+    setTimeout(() => {
+      this.spectrogram._updateCanvasSize();
+      this.spectrogram._tileCache.clear();
+      this.spectrogram.render();
+    }, 250);
+  }
+
+  _toggleAnnotationsPanel(forceShow) {
+    // Legacy compat — routes to sidebar
+    const sidebar = document.getElementById('app-sidebar');
+    if (forceShow === false) {
+      this._closeSidebar();
+    } else {
+      this._toggleSidebar('annotations');
+    }
   }
 
   _addAnnotation() {
@@ -1148,6 +1195,307 @@ class App {
 
   _setStatus(msg) {
     document.getElementById('status-bar').textContent = msg;
+  }
+
+  // --- Metadata editor ---
+
+  _setupMetadataForm() {
+    document.getElementById('frm-download').addEventListener('click', () => this._downloadFRM());
+    document.getElementById('frm-add-mic').addEventListener('click', () => this._addMicRow());
+
+    // Location presets
+    document.getElementById('frm-loc-preset').addEventListener('change', (e) => {
+      this._applyLocationPreset(e.target.value);
+    });
+    document.getElementById('frm-loc-save-preset').addEventListener('click', () => this._saveLocationPreset());
+    document.getElementById('frm-loc-del-preset').addEventListener('click', () => this._deleteLocationPreset());
+  }
+
+  _populateMetadataForm() {
+    if (!this.wavInfos.length) return;
+    const info = this.wavInfos[0];
+
+    // Auto-fill readonly fields
+    document.getElementById('frm-eq-sr').value = info.sampleRate || '';
+    document.getElementById('frm-eq-bits').value = info.bitsPerSample || '';
+
+    // Status
+    const status = document.getElementById('meta-status');
+    if (this._metadataPopulated) {
+      return; // already populated, don't overwrite user edits
+    }
+
+    // Try to populate from iXML
+    if (info.ixml) {
+      try {
+        const ixmlMeta = parseIXML(info.ixml);
+        const formData = ixmlToFormData(ixmlMeta);
+        this._applyFormData(formData);
+        status.textContent = 'Loaded from iXML chunk';
+        this._metadataPopulated = true;
+        return;
+      } catch (e) {
+        console.warn('iXML parse error:', e);
+      }
+    }
+
+    // Populate from bext if available
+    if (info.bext) {
+      const b = info.bext;
+      if (b.originationDate) {
+        const start = `${b.originationDate}T${b.originationTime || '00:00:00'}`;
+        document.getElementById('frm-dt-start').value = start;
+      }
+      status.textContent = 'Auto-populated from BWF';
+    } else {
+      status.textContent = 'No metadata found in file';
+    }
+
+    // Apply sticky defaults from localStorage
+    this._applyMetadataDefaults();
+    this._populateLocationPresets();
+    this._metadataPopulated = true;
+  }
+
+  _applyFormData(fd) {
+    if (!fd) return;
+    const s = (id, val) => { if (val) document.getElementById(id).value = val; };
+    const c = (id, val) => { if (val !== undefined) document.getElementById(id).checked = !!val; };
+
+    // Session
+    s('frm-title', fd.session?.title);
+    s('frm-project', fd.session?.project);
+    s('frm-recordist', fd.session?.recordist);
+    s('frm-license', fd.session?.license);
+    if (fd.session?.tags) {
+      s('frm-tags', Array.isArray(fd.session.tags) ? fd.session.tags.join(', ') : fd.session.tags);
+    }
+
+    // Time
+    s('frm-dt-start', fd.datetime?.start);
+    s('frm-dt-end', fd.datetime?.end);
+    s('frm-dt-tz', fd.datetime?.timezone);
+
+    // Location
+    s('frm-loc-name', fd.location?.name);
+    s('frm-loc-region', fd.location?.region);
+    if (fd.location?.latitude && fd.location?.longitude) {
+      s('frm-loc-gps', `${fd.location.latitude}, ${fd.location.longitude}`);
+    }
+    s('frm-loc-elev', fd.location?.elevation_m);
+    s('frm-loc-env', fd.location?.environment);
+
+    // Conditions
+    s('frm-cond-weather', fd.conditions?.weather);
+    s('frm-cond-temp', fd.conditions?.temperature_c);
+    s('frm-cond-hum', fd.conditions?.humidity_pct);
+    s('frm-cond-wind', fd.conditions?.wind);
+    s('frm-cond-noise', fd.conditions?.noise_floor);
+
+    // Equipment
+    s('frm-eq-model', fd.equipment?.recorder?.model);
+    s('frm-eq-gain', fd.equipment?.recorder?.gain_db);
+    s('frm-eq-hp', fd.equipment?.recorder?.highpass_hz);
+    c('frm-eq-limiter', fd.equipment?.recorder?.limiter);
+    c('frm-eq-phantom', fd.equipment?.recorder?.phantom_power);
+    c('frm-eq-pip', fd.equipment?.recorder?.plug_in_power);
+    s('frm-eq-setup', fd.equipment?.setup);
+    if (fd.equipment?.accessories) {
+      s('frm-eq-acc', Array.isArray(fd.equipment.accessories) ? fd.equipment.accessories.join(', ') : fd.equipment.accessories);
+    }
+
+    // Microphones
+    if (fd.equipment?.microphones) {
+      const list = document.getElementById('frm-mics-list');
+      list.innerHTML = '';
+      for (const mic of fd.equipment.microphones) {
+        this._addMicRow(mic.id, mic.model, mic.type);
+      }
+    }
+
+    // Channels
+    if (fd.channels) {
+      const list = document.getElementById('frm-channels-list');
+      list.innerHTML = '';
+      for (const [num, ch] of Object.entries(fd.channels)) {
+        const row = document.createElement('div');
+        row.className = 'frm-channel-row';
+        row.innerHTML = `<span>Ch ${num}:</span>
+          <input type="text" value="${ch.label || ''}" placeholder="Label" data-ch="${num}" data-field="label">
+          <input type="text" value="${ch.source || ''}" placeholder="Source" data-ch="${num}" data-field="source">`;
+        list.appendChild(row);
+      }
+    }
+
+    // Notes
+    s('frm-notes', fd.notes);
+  }
+
+  _readMetadataForm() {
+    const g = (id) => document.getElementById(id)?.value?.trim() || '';
+    const ch = (id) => document.getElementById(id)?.checked || false;
+
+    const tagsStr = g('frm-tags');
+    const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+    const gpsStr = g('frm-loc-gps');
+    let lat = '', lon = '';
+    if (gpsStr) {
+      const parts = gpsStr.split(',').map(s => s.trim());
+      if (parts.length === 2) { lat = parts[0]; lon = parts[1]; }
+    }
+
+    const accStr = g('frm-eq-acc');
+    const accessories = accStr ? accStr.split(',').map(a => a.trim()).filter(Boolean) : [];
+
+    // Collect mic rows
+    const mics = [];
+    document.querySelectorAll('#frm-mics-list .frm-mic-row').forEach(row => {
+      const inputs = row.querySelectorAll('input');
+      if (inputs.length >= 3) {
+        mics.push({ id: inputs[0].value.trim(), model: inputs[1].value.trim(), type: inputs[2].value.trim() });
+      }
+    });
+
+    // Collect channels
+    const channels = {};
+    document.querySelectorAll('#frm-channels-list .frm-channel-row input').forEach(inp => {
+      const num = inp.dataset.ch;
+      if (!channels[num]) channels[num] = {};
+      channels[num][inp.dataset.field] = inp.value.trim();
+    });
+
+    return {
+      session: { title: g('frm-title'), project: g('frm-project'), recordist: g('frm-recordist'), license: g('frm-license'), tags },
+      datetime: { start: g('frm-dt-start'), end: g('frm-dt-end'), timezone: g('frm-dt-tz') },
+      location: { name: g('frm-loc-name'), region: g('frm-loc-region'), latitude: lat, longitude: lon, elevation_m: g('frm-loc-elev'), environment: g('frm-loc-env') },
+      conditions: { weather: g('frm-cond-weather'), temperature_c: g('frm-cond-temp'), humidity_pct: g('frm-cond-hum'), wind: g('frm-cond-wind'), noise_floor: g('frm-cond-noise') },
+      equipment: {
+        recorder: { model: g('frm-eq-model'), sample_rate: g('frm-eq-sr'), bit_depth: g('frm-eq-bits'), gain_db: g('frm-eq-gain'), highpass_hz: g('frm-eq-hp'), limiter: ch('frm-eq-limiter'), phantom_power: ch('frm-eq-phantom'), plug_in_power: ch('frm-eq-pip') },
+        microphones: mics,
+        setup: g('frm-eq-setup'),
+        accessories
+      },
+      channels,
+      notes: g('frm-notes')
+    };
+  }
+
+  _downloadFRM() {
+    const data = this._readMetadataForm();
+    const text = serializeFRM(data);
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'session.frm.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+    this._setStatus('Downloaded session.frm.txt');
+
+    // Save sticky defaults
+    const rd = data.session?.recordist;
+    if (rd) localStorage.setItem('frm-default-recordist', rd);
+    const lic = data.session?.license;
+    if (lic) localStorage.setItem('frm-default-license', lic);
+    const tz = data.datetime?.timezone;
+    if (tz) localStorage.setItem('frm-default-timezone', tz);
+    const model = data.equipment?.recorder?.model;
+    if (model) localStorage.setItem('frm-default-recorder', model);
+  }
+
+  _addMicRow(id, model, type) {
+    const list = document.getElementById('frm-mics-list');
+    const row = document.createElement('div');
+    row.className = 'frm-mic-row';
+    row.innerHTML = `
+      <input type="text" placeholder="ID" value="${id || ''}">
+      <input type="text" placeholder="Model" value="${model || ''}">
+      <input type="text" placeholder="Type" value="${type || ''}">
+      <button class="btn btn-small" onclick="this.parentElement.remove()">&times;</button>`;
+    list.appendChild(row);
+  }
+
+  _applyMetadataDefaults() {
+    const s = (id, key) => {
+      const el = document.getElementById(id);
+      if (el && !el.value) {
+        const val = localStorage.getItem(key);
+        if (val) el.value = val;
+      }
+    };
+    s('frm-recordist', 'frm-default-recordist');
+    s('frm-license', 'frm-default-license');
+    s('frm-dt-tz', 'frm-default-timezone');
+    s('frm-eq-model', 'frm-default-recorder');
+  }
+
+  _populateLocationPresets() {
+    const presets = JSON.parse(localStorage.getItem('frm-location-presets') || '{}');
+    const sel = document.getElementById('frm-loc-preset');
+    sel.innerHTML = '<option value="">-- pick --</option>';
+    for (const name of Object.keys(presets).sort()) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    }
+  }
+
+  _applyLocationPreset(name) {
+    if (!name) return;
+    const presets = JSON.parse(localStorage.getItem('frm-location-presets') || '{}');
+    const p = presets[name];
+    if (!p) return;
+    document.getElementById('frm-loc-name').value = p.name || '';
+    document.getElementById('frm-loc-region').value = p.region || '';
+    document.getElementById('frm-loc-gps').value = p.gps || '';
+    document.getElementById('frm-loc-elev').value = p.elevation || '';
+    document.getElementById('frm-loc-env').value = p.environment || '';
+  }
+
+  _saveLocationPreset() {
+    const name = document.getElementById('frm-loc-name').value.trim();
+    if (!name) { this._setStatus('Enter a location name first'); return; }
+    const presets = JSON.parse(localStorage.getItem('frm-location-presets') || '{}');
+    presets[name] = {
+      name,
+      region: document.getElementById('frm-loc-region').value.trim(),
+      gps: document.getElementById('frm-loc-gps').value.trim(),
+      elevation: document.getElementById('frm-loc-elev').value.trim(),
+      environment: document.getElementById('frm-loc-env').value.trim()
+    };
+    localStorage.setItem('frm-location-presets', JSON.stringify(presets));
+    this._populateLocationPresets();
+    document.getElementById('frm-loc-preset').value = name;
+    this._setStatus(`Saved location preset: ${name}`);
+  }
+
+  _deleteLocationPreset() {
+    const sel = document.getElementById('frm-loc-preset');
+    const name = sel.value;
+    if (!name) return;
+    const presets = JSON.parse(localStorage.getItem('frm-location-presets') || '{}');
+    delete presets[name];
+    localStorage.setItem('frm-location-presets', JSON.stringify(presets));
+    this._populateLocationPresets();
+    this._setStatus(`Deleted location preset: ${name}`);
+  }
+
+  /**
+   * Get iXML string for embedding in exported WAV, or null if metadata not edited.
+   */
+  _getExportIXML() {
+    if (!document.getElementById('frm-apply-export')?.checked) return null;
+    if (!this._metadataPopulated) return null;
+    const formData = this._readMetadataForm();
+    try {
+      const ixmlMeta = formDataToIXML(formData, null, this.annotations);
+      return buildIXML(ixmlMeta);
+    } catch (e) {
+      console.warn('Failed to build iXML for export:', e);
+      return null;
+    }
   }
 }
 
