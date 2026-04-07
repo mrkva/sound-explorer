@@ -63,7 +63,7 @@ class App {
     this.annotationDialog = document.getElementById('annotation-dialog');
     this.annotationTimeInfo = document.getElementById('annotation-time-info');
     this.annotationNoteInput = document.getElementById('annotation-note');
-    this.annotationsSidebar = document.getElementById('annotations-sidebar');
+    this.annotationsSidebar = document.getElementById('app-sidebar');
     this.annotationsList = document.getElementById('annotations-list');
     this.annotationCount = document.getElementById('annotation-count');
     this._pendingSelection = null; // {start, end} in session time
@@ -455,6 +455,14 @@ class App {
     document.getElementById('btn-close-sidebar').addEventListener('click', () => {
       this.annotationsSidebar.classList.remove('open');
       this._resizeCanvas();
+      setTimeout(() => this._resizeCanvas(), 220);
+    });
+
+    // Tab switching
+    this.annotationsSidebar.querySelectorAll('.sidebar-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        if (tab.dataset.tab) this._switchSidebarTab(tab.dataset.tab);
+      });
     });
 
     document.getElementById('btn-export-annotations').addEventListener('click', () => {
@@ -2019,14 +2027,37 @@ class App {
     }
   }
 
-  // ── Annotations sidebar ──────────────────────────────────────────
+  // ── Tabbed sidebar ──────────────────────────────────────────────
 
   _toggleAnnotationsSidebar() {
-    this.annotationsSidebar.classList.toggle('open');
-    // After the CSS transition finishes, resize the canvas
+    this._toggleSidebar('annotations');
+  }
+
+  _toggleSidebar(tab) {
+    const sidebar = this.annotationsSidebar;
+    const isOpen = sidebar.classList.contains('open');
+    const currentTab = sidebar.querySelector('.sidebar-tab.active')?.dataset.tab;
+
+    if (isOpen && currentTab === tab) {
+      // Close sidebar
+      sidebar.classList.remove('open');
+    } else {
+      // Open sidebar and switch to requested tab
+      sidebar.classList.add('open');
+      this._switchSidebarTab(tab);
+    }
     this._resizeCanvas();
-    // Also resize after transition completes (200ms)
     setTimeout(() => this._resizeCanvas(), 220);
+  }
+
+  _switchSidebarTab(tab) {
+    const sidebar = this.annotationsSidebar;
+    sidebar.querySelectorAll('.sidebar-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.tab === tab);
+    });
+    sidebar.querySelectorAll('.sidebar-pane').forEach(p => {
+      p.classList.toggle('active', p.dataset.tab === tab);
+    });
   }
 
   _resizeCanvas() {
@@ -2237,8 +2268,6 @@ class App {
   // ── FRM session metadata ────────────────────────────────────────────
 
   _setupFRM() {
-    const modal = document.getElementById('frm-modal');
-    const closeBtn = document.getElementById('frm-close');
     const saveBtn = document.getElementById('frm-save');
     const saveAsBtn = document.getElementById('frm-save-as');
     const saveIxmlBtn = document.getElementById('frm-save-ixml');
@@ -2246,10 +2275,6 @@ class App {
     const openBtn = document.getElementById('btn-session-meta');
 
     openBtn.addEventListener('click', () => this._openFRMModal());
-    closeBtn.addEventListener('click', () => { modal.style.display = 'none'; });
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) modal.style.display = 'none';
-    });
     saveBtn.addEventListener('click', () => this._saveFRM());
     saveAsBtn.addEventListener('click', () => this._saveFRMAs());
     saveIxmlBtn.addEventListener('click', () => this._saveIXMLToFolder());
@@ -2273,12 +2298,6 @@ class App {
 
     // Tag autocomplete
     this._setupTagAutocomplete();
-
-    // Stop keyboard shortcuts when typing in the modal
-    modal.addEventListener('keydown', (e) => {
-      e.stopPropagation();
-      if (e.key === 'Escape') modal.style.display = 'none';
-    });
   }
 
   _openFRMModal() {
@@ -2300,7 +2319,7 @@ class App {
     // Populate location presets dropdown
     this._populateLocationPresets();
 
-    document.getElementById('frm-modal').style.display = 'flex';
+    this._toggleSidebar('metadata');
 
     let statusText = 'Auto-populated from BWF metadata';
     if (this._ixmlSource === 'ixml') statusText = 'Loaded from iXML chunk';

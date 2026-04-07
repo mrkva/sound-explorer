@@ -836,8 +836,8 @@ button.primary:hover { background: var(--btn-primary-hover); }
   gap: 8px;
 }
 
-/* ── Annotations sidebar (collapsible) ───────────────────────────── */
-.annotations-sidebar {
+/* ── Tabbed sidebar (Annotations + Metadata) ────────────────────── */
+.app-sidebar {
   width: 0;
   min-width: 0;
   background: var(--bg-secondary);
@@ -849,26 +849,59 @@ button.primary:hover { background: var(--btn-primary-hover); }
   flex-shrink: 0;
 }
 
-.annotations-sidebar.open {
-  width: 340px;
-  min-width: 340px;
+.app-sidebar.open {
+  width: 420px;
+  min-width: 420px;
 }
 
-.sidebar-header {
+.sidebar-tabs {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
+  align-items: stretch;
   border-bottom: 1px solid var(--border);
-  font-size: 12px;
-  font-weight: 600;
   flex-shrink: 0;
   white-space: nowrap;
 }
 
-.sidebar-header button {
-  padding: 2px 8px;
+.sidebar-tab {
+  flex: 1;
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.sidebar-tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+.sidebar-tab:hover:not(.active) {
+  color: var(--text-primary);
+}
+
+.sidebar-close {
+  padding: 4px 10px;
   font-size: 14px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sidebar-pane {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.sidebar-pane.active {
+  display: flex;
 }
 
 .sidebar-actions {
@@ -890,6 +923,21 @@ button.primary:hover { background: var(--btn-primary-hover); }
   overflow-y: auto;
   flex: 1;
   padding: 4px 0;
+}
+
+.sidebar-meta-status {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sidebar-meta-footer {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .annotation-item {
@@ -990,60 +1038,15 @@ button.primary:hover { background: var(--btn-primary-hover); }
   line-height: 1;
 }
 
-/* ── FRM Metadata Modal ──────────────────────────────────────────────── */
+/* ── FRM Metadata Styles ─────────────────────────────────────────────── */
 
-.frm-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.6);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.frm-modal-content {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  width: min(680px, 90vw);
-  max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-}
-.frm-modal-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 600;
-  font-size: 14px;
-}
-.frm-modal-header button {
-  margin-left: auto;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 20px;
-  cursor: pointer;
-}
 .frm-status {
   font-size: 11px;
   font-weight: normal;
   color: var(--text-dim);
 }
-.frm-modal-body {
-  overflow-y: auto;
-  padding: 8px 16px 16px;
-  flex: 1;
-}
-.frm-modal-footer {
-  display: flex;
-  gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
-  justify-content: flex-end;
+.frm-body {
+  padding: 8px 10px;
 }
 .frm-primary-btn {
   background: var(--accent);

@@ -199,15 +199,30 @@
       </div>
     </div>
 
-    <!-- FRM Metadata Modal -->
-    <div class="frm-modal" id="frm-modal" style="display:none;">
-      <div class="frm-modal-content">
-        <div class="frm-modal-header">
-          <span>Session Metadata</span>
-          <span id="frm-status" class="frm-status"></span>
-          <button id="frm-close" title="Close">&times;</button>
+    <!-- Tabbed sidebar (Annotations + Metadata) -->
+    <div class="app-sidebar" id="app-sidebar">
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" data-tab="annotations">Annotations (<span id="annotation-count">0</span>)</button>
+        <button class="sidebar-tab" data-tab="metadata">Metadata</button>
+        <button id="btn-close-sidebar" class="sidebar-close" title="Close sidebar">&times;</button>
+      </div>
+
+      <!-- Annotations tab -->
+      <div class="sidebar-pane active" data-tab="annotations">
+        <div class="sidebar-actions">
+          <button id="btn-export-all-wavs" title="Export all annotations as WAV files">Export All</button>
+          <button id="btn-export-annotations" title="Save annotations to JSON">Save</button>
+          <button id="btn-load-annotations" title="Load annotations from file">Load</button>
         </div>
-        <div class="frm-modal-body">
+        <div class="sidebar-body" id="annotations-list"></div>
+      </div>
+
+      <!-- Metadata tab -->
+      <div class="sidebar-pane" data-tab="metadata">
+        <div class="sidebar-meta-status">
+          <span id="frm-status" class="frm-status"></span>
+        </div>
+        <div class="sidebar-body frm-body">
 
           <details class="frm-section" open>
             <summary>Session</summary>
@@ -231,7 +246,7 @@
           <details class="frm-section" open>
             <summary>Location</summary>
             <div class="frm-row">
-              <label>Preset <select id="frm-loc-preset"><option value="">— pick location —</option></select></label>
+              <label>Preset <select id="frm-loc-preset"><option value="">-- pick location --</option></select></label>
               <button id="frm-loc-save-preset" class="frm-small-btn" title="Save current location as preset">&#x2795; Save</button>
               <button id="frm-loc-del-preset" class="frm-small-btn" title="Delete selected preset">&#x2796;</button>
             </div>
@@ -287,27 +302,13 @@
           </details>
 
         </div>
-        <div class="frm-modal-footer">
+        <div class="sidebar-meta-footer">
           <button id="frm-save-ixml" class="frm-primary-btn" title="Embed iXML metadata into all WAV files in the session folder">Save to WAV(s)</button>
           <button id="frm-save-ixml-file" class="frm-primary-btn" title="Embed iXML into the currently open WAV file">Save to File</button>
           <button id="frm-save" class="frm-secondary-btn" title="Save as session.frm.txt sidecar">Save .frm.txt</button>
           <button id="frm-save-as" class="frm-secondary-btn">Save As...</button>
         </div>
       </div>
-    </div>
-
-    <!-- Annotations sidebar (collapsible) -->
-    <div class="annotations-sidebar" id="annotations-sidebar">
-      <div class="sidebar-header">
-        <span>Annotations (<span id="annotation-count">0</span>)</span>
-        <button id="btn-close-sidebar" title="Close sidebar">&times;</button>
-      </div>
-      <div class="sidebar-actions">
-        <button id="btn-export-all-wavs" title="Export all annotations as WAV files">Export All</button>
-        <button id="btn-export-annotations" title="Save annotations to JSON">Save</button>
-        <button id="btn-load-annotations" title="Load annotations from file">Load</button>
-      </div>
-      <div class="sidebar-body" id="annotations-list"></div>
     </div>
   </div>
 
