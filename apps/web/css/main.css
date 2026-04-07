@@ -18,6 +18,7 @@
 }
 
 body.dark {
+  --bg-primary: #111111;
   --bg-secondary: #1a1a1a;
   --bg-tertiary: #111111;
   --text-primary: #e0e0e0;
@@ -681,7 +682,7 @@ body.dark .toolbar-logo {
 .vu-channel-label {
   font-size: 10px;
   font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
-  color: #888;
+  color: var(--text-secondary);
   width: 16px;
   text-align: right;
   flex-shrink: 0;
@@ -711,7 +712,7 @@ body.dark .toolbar-logo {
   top: 0;
   width: 2px;
   height: 100%;
-  background: #ffffff;
+  background: var(--text-primary);
 }
 
 .vu-channel-clip .vu-channel-cover {
@@ -721,7 +722,7 @@ body.dark .toolbar-logo {
 .vu-channel-db {
   font-size: 11px;
   font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
-  color: #ccc;
+  color: var(--text-secondary);
   width: 120px;
   text-align: right;
   flex-shrink: 0;
@@ -729,12 +730,12 @@ body.dark .toolbar-logo {
 }
 
 .vu-channel-db .vu-db-peak {
-  color: #fff;
+  color: var(--text-primary);
   font-weight: 500;
 }
 
 .vu-channel-db .vu-db-rms {
-  color: #888;
+  color: var(--text-secondary);
 }
 
 .vu-scale {
@@ -761,7 +762,7 @@ body.dark .toolbar-logo {
   top: 0;
   font-size: 9px;
   font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
-  color: #555;
+  color: var(--text-secondary);
   transform: translateX(-50%);
 }
 
@@ -770,7 +771,7 @@ body.dark .toolbar-logo {
   flex-shrink: 0;
   font-size: 9px;
   font-family: 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
-  color: #555;
+  color: var(--text-secondary);
   text-align: right;
 }
 
