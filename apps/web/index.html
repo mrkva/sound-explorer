@@ -131,7 +131,7 @@
       <div class="control-section">
         <span class="section-label">Audio</span>
         <div class="control-group">
-          <label class="ctrl-label" title="Audio amplification boost (0-60 dB)">Boost</label>
+          <label class="ctrl-label" title="Audio amplification gain (0-60 dB)">Gain</label>
           <input id="input-gain" type="range" min="0" max="60" value="0" step="1" class="slider">
           <span id="label-gain" class="ctrl-value">0 dB</span>
         </div>
@@ -144,14 +144,14 @@
       <div class="control-section">
         <span class="section-label">Spectrogram</span>
         <div class="control-group">
-          <label class="ctrl-label" title="Spectrogram brightness threshold">Brightness</label>
-          <input id="input-spec-gain" type="range" min="-60" max="0" value="-20" step="1" class="slider">
-          <span id="label-spec-gain" class="ctrl-value">-20 dB</span>
+          <label class="ctrl-label" title="Spectrogram gain — boost faint sounds">Gain</label>
+          <input id="input-spec-gain" type="range" min="0" max="80" value="0" step="1" class="slider">
+          <span id="label-spec-gain" class="ctrl-value">0 dB</span>
         </div>
         <div class="control-group">
-          <label class="ctrl-label" title="Spectrogram dynamic range floor">Floor</label>
-          <input id="input-spec-range" type="range" min="-120" max="-40" value="-100" step="1" class="slider">
-          <span id="label-spec-range" class="ctrl-value">-100 dB</span>
+          <label class="ctrl-label" title="Spectrogram dynamic range">Range</label>
+          <input id="input-spec-range" type="range" min="30" max="140" value="90" step="5" class="slider">
+          <span id="label-spec-range" class="ctrl-value">90 dB</span>
         </div>
         <div class="control-group">
           <label class="ctrl-label">FFT</label>
@@ -198,9 +198,10 @@
           <label class="ctrl-label">Preset</label>
           <select id="select-freq-preset" class="select select-small">
             <option value="full">Full</option>
-            <option value="bat">Bat</option>
-            <option value="bird">Bird</option>
-            <option value="audible">Audible</option>
+            <option value="bird">Birds</option>
+            <option value="voice">Voice</option>
+            <option value="low">Low</option>
+            <option value="mid">Mid</option>
           </select>
         </div>
         <div class="control-group">

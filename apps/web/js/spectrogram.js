@@ -32,8 +32,8 @@ export class SpectrogramRenderer {
     this.viewStart = 0;    // sample offset
     this.viewEnd = 0;      // sample offset
     this.fftSize = 2048;
-    this.dbMin = -100;
-    this.dbMax = -20;
+    this.dbMin = -90;
+    this.dbMax = 0;
     this.colormap = 'viridis';
     this.freqMin = 0;
     this.freqMax = 0;      // set from sampleRate

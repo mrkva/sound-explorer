@@ -490,73 +490,120 @@ button.primary:hover { background: var(--btn-primary-hover); }
   min-width: 42px;
 }
 
-/* VU meter */
-.vu-meter-container {
-  margin-left: 4px;
+/* Per-channel VU meter */
+.vu-meter-big {
+  width: 100%;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  padding: 6px 12px;
+  display: none;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.vu-channel-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  height: 20px;
 }
 
-.vu-meter {
-  width: 180px;
-  height: 18px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
+.vu-channel-label {
+  font-size: 10px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  color: var(--text-secondary);
+  width: 16px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.vu-channel-track {
+  flex: 1;
+  height: 16px;
+  background: linear-gradient(to right, var(--green), #4fc353 60%, #ddaa00 85%, var(--danger) 95%);
   border-radius: 2px;
   position: relative;
-  overflow: visible;
+  overflow: hidden;
 }
 
-.vu-fill {
+.vu-channel-cover {
+  position: absolute;
+  top: 0;
+  right: 0;
   height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg,
-    var(--green) 0%,
-    var(--green) 55%,
-    #ddaa00 75%,
-    var(--danger) 100%
-  );
-  transition: width 0.04s linear;
-  border-radius: 1px 0 0 1px;
+  background: var(--bg-secondary);
+  transition: width 80ms linear;
+  width: 100%;
 }
 
-.vu-peak-hold {
+.vu-channel-peak {
   position: absolute;
   top: 0;
   width: 2px;
   height: 100%;
   background: var(--text-primary);
-  opacity: 0.8;
-  left: 0%;
-  transition: left 0.04s linear;
 }
 
-.vu-scale {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  height: 10px;
-  pointer-events: none;
+.vu-channel-clip .vu-channel-cover {
+  display: none;
 }
 
-.vu-scale span {
-  position: absolute;
-  transform: translateX(-50%);
-  font-size: 8px;
-  color: var(--text-secondary);
-  line-height: 1;
-  margin-top: 2px;
-}
-
-.vu-dbfs-value {
-  font-size: 10px;
+.vu-channel-db {
+  font-size: 11px;
   font-family: 'SF Mono', 'Consolas', monospace;
   color: var(--text-secondary);
-  min-width: 38px;
+  width: 120px;
   text-align: right;
+  flex-shrink: 0;
   white-space: nowrap;
+}
+
+.vu-channel-db .vu-db-peak {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.vu-channel-db .vu-db-rms {
+  color: var(--text-secondary);
+}
+
+.vu-scale-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 14px;
+  margin-top: 1px;
+}
+
+.vu-scale-spacer {
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.vu-scale-track {
+  flex: 1;
+  position: relative;
+  height: 14px;
+}
+
+.vu-scale-mark {
+  position: absolute;
+  top: 0;
+  font-size: 9px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  transform: translateX(-50%);
+}
+
+.vu-scale-db-spacer {
+  width: 120px;
+  flex-shrink: 0;
+  font-size: 9px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  text-align: right;
 }
 
 /* ── Status bar ───────────────────────────────────────────────────── */

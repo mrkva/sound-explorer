@@ -15,6 +15,8 @@ class App {
     this.annotations = [];
     this._vuRAF = null;
     this._settingsTimer = null;
+    this._spectGain = 0;
+    this._spectRange = 90;
 
     this._initUI();
     this._initDragDrop();
@@ -129,16 +131,17 @@ class App {
     });
 
     document.getElementById('input-spec-gain').addEventListener('input', (e) => {
-      const val = parseFloat(e.target.value);
-      this.spectrogram.dbMax = val;
-      document.getElementById('label-spec-gain').textContent = `${val} dB`;
+      this._spectGain = parseFloat(e.target.value);
+      this.spectrogram.dbMax = this._spectGain;
+      this.spectrogram.dbMin = this._spectGain - this._spectRange;
+      document.getElementById('label-spec-gain').textContent = `${this._spectGain} dB`;
       this._debouncedRender();
     });
 
     document.getElementById('input-spec-range').addEventListener('input', (e) => {
-      const val = parseFloat(e.target.value);
-      this.spectrogram.dbMin = val;
-      document.getElementById('label-spec-range').textContent = `${val} dB`;
+      this._spectRange = parseFloat(e.target.value);
+      this.spectrogram.dbMin = this._spectGain - this._spectRange;
+      document.getElementById('label-spec-range').textContent = `${this._spectRange} dB`;
       this._debouncedRender();
     });
 
@@ -170,26 +173,20 @@ class App {
 
     document.getElementById('select-freq-preset').addEventListener('change', (e) => {
       const val = e.target.value;
-      if (val === 'full') {
-        document.getElementById('input-freq-min').value = 0;
+      const nyquist = this.wavInfos[0]?.sampleRate / 2 || 96000;
+      const presets = {
+        full:  [0, nyquist],
+        bird:  [100, 10000],
+        voice: [80, 4000],
+        low:   [20, 500],
+        mid:   [200, 8000],
+      };
+      const p = presets[val];
+      if (p) {
+        this.spectrogram.freqMin = p[0];
+        this.spectrogram.freqMax = Math.min(p[1], nyquist);
+        document.getElementById('input-freq-min').value = this.spectrogram.freqMin;
         document.getElementById('input-freq-max').value = this.spectrogram.freqMax;
-        this.spectrogram.freqMin = 0;
-      } else if (val === 'bat') {
-        document.getElementById('input-freq-min').value = 15000;
-        document.getElementById('input-freq-max').value = 150000;
-        this.spectrogram.freqMin = 15000;
-        this.spectrogram.freqMax = Math.min(150000, this.wavInfos[0]?.sampleRate / 2 || 150000);
-        document.getElementById('input-freq-max').value = this.spectrogram.freqMax;
-      } else if (val === 'bird') {
-        document.getElementById('input-freq-min').value = 1000;
-        document.getElementById('input-freq-max').value = 12000;
-        this.spectrogram.freqMin = 1000;
-        this.spectrogram.freqMax = 12000;
-      } else if (val === 'audible') {
-        document.getElementById('input-freq-min').value = 20;
-        document.getElementById('input-freq-max').value = 20000;
-        this.spectrogram.freqMin = 20;
-        this.spectrogram.freqMax = 20000;
       }
       this._renderSpectrogram();
     });
@@ -1035,9 +1032,11 @@ class App {
 
   _adjustSpecGain(delta) {
     const input = document.getElementById('input-spec-gain');
-    const newVal = parseFloat(input.value) + delta;
+    const newVal = Math.max(0, Math.min(80, parseFloat(input.value) + delta));
     input.value = newVal;
-    this.spectrogram.dbMax = newVal;
+    this._spectGain = newVal;
+    this.spectrogram.dbMax = this._spectGain;
+    this.spectrogram.dbMin = this._spectGain - this._spectRange;
     document.getElementById('label-spec-gain').textContent = `${newVal} dB`;
     this._debouncedRender();
   }

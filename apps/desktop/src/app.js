@@ -46,7 +46,10 @@ class App {
     this.colorPresetSelect = document.getElementById('color-preset');
     this.channelSelect = document.getElementById('channel-select');
     this.channelControl = document.getElementById('channel-control');
-    this.vuFill = document.getElementById('vu-fill');
+    this._bigVURows = [];
+    this._bigVUVisible = true;
+    this._peakHoldDuration = 1500;
+    this._peakDecayRate = 15;
     this.fileListPanel = document.getElementById('file-list-panel');
     this.fileListBody = document.getElementById('file-list-body');
     this.playbackFormatDisplay = document.getElementById('playback-format');
@@ -370,6 +373,10 @@ class App {
     // Annotations sidebar toggle
     document.getElementById('btn-annotations').addEventListener('click', () => {
       this._toggleAnnotationsSidebar();
+    });
+
+    document.getElementById('btn-vu').addEventListener('click', () => {
+      this._toggleBigVU();
     });
 
     document.getElementById('btn-close-annotation').addEventListener('click', () => {
@@ -796,6 +803,10 @@ class App {
     // Populate channel selector
     this._populateChannelSelector(session.channels);
 
+    // Set up per-channel VU meter
+    this.engine.setupChannelAnalysers(session.channels);
+    this._buildBigVUMeter(session.channels);
+
     // Show wall clock if available
     if (session.sessionStartTime !== null) {
       this.wallTimeGroup.style.display = '';
@@ -918,65 +929,170 @@ class App {
   }
 
 
+  _buildBigVUMeter(numChannels) {
+    const container = document.getElementById('vu-meter-big');
+    container.innerHTML = '';
+    this._bigVURows = [];
+
+    const labels = ['L', 'R', 'C', 'LFE', 'LS', 'RS'];
+
+    for (let i = 0; i < numChannels; i++) {
+      const row = document.createElement('div');
+      row.className = 'vu-channel-row';
+
+      const label = document.createElement('span');
+      label.className = 'vu-channel-label';
+      label.textContent = numChannels === 1 ? 'M' : (labels[i] || `${i + 1}`);
+      row.appendChild(label);
+
+      const track = document.createElement('div');
+      track.className = 'vu-channel-track';
+
+      const cover = document.createElement('div');
+      cover.className = 'vu-channel-cover';
+      cover.style.width = '100%';
+      track.appendChild(cover);
+
+      const peakBar = document.createElement('div');
+      peakBar.className = 'vu-channel-peak';
+      peakBar.style.left = '0%';
+      track.appendChild(peakBar);
+
+      row.appendChild(track);
+
+      const dbLabel = document.createElement('span');
+      dbLabel.className = 'vu-channel-db';
+      dbLabel.innerHTML = '<span class="vu-db-rms">\u2013\u221E</span> / <span class="vu-db-peak">\u2013\u221E</span>';
+      row.appendChild(dbLabel);
+
+      container.appendChild(row);
+      this._bigVURows.push({
+        cover, peakBar, track, dbLabel,
+        peakHoldDb: -100,
+        peakHoldTime: 0,
+      });
+    }
+
+    // dBFS scale row
+    const scaleRow = document.createElement('div');
+    scaleRow.className = 'vu-scale-row';
+
+    const scaleSpacer = document.createElement('span');
+    scaleSpacer.className = 'vu-scale-spacer';
+    scaleRow.appendChild(scaleSpacer);
+
+    const scaleTrack = document.createElement('div');
+    scaleTrack.className = 'vu-scale-track';
+
+    const marks = [-60, -48, -36, -24, -12, -6, -3, 0];
+    for (const db of marks) {
+      const mark = document.createElement('span');
+      mark.className = 'vu-scale-mark';
+      mark.style.left = ((db + 60) / 60 * 100) + '%';
+      mark.textContent = db === 0 ? '0' : String(db);
+      scaleTrack.appendChild(mark);
+    }
+    scaleRow.appendChild(scaleTrack);
+
+    const dbSpacer = document.createElement('span');
+    dbSpacer.className = 'vu-scale-db-spacer';
+    dbSpacer.textContent = 'RMS / Peak';
+    scaleRow.appendChild(dbSpacer);
+
+    container.appendChild(scaleRow);
+
+    container.style.display = this._bigVUVisible ? 'flex' : 'none';
+    this._updateVUButton();
+  }
+
+  _updateVUButton() {
+    const btn = document.getElementById('btn-vu');
+    if (!btn) return;
+    if (this._bigVUVisible) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  }
+
+  _toggleBigVU() {
+    this._bigVUVisible = !this._bigVUVisible;
+    document.getElementById('vu-meter-big').style.display =
+      this._bigVUVisible ? 'flex' : 'none';
+    this._updateVUButton();
+  }
+
   _startVUMeter() {
-    // Cancel previous loop if called again (prevents leak on session reload)
     if (this._vuRafId) cancelAnimationFrame(this._vuRafId);
 
-    const peakHold = document.getElementById('vu-peak-hold');
-    const dbfsValue = document.getElementById('vu-dbfs-value');
-    let peakHoldLevel = 0;
-    let peakHoldTimer = 0;
-    let wasPlaying = false;
-    const PEAK_HOLD_MS = 1500;
-    const PEAK_DECAY_RATE = 0.0005; // per ms
+    const bigRows = this._bigVURows;
     let lastTime = performance.now();
+    let lastTextUpdate = 0;
+    let wasPlaying = false;
 
-    const dbToPercent = (db) => Math.max(0, Math.min(100, (db + 60) / 60 * 100));
-
-    const update = () => {
-      const now = performance.now();
-      const dt = now - lastTime;
+    const update = (now) => {
+      const dt = (now - lastTime) / 1000;
       lastTime = now;
 
       if (this.engine.isPlaying) {
         wasPlaying = true;
-        const { peak } = this.engine.getLevels();
-        const dbfs = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
-        const pct = dbToPercent(dbfs);
-        this.vuFill.style.width = pct + '%';
 
-        if (pct >= peakHoldLevel) {
-          peakHoldLevel = pct;
-          peakHoldTimer = PEAK_HOLD_MS;
-        } else {
-          peakHoldTimer -= dt;
-          if (peakHoldTimer <= 0) {
-            peakHoldLevel = Math.max(pct, peakHoldLevel - PEAK_DECAY_RATE * dt * 100);
+        if (bigRows.length > 0 && this._bigVUVisible) {
+          const channels = this.engine.getChannelLevels();
+          const updateText = (now - lastTextUpdate) > 150;
+          if (updateText) lastTextUpdate = now;
+
+          for (let i = 0; i < bigRows.length && i < channels.length; i++) {
+            const ch = channels[i];
+            const r = bigRows[i];
+
+            const barW = Math.max(0, Math.min(100, (ch.peak + 60) / 60 * 100));
+            r.cover.style.width = (100 - barW) + '%';
+
+            if (ch.peak >= r.peakHoldDb) {
+              r.peakHoldDb = ch.peak;
+              r.peakHoldTime = now;
+            } else if (now - r.peakHoldTime > this._peakHoldDuration) {
+              r.peakHoldDb -= this._peakDecayRate * dt;
+              if (r.peakHoldDb < -100) r.peakHoldDb = -100;
+            }
+
+            const peakW = Math.max(0, Math.min(100, (r.peakHoldDb + 60) / 60 * 100));
+            r.peakBar.style.left = peakW + '%';
+
+            if (ch.peak >= -0.1) {
+              r.track.classList.add('vu-channel-clip');
+            } else {
+              r.track.classList.remove('vu-channel-clip');
+            }
+
+            if (updateText) {
+              const peakText = r.peakHoldDb <= -100 ? ' \u2013\u221E' : `${r.peakHoldDb.toFixed(1)}`;
+              const rmsText = ch.rms <= -100 ? ' \u2013\u221E' : `${ch.rms.toFixed(1)}`;
+              r.dbLabel.innerHTML =
+                `<span class="vu-db-rms">${rmsText}</span> / <span class="vu-db-peak">${peakText}</span>`;
+            }
           }
         }
-        peakHold.style.left = peakHoldLevel + '%';
-        peakHold.style.display = peakHoldLevel > 0 ? '' : 'none';
-
-        if (dbfs > -60) {
-          dbfsValue.textContent = dbfs.toFixed(1) + ' dB';
-          dbfsValue.style.color = dbfs > -3 ? 'var(--danger)' : dbfs > -10 ? 'var(--orange)' : '';
-        } else {
-          dbfsValue.textContent = '-\u221E';
-          dbfsValue.style.color = '';
-        }
       } else if (wasPlaying) {
-        // Reset once on stop, not every frame
         wasPlaying = false;
-        peakHoldLevel = 0;
-        peakHoldTimer = 0;
-        this.vuFill.style.width = '0%';
-        peakHold.style.display = 'none';
-        dbfsValue.textContent = '-\u221E';
-        dbfsValue.style.color = '';
+        this._stopVUMeter();
       }
+
       this._vuRafId = requestAnimationFrame(update);
     };
     this._vuRafId = requestAnimationFrame(update);
+  }
+
+  _stopVUMeter() {
+    for (const row of this._bigVURows) {
+      row.cover.style.width = '100%';
+      row.peakBar.style.left = '0%';
+      row.track.classList.remove('vu-channel-clip');
+      row.peakHoldDb = -100;
+      row.peakHoldTime = 0;
+      row.dbLabel.innerHTML = '<span class="vu-db-rms">\u2013\u221E</span> / <span class="vu-db-peak">\u2013\u221E</span>';
+    }
   }
 
   _formatTime(seconds) {

@@ -14,6 +14,11 @@ export class AudioEngine {
     this.gainNode = null;
     this.analyserNode = null;
 
+    // Per-channel analysers for VU meter
+    this._channelAnalysers = [];
+    this._channelBuffers = [];
+    this._channelSplitter = null;
+
     this.isPlaying = false;
     this.duration = 0;
     this.audioUrl = null;
@@ -219,6 +224,64 @@ export class AudioEngine {
       sumSq += data[i] * data[i];
     }
     return { peak, rms: Math.sqrt(sumSq / data.length) };
+  }
+
+  /**
+   * Set up per-channel analyser nodes for multi-channel VU metering.
+   */
+  setupChannelAnalysers(numChannels) {
+    if (this._channelSplitter) {
+      this._channelSplitter.disconnect();
+    }
+    this._channelAnalysers = [];
+    this._channelBuffers = [];
+
+    if (numChannels <= 1 || !this.audioContext) return;
+
+    this._channelSplitter = this.audioContext.createChannelSplitter(numChannels);
+    this.gainNode.connect(this._channelSplitter);
+
+    for (let i = 0; i < numChannels; i++) {
+      const analyser = this.audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      this._channelSplitter.connect(analyser, i);
+      this._channelAnalysers.push(analyser);
+      this._channelBuffers.push(new Float32Array(analyser.fftSize));
+    }
+  }
+
+  /**
+   * Get per-channel VU meter values in dBFS.
+   * @returns {Array<{peak: number, rms: number}>}
+   */
+  getChannelLevels() {
+    if (this._channelAnalysers.length === 0) {
+      // Mono or no splitter — use main analyser
+      const levels = this.getLevels();
+      return [{
+        peak: levels.peak > 0 ? 20 * Math.log10(levels.peak) : -100,
+        rms: levels.rms > 0 ? 20 * Math.log10(levels.rms) : -100,
+      }];
+    }
+    const results = [];
+    for (let ch = 0; ch < this._channelAnalysers.length; ch++) {
+      const analyser = this._channelAnalysers[ch];
+      const buf = this._channelBuffers[ch];
+      analyser.getFloatTimeDomainData(buf);
+      let peak = 0;
+      let sumSq = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const v = Math.abs(buf[i]);
+        if (v > peak) peak = v;
+        sumSq += buf[i] * buf[i];
+      }
+      const rms = Math.sqrt(sumSq / buf.length);
+      results.push({
+        peak: 20 * Math.log10(Math.max(peak, 1e-10)),
+        rms: 20 * Math.log10(Math.max(rms, 1e-10)),
+      });
+    }
+    return results;
   }
 
   /**
