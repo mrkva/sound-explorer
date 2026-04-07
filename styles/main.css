@@ -1086,6 +1086,31 @@ button.primary:hover { background: var(--btn-primary-hover); }
 .frm-wide {
   min-width: 220px;
 }
+.frm-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 10;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0 0 4px 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  display: none;
+}
+.frm-suggestions.open { display: block; }
+.frm-suggestion-item {
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.frm-suggestion-item:hover,
+.frm-suggestion-item.active {
+  background: var(--accent);
+  color: #fff;
+}
 .frm-subsection-header {
   display: flex;
   align-items: center;

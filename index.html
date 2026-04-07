@@ -215,7 +215,10 @@
             <label>Project <input type="text" id="frm-project" placeholder="Parent project or collection"></label>
             <label>Recordist <input type="text" id="frm-recordist" placeholder="Person who recorded"></label>
             <label>License <input type="text" id="frm-license" placeholder="e.g. CC BY-SA 4.0"></label>
-            <label>Tags <input type="text" id="frm-tags" placeholder="comma-separated: dawn-chorus, urban, birds"></label>
+            <div style="position:relative;">
+              <label>Tags <input type="text" id="frm-tags" placeholder="comma-separated: dawn-chorus, urban, birds" autocomplete="off"></label>
+              <div id="frm-tags-suggestions" class="frm-suggestions"></div>
+            </div>
           </details>
 
           <details class="frm-section" open>
@@ -227,6 +230,11 @@
 
           <details class="frm-section" open>
             <summary>Location</summary>
+            <div class="frm-row">
+              <label>Preset <select id="frm-loc-preset"><option value="">— pick location —</option></select></label>
+              <button id="frm-loc-save-preset" class="frm-small-btn" title="Save current location as preset">&#x2795; Save</button>
+              <button id="frm-loc-del-preset" class="frm-small-btn" title="Delete selected preset">&#x2796;</button>
+            </div>
             <label>Name <input type="text" id="frm-loc-name" placeholder="Human-readable place name"></label>
             <label>Region <input type="text" id="frm-loc-region" placeholder="City, country"></label>
             <div class="frm-row">

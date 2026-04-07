@@ -2136,6 +2136,20 @@ class App {
       this._addMicRow();
     });
 
+    // Location presets
+    document.getElementById('frm-loc-preset').addEventListener('change', (e) => {
+      this._applyLocationPreset(e.target.value);
+    });
+    document.getElementById('frm-loc-save-preset').addEventListener('click', () => {
+      this._saveLocationPreset();
+    });
+    document.getElementById('frm-loc-del-preset').addEventListener('click', () => {
+      this._deleteLocationPreset();
+    });
+
+    // Tag autocomplete
+    this._setupTagAutocomplete();
+
     // Stop keyboard shortcuts when typing in the modal
     modal.addEventListener('keydown', (e) => {
       e.stopPropagation();
@@ -2155,6 +2169,13 @@ class App {
     }
 
     this._populateFRMForm(this._frmData);
+
+    // Apply sticky defaults to empty fields
+    this._applyDefaults();
+
+    // Populate location presets dropdown
+    this._populateLocationPresets();
+
     document.getElementById('frm-modal').style.display = 'flex';
 
     let statusText = 'Auto-populated from BWF metadata';
@@ -2447,6 +2468,7 @@ class App {
     this._frmData = data;
     this._frmLoaded = true;
     this._ixmlSource = 'frm';
+    this._saveDefaults();
     document.getElementById('frm-status').textContent = 'Saved .frm.txt';
     this._setStatus(`Saved session metadata to ${frmPath.split(/[/\\]/).pop()}`);
   }
@@ -2570,6 +2592,7 @@ class App {
       this._frmData = formData;
       this._frmLoaded = true;
       this._ixmlSource = 'ixml';
+      this._saveDefaults();
       document.getElementById('frm-status').textContent = 'Saved to WAV files';
       this._setStatus(`iXML written to ${ok} WAV file${ok !== 1 ? 's' : ''}${fail > 0 ? ` (${fail} failed)` : ''}`);
     } catch (err) {
@@ -2596,12 +2619,225 @@ class App {
       this._frmData = formData;
       this._frmLoaded = true;
       this._ixmlSource = 'ixml';
+      this._saveDefaults();
       const fname = filePath.split(/[/\\]/).pop();
       document.getElementById('frm-status').textContent = `Saved to ${fname}`;
       this._setStatus(`iXML written to ${fname}`);
     } catch (err) {
       this._setStatus(`Error writing iXML: ${err.message}`);
     }
+  }
+
+  // ── Sticky defaults (localStorage) ───────────────────────────────────
+
+  _loadDefaults() {
+    try {
+      return JSON.parse(localStorage.getItem('fre-defaults') || '{}');
+    } catch { return {}; }
+  }
+
+  _saveDefaults() {
+    const d = this._loadDefaults();
+    const v = (id) => document.getElementById(id).value.trim();
+    if (v('frm-recordist')) d.recordist = v('frm-recordist');
+    if (v('frm-license')) d.license = v('frm-license');
+    if (v('frm-dt-tz')) d.timezone = v('frm-dt-tz');
+    if (v('frm-eq-model')) d.recorder_model = v('frm-eq-model');
+    localStorage.setItem('fre-defaults', JSON.stringify(d));
+
+    // Also persist tags
+    this._persistTags();
+  }
+
+  _applyDefaults() {
+    const d = this._loadDefaults();
+    const fill = (id, val) => {
+      const el = document.getElementById(id);
+      if (el && !el.value.trim() && val) el.value = val;
+    };
+    fill('frm-recordist', d.recordist);
+    fill('frm-license', d.license);
+    fill('frm-dt-tz', d.timezone);
+    fill('frm-eq-model', d.recorder_model);
+  }
+
+  // ── Location presets (localStorage) ──────────────────────────────────
+
+  _loadLocationPresets() {
+    try {
+      return JSON.parse(localStorage.getItem('fre-locations') || '[]');
+    } catch { return []; }
+  }
+
+  _populateLocationPresets() {
+    const sel = document.getElementById('frm-loc-preset');
+    const presets = this._loadLocationPresets();
+    sel.innerHTML = '<option value="">— pick location —</option>';
+    for (let i = 0; i < presets.length; i++) {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = presets[i].label;
+      sel.appendChild(opt);
+    }
+  }
+
+  _applyLocationPreset(indexStr) {
+    if (indexStr === '') return;
+    const presets = this._loadLocationPresets();
+    const p = presets[parseInt(indexStr)];
+    if (!p) return;
+    document.getElementById('frm-loc-name').value = p.name || '';
+    document.getElementById('frm-loc-region').value = p.region || '';
+    document.getElementById('frm-loc-gps').value = p.gps || '';
+    document.getElementById('frm-loc-elev').value = p.elevation || '';
+    document.getElementById('frm-loc-env').value = p.environment || '';
+  }
+
+  _saveLocationPreset() {
+    const name = document.getElementById('frm-loc-name').value.trim();
+    const region = document.getElementById('frm-loc-region').value.trim();
+    const gps = document.getElementById('frm-loc-gps').value.trim();
+    if (!name && !gps) {
+      this._setStatus('Fill in at least a location name or GPS before saving');
+      return;
+    }
+    const label = window.prompt('Preset name:', name + (region ? ', ' + region : ''));
+    if (!label) return;
+
+    const preset = {
+      label,
+      name,
+      region,
+      gps,
+      elevation: document.getElementById('frm-loc-elev').value.trim(),
+      environment: document.getElementById('frm-loc-env').value.trim(),
+    };
+    const presets = this._loadLocationPresets();
+    presets.push(preset);
+    localStorage.setItem('fre-locations', JSON.stringify(presets));
+    this._populateLocationPresets();
+    // Select the newly added preset
+    document.getElementById('frm-loc-preset').value = String(presets.length - 1);
+    this._setStatus(`Location preset "${label}" saved`);
+  }
+
+  _deleteLocationPreset() {
+    const sel = document.getElementById('frm-loc-preset');
+    const idx = parseInt(sel.value);
+    if (isNaN(idx)) return;
+    const presets = this._loadLocationPresets();
+    if (!presets[idx]) return;
+    const label = presets[idx].label;
+    presets.splice(idx, 1);
+    localStorage.setItem('fre-locations', JSON.stringify(presets));
+    this._populateLocationPresets();
+    this._setStatus(`Deleted location preset "${label}"`);
+  }
+
+  // ── Tag autocomplete (localStorage) ──────────────────────────────────
+
+  _loadTagHistory() {
+    try {
+      return JSON.parse(localStorage.getItem('fre-tags') || '[]');
+    } catch { return []; }
+  }
+
+  _persistTags() {
+    const tagsStr = document.getElementById('frm-tags').value.trim();
+    if (!tagsStr) return;
+    const newTags = tagsStr.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+    const history = this._loadTagHistory();
+    // Prepend new tags, dedupe, cap at 200
+    const set = new Set(newTags);
+    for (const t of history) set.add(t);
+    const merged = [...set].slice(0, 200);
+    localStorage.setItem('fre-tags', JSON.stringify(merged));
+  }
+
+  _setupTagAutocomplete() {
+    const input = document.getElementById('frm-tags');
+    const container = document.getElementById('frm-tags-suggestions');
+    let activeIdx = -1;
+
+    input.addEventListener('input', () => {
+      this._updateTagSuggestions();
+    });
+
+    input.addEventListener('keydown', (e) => {
+      const items = container.querySelectorAll('.frm-suggestion-item');
+      if (!container.classList.contains('open') || items.length === 0) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIdx = Math.min(activeIdx + 1, items.length - 1);
+        items.forEach((el, i) => el.classList.toggle('active', i === activeIdx));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIdx = Math.max(activeIdx - 1, 0);
+        items.forEach((el, i) => el.classList.toggle('active', i === activeIdx));
+      } else if (e.key === 'Tab' || e.key === 'Enter') {
+        if (activeIdx >= 0 && items[activeIdx]) {
+          e.preventDefault();
+          this._acceptTagSuggestion(items[activeIdx].textContent);
+        }
+      }
+    });
+
+    input.addEventListener('blur', () => {
+      // Delay to allow click on suggestion
+      setTimeout(() => {
+        container.classList.remove('open');
+        activeIdx = -1;
+      }, 150);
+    });
+  }
+
+  _updateTagSuggestions() {
+    const input = document.getElementById('frm-tags');
+    const container = document.getElementById('frm-tags-suggestions');
+    const val = input.value;
+    const lastComma = val.lastIndexOf(',');
+    const current = (lastComma >= 0 ? val.slice(lastComma + 1) : val).trim().toLowerCase();
+
+    if (current.length === 0) {
+      container.classList.remove('open');
+      return;
+    }
+
+    // Tags already in the input (to exclude from suggestions)
+    const existing = new Set(val.split(',').map(t => t.trim().toLowerCase()).filter(Boolean));
+    const history = this._loadTagHistory();
+    const matches = history
+      .filter(t => t.startsWith(current) && !existing.has(t))
+      .slice(0, 8);
+
+    if (matches.length === 0) {
+      container.classList.remove('open');
+      return;
+    }
+
+    container.innerHTML = matches.map(t =>
+      `<div class="frm-suggestion-item">${this._escapeHtml(t)}</div>`
+    ).join('');
+    container.classList.add('open');
+
+    container.querySelectorAll('.frm-suggestion-item').forEach(el => {
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        this._acceptTagSuggestion(el.textContent);
+      });
+    });
+  }
+
+  _acceptTagSuggestion(tag) {
+    const input = document.getElementById('frm-tags');
+    const container = document.getElementById('frm-tags-suggestions');
+    const val = input.value;
+    const lastComma = val.lastIndexOf(',');
+    const before = lastComma >= 0 ? val.slice(0, lastComma + 1) + ' ' : '';
+    input.value = before + tag + ', ';
+    container.classList.remove('open');
+    input.focus();
   }
 }
 
