@@ -1,7 +1,7 @@
 /* Sound Explorer — LOM aesthetic, light + dark modes */
 
 :root {
-  --bg-primary: #000000;
+  --bg-primary: #ffffff;
   --bg-secondary: #ececec;
   --bg-tertiary: #d8d8d8;
   --text-primary: #000000;
@@ -12,9 +12,9 @@
   --input-bg: #ffffff;
   --slider-track: #cccccc;
   --slider-thumb: #000000;
-  --vu-bg: #1a1a1a;
-  --vu-border: #444444;
-  --info-text: #888888;
+  --vu-bg: #d8d8d8;
+  --vu-border: #bbbbbb;
+  --info-text: #666666;
 }
 
 body.dark {
