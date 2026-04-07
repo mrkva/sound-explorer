@@ -312,17 +312,20 @@
     </div>
   </div>
 
+  <!-- Waveform overview / minimap -->
+  <canvas id="overview-canvas" height="30"></canvas>
+
   <!-- Bottom bar: spectrogram settings (scrollable) -->
   <div class="bottom-bar">
     <div class="controls-section">
       <span class="section-label">Audio</span>
       <div class="control-item gain-control">
-        <label for="audio-gain">Gain</label>
+        <label for="audio-gain" title="Pre-playback amplification — boosts quiet recordings">Gain</label>
         <input type="range" id="audio-gain" min="0" max="60" value="0" step="1">
         <span id="audio-gain-value" class="gain-value">0 dB</span>
       </div>
       <div class="control-item">
-        <label for="volume">Vol</label>
+        <label for="volume" title="Playback volume">Vol</label>
         <input type="range" id="volume" min="0" max="1" step="0.01" value="1">
       </div>
       <div class="control-item">
@@ -341,17 +344,17 @@
     <div class="controls-section">
       <span class="section-label">Spectrogram</span>
       <div class="control-item gain-control">
-        <label for="spect-gain">Gain</label>
+        <label for="spect-gain" title="Spectrogram display brightness (dB offset)">Brightness</label>
         <input type="range" id="spect-gain" min="0" max="80" value="0" step="1">
         <span id="spect-gain-value" class="gain-value">0 dB</span>
       </div>
       <div class="control-item">
-        <label for="dynamic-range">Range</label>
+        <label for="dynamic-range" title="Dynamic range — lower values = higher contrast">Contrast</label>
         <input type="range" id="dynamic-range" min="30" max="140" value="90" step="5">
         <span id="range-value">90 dB</span>
       </div>
       <div class="control-item">
-        <label for="fft-size">FFT</label>
+        <label for="fft-size" title="Frequency resolution — larger = finer detail but lower time precision">FFT</label>
         <select id="fft-size">
           <option value="128">128</option>
           <option value="256">256</option>
@@ -365,7 +368,7 @@
         </select>
       </div>
       <div class="control-item">
-        <label for="color-preset">Colors</label>
+        <label for="color-preset" title="Color scheme for spectrogram display">Colors</label>
         <select id="color-preset">
           <option value="viridis" selected>Viridis</option>
           <option value="magma">Magma</option>
@@ -376,7 +379,7 @@
         </select>
       </div>
       <div class="control-item" id="channel-control" style="display:none;">
-        <label for="channel-select">Ch</label>
+        <label for="channel-select" title="Which audio channel to analyze">Ch</label>
         <select id="channel-select">
           <option value="-1">Mix</option>
         </select>
@@ -388,15 +391,15 @@
     <div class="controls-section">
       <span class="section-label">Frequency</span>
       <div class="control-item">
-        <label for="min-freq">Min</label>
+        <label for="min-freq" title="Lowest displayed frequency (Hz)">Min</label>
         <input type="number" id="min-freq" value="0" min="0" max="48000" step="100">
       </div>
       <div class="control-item">
-        <label for="max-freq">Max</label>
+        <label for="max-freq" title="Highest displayed frequency (Hz)">Max</label>
         <input type="number" id="max-freq" value="22050" min="500" max="96000" step="500">
       </div>
       <div class="control-item">
-        <label for="freq-preset">Preset</label>
+        <label for="freq-preset" title="Quick presets for common frequency ranges">Preset</label>
         <select id="freq-preset">
           <option value="full">Full</option>
           <option value="bird">Birds</option>
@@ -406,7 +409,7 @@
         </select>
       </div>
       <div class="control-item">
-        <label for="log-freq">Log</label>
+        <label for="log-freq" title="Logarithmic frequency scale — better matches human hearing">Log</label>
         <input type="checkbox" id="log-freq">
       </div>
     </div>

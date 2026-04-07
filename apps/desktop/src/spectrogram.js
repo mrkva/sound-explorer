@@ -85,6 +85,10 @@ export class SpectrogramRenderer {
     // Last known playback time (so draw() can show cursor without explicit arg)
     this._lastPlaybackTime = null;
 
+    // Crosshair hover position (null = not hovering)
+    this._hoverX = null;
+    this._hoverY = null;
+
     // Web Worker pool for parallel FFT
     this._workers = [];
     this._workerReady = [];
@@ -1106,6 +1110,64 @@ export class SpectrogramRenderer {
       }
     }
 
+    // Crosshair cursor
+    if (this._hoverX !== null && this._hoverY !== null &&
+        this._hoverX >= 50 && this._hoverX <= width - 10 &&
+        this._hoverY >= 0 && this._hoverY < height - 40) {
+      const isDark = t.canvasBg === '#1a1a1a' || t.canvasBg === '#000000' || t.canvasBg === '#111111';
+      const lineColor = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)';
+      const labelBg = isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.8)';
+      const labelColor = isDark ? '#ccc' : '#333';
+
+      this.ctx.save();
+      this.ctx.setLineDash([4, 4]);
+      this.ctx.strokeStyle = lineColor;
+      this.ctx.lineWidth = 1;
+
+      // Vertical line (time)
+      this.ctx.beginPath();
+      this.ctx.moveTo(this._hoverX, 0);
+      this.ctx.lineTo(this._hoverX, height - 40);
+      this.ctx.stroke();
+
+      // Horizontal line (frequency)
+      this.ctx.beginPath();
+      this.ctx.moveTo(50, this._hoverY);
+      this.ctx.lineTo(width - 10, this._hoverY);
+      this.ctx.stroke();
+
+      this.ctx.setLineDash([]);
+
+      // Labels
+      this.ctx.font = '10px monospace';
+      const hoverTime = this.canvasXToTime(this._hoverX);
+      const hoverFreq = this.canvasYToFreq(this._hoverY);
+
+      // Time label at bottom of vertical line
+      if (hoverTime >= this.viewStart && hoverTime <= this.viewEnd) {
+        const timeStr = this._formatDuration(hoverTime);
+        const tw = this.ctx.measureText(timeStr).width + 6;
+        const tx = Math.min(this._hoverX - tw / 2, width - 10 - tw);
+        this.ctx.fillStyle = labelBg;
+        this.ctx.fillRect(Math.max(50, tx), height - 39, tw, 14);
+        this.ctx.fillStyle = labelColor;
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(timeStr, Math.max(50 + tw / 2, this._hoverX), height - 28);
+      }
+
+      // Frequency label at left edge
+      if (hoverFreq !== null) {
+        const freqStr = hoverFreq >= 1000 ? (hoverFreq / 1000).toFixed(1) + ' kHz' : Math.round(hoverFreq) + ' Hz';
+        this.ctx.fillStyle = labelBg;
+        this.ctx.fillRect(0, this._hoverY - 7, 48, 14);
+        this.ctx.fillStyle = labelColor;
+        this.ctx.textAlign = 'right';
+        this.ctx.fillText(freqStr, 46, this._hoverY + 4);
+      }
+
+      this.ctx.restore();
+    }
+
     // Playback cursor
     if (cursorTime !== null && cursorTime !== undefined && cursorTime >= this.viewStart && cursorTime <= this.viewEnd) {
       const spectWidth = width - 60;
@@ -1126,6 +1188,9 @@ export class SpectrogramRenderer {
       this.ctx.closePath();
       this.ctx.fill();
     }
+
+    // Update overview minimap
+    this._drawOverview();
   }
 
   _drawFileBoundaries(canvasWidth, canvasHeight) {
@@ -1653,6 +1718,142 @@ export class SpectrogramRenderer {
     this._scrollbar.style.display = thumbRatio >= 0.99 ? 'none' : 'block';
   }
 
+  // --- Waveform overview / minimap ---
+
+  setOverviewCanvas(canvas) {
+    this._overviewCanvas = canvas;
+    this._overviewCtx = canvas.getContext('2d');
+    this._overviewData = null;
+    this._overviewDragging = false;
+
+    canvas.addEventListener('mousedown', (e) => {
+      this._overviewDragging = true;
+      this._overviewNavigate(e.offsetX);
+    });
+    canvas.addEventListener('mousemove', (e) => {
+      if (this._overviewDragging) this._overviewNavigate(e.offsetX);
+    });
+    canvas.addEventListener('mouseup', () => { this._overviewDragging = false; });
+    canvas.addEventListener('mouseleave', () => { this._overviewDragging = false; });
+
+    new ResizeObserver(() => {
+      canvas.width = Math.floor(canvas.clientWidth);
+      canvas.height = 30;
+      if (this._overviewData) this._drawOverview();
+    }).observe(canvas);
+  }
+
+  _overviewNavigate(x) {
+    if (!this._overviewCanvas || !this.session) return;
+    const frac = x / this._overviewCanvas.width;
+    const centerTime = frac * this.totalDuration;
+    const viewDuration = this.viewEnd - this.viewStart;
+    let newStart = centerTime - viewDuration / 2;
+    let newEnd = newStart + viewDuration;
+    if (newStart < 0) { newEnd -= newStart; newStart = 0; }
+    if (newEnd > this.totalDuration) { newStart -= (newEnd - this.totalDuration); newEnd = this.totalDuration; }
+    this.setView(Math.max(0, newStart), newEnd);
+    this.computeIfNeeded();
+  }
+
+  async computeOverview() {
+    if (!this.session || !this._overviewCanvas) return;
+    const w = this._overviewCanvas.clientWidth || 800;
+    if (w <= 0) return;
+
+    const totalSamples = Math.floor(this.totalDuration * this.session.sampleRate);
+    const blocksPerPixel = Math.max(1, Math.floor(totalSamples / w));
+    const data = new Float32Array(w);
+
+    // Read in chunks
+    const chunkPixels = 200;
+    const chunkSamples = chunkPixels * blocksPerPixel;
+
+    for (let px = 0; px < w; px += chunkPixels) {
+      const startSample = px * blocksPerPixel;
+      const count = Math.min(chunkSamples, totalSamples - startSample);
+      if (count <= 0) break;
+
+      try {
+        const samples = await this._readPCMRange(startSample, count);
+        for (let p = 0; p < chunkPixels && (px + p) < w; p++) {
+          const from = p * blocksPerPixel;
+          const to = Math.min(from + blocksPerPixel, samples.length);
+          let peak = 0;
+          for (let i = from; i < to; i++) {
+            const abs = Math.abs(samples[i]);
+            if (abs > peak) peak = abs;
+          }
+          data[px + p] = peak;
+        }
+      } catch (e) {
+        // Skip on error
+      }
+    }
+
+    this._overviewData = data;
+    this._overviewCanvas.classList.add('visible');
+    this._overviewCanvas.width = Math.floor(this._overviewCanvas.clientWidth);
+    this._overviewCanvas.height = 30;
+    this._drawOverview();
+  }
+
+  _drawOverview() {
+    if (!this._overviewCtx || !this._overviewData) return;
+    const ctx = this._overviewCtx;
+    const w = this._overviewCanvas.width;
+    const h = this._overviewCanvas.height;
+    const data = this._overviewData;
+
+    // Clear
+    const t = this._theme;
+    const isDark = t.canvasBg === '#1a1a1a' || t.canvasBg === '#000000' || t.canvasBg === '#111111';
+    ctx.fillStyle = isDark ? '#111' : '#d8d8d8';
+    ctx.fillRect(0, 0, w, h);
+
+    // Draw waveform (mirrored)
+    ctx.fillStyle = isDark ? '#555' : '#888';
+    const mid = h / 2;
+    const scale = w / data.length;
+    for (let i = 0; i < data.length; i++) {
+      const amp = Math.min(1, data[i]) * mid;
+      if (amp < 0.5) continue;
+      const x = Math.floor(i * scale);
+      ctx.fillRect(x, mid - amp, Math.max(1, Math.ceil(scale)), amp * 2);
+    }
+
+    // Viewport indicator
+    if (this.totalDuration > 0) {
+      const vx1 = (this.viewStart / this.totalDuration) * w;
+      const vx2 = (this.viewEnd / this.totalDuration) * w;
+      ctx.fillStyle = isDark ? 'rgba(90,159,212,0.25)' : 'rgba(58,122,191,0.2)';
+      ctx.fillRect(vx1, 0, vx2 - vx1, h);
+      ctx.strokeStyle = isDark ? 'rgba(90,159,212,0.6)' : 'rgba(58,122,191,0.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(vx1, 0, vx2 - vx1, h);
+
+      // Dim outside trim bounds
+      if (this.trimStart != null && this.trimEnd != null) {
+        const tx1 = (this.trimStart / this.totalDuration) * w;
+        const tx2 = (this.trimEnd / this.totalDuration) * w;
+        ctx.fillStyle = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
+        ctx.fillRect(0, 0, tx1, h);
+        ctx.fillRect(tx2, 0, w - tx2, h);
+      }
+
+      // Playback cursor
+      if (this._lastPlaybackTime !== null) {
+        const cx = (this._lastPlaybackTime / this.totalDuration) * w;
+        ctx.strokeStyle = this._getCursorColor();
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx, 0);
+        ctx.lineTo(cx, h);
+        ctx.stroke();
+      }
+    }
+  }
+
   _setupInteraction() {
     let computeTimeout = null;
 
@@ -1727,14 +1928,17 @@ export class SpectrogramRenderer {
         scheduleCompute();
       }
 
-      // Report cursor position (time + frequency)
+      // Report cursor position (time + frequency) + track crosshair
+      const rect = this.canvas.getBoundingClientRect();
+      this._hoverX = e.clientX - rect.left;
+      this._hoverY = e.clientY - rect.top;
       if (this.onCursorMove) {
-        const rect = this.canvas.getBoundingClientRect();
-        const canvasX = e.clientX - rect.left;
-        const canvasY = e.clientY - rect.top;
-        const time = this.canvasXToTime(canvasX);
-        const freq = this.canvasYToFreq(canvasY);
+        const time = this.canvasXToTime(this._hoverX);
+        const freq = this.canvasYToFreq(this._hoverY);
         this.onCursorMove(time, freq);
+      }
+      if (!this._isSelecting && !this.isDragging) {
+        this.draw();
       }
     });
 
@@ -1779,8 +1983,11 @@ export class SpectrogramRenderer {
     this.canvas.addEventListener('mouseleave', () => {
       this._isSelecting = false;
       this.isDragging = false;
+      this._hoverX = null;
+      this._hoverY = null;
       this.canvas.style.cursor = 'crosshair';
       if (this.onCursorMove) this.onCursorMove(null, null);
+      this.draw();
     });
   }
 }

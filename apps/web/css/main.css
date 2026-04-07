@@ -537,6 +537,7 @@ body.dark .toolbar-logo {
   inset: 0;
   width: 100%;
   height: 100%;
+  touch-action: none;
 }
 
 .cursor-line {
@@ -582,6 +583,19 @@ body.dark .toolbar-logo {
 
 /* --- Bottom bar --- */
 
+.bottom-toggle {
+  display: none;
+  width: 100%;
+  height: 24px;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 #bottom-bar {
   display: flex;
   align-items: center;
@@ -595,6 +609,16 @@ body.dark .toolbar-logo {
   border-top: 2px solid var(--border);
   flex-wrap: wrap;
   min-height: 38px;
+  transition: max-height 0.2s ease, padding 0.2s ease, min-height 0.2s ease;
+  overflow: hidden;
+}
+
+#bottom-bar.collapsed {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  min-height: 0;
+  border-top: none;
 }
 
 .control-section {
@@ -1054,11 +1078,40 @@ dialog h4 {
   color: #d94444;
 }
 
+/* --- Waveform overview / minimap --- */
+#overview-canvas {
+  width: 100%;
+  height: 30px;
+  flex-shrink: 0;
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  display: none;
+}
+
+#overview-canvas.visible {
+  display: block;
+}
+
+/* --- Keyboard focus indicators --- */
+.btn:focus-visible,
+.select:focus-visible,
+.input:focus-visible,
+.slider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ==========================================================================
    Mobile / touch layout (≤768px)
    ========================================================================== */
 
 @media (max-width: 768px) {
+  /* --- Bottom bar toggle visible on mobile --- */
+  .bottom-toggle {
+    display: block;
+  }
+
   /* --- Drop zone: mobile friendly --- */
   .drop-hint-desktop {
     display: none !important;
@@ -1206,11 +1259,11 @@ dialog h4 {
   }
 
   /* --- Canvas: annotations panel fullscreen on mobile --- */
-  .annotations-panel {
+  .app-sidebar.open {
     position: fixed;
     inset: 0;
-    width: 100%;
-    min-width: 0;
+    width: 100% !important;
+    min-width: 0 !important;
     z-index: 50;
     border-left: none;
   }

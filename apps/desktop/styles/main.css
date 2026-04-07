@@ -1208,3 +1208,26 @@ button.primary:hover { background: var(--btn-primary-hover); }
 .frm-channel-entry span { min-width: 24px; text-align: right; }
 .frm-channel-entry .frm-ch-label { flex: 1; }
 .frm-channel-entry .frm-ch-source { width: 80px; }
+
+/* --- Waveform overview / minimap --- */
+#overview-canvas {
+  width: 100%;
+  height: 30px;
+  flex-shrink: 0;
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  display: none;
+}
+
+#overview-canvas.visible {
+  display: block;
+}
+
+/* --- Keyboard focus indicators --- */
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

@@ -43,6 +43,10 @@ class App {
     const canvas = document.getElementById('spectrogram-canvas');
     this.spectrogram = new SpectrogramRenderer(canvas);
 
+    // Waveform overview / minimap
+    const overviewEl = document.getElementById('overview-canvas');
+    if (overviewEl) this.spectrogram.setOverviewCanvas(overviewEl);
+
     // Toolbar buttons
     document.getElementById('btn-open').addEventListener('click', () => {
       document.getElementById('file-input').click();
@@ -131,6 +135,23 @@ class App {
     document.getElementById('btn-close-shortcuts').addEventListener('click', () => {
       document.getElementById('shortcuts-dialog').close();
     });
+
+    // Collapsible bottom bar (mobile)
+    const bottomBar = document.getElementById('bottom-bar');
+    const bottomToggle = document.getElementById('btn-toggle-bottom');
+    if (bottomToggle) {
+      const savedCollapsed = localStorage.getItem('bottomBarCollapsed');
+      if (savedCollapsed === 'true' || (savedCollapsed === null && window.innerWidth <= 768)) {
+        bottomBar.classList.add('collapsed');
+        bottomToggle.innerHTML = '&#9650; Settings';
+      }
+      bottomToggle.addEventListener('click', () => {
+        bottomBar.classList.toggle('collapsed');
+        const collapsed = bottomBar.classList.contains('collapsed');
+        bottomToggle.innerHTML = collapsed ? '&#9650; Settings' : '&#9660; Settings';
+        localStorage.setItem('bottomBarCollapsed', collapsed);
+      });
+    }
 
     // Bottom bar controls
     document.getElementById('input-gain').addEventListener('input', (e) => {
@@ -377,6 +398,9 @@ class App {
       this._showComputing(true);
       await this.spectrogram.setFiles(wavInfos);
       this._showComputing(false);
+
+      // Compute waveform overview in background
+      this.spectrogram.computeOverview();
 
       // Load first file for audio
       this._setStatus('Preparing audio...');

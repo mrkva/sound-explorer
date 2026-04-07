@@ -48,6 +48,10 @@ export class SpectrogramRenderer {
     this.trimStart = null;
     this.trimEnd = null;
 
+    // Crosshair cursor position (null = not hovering)
+    this._cursorX = null;
+    this._cursorY = null;
+
     // Playback cursor
     this._lastPlaybackTime = null;
 
@@ -119,13 +123,18 @@ export class SpectrogramRenderer {
     });
 
     c.addEventListener('mousemove', (e) => {
-      // Update cursor info
+      // Update cursor info + crosshair position
+      this._cursorX = e.offsetX;
+      this._cursorY = e.offsetY;
       if (this.wavInfo && this.onCursorMove) {
         const time = this._xToTime(e.offsetX);
         const freq = this._yToFreq(e.offsetY);
         if (time !== null && freq !== null) {
           this.onCursorMove(time, freq);
         }
+      }
+      if (!this._isDragging && this._lastBitmap) {
+        this._drawStretched();
       }
 
       if (!this._isDragging) return;
@@ -169,11 +178,147 @@ export class SpectrogramRenderer {
           this.onSeek(time / this.wavInfo.sampleRate);
         }
       }
+      // Validate minimum selection duration (0.1s)
+      if (this._isDragging && this._dragButton === 0 && this._dragMoved &&
+          this.selectionStart !== null && this.wavInfo) {
+        const dur = Math.abs(this.selectionEnd - this.selectionStart) / this.wavInfo.sampleRate;
+        if (dur < 0.1) {
+          this.selectionStart = null;
+          this.selectionEnd = null;
+          if (this.onSelectionChange) this.onSelectionChange(null, null);
+          this._drawOverlays();
+        }
+      }
       this._isDragging = false;
       this._dragButton = -1;
     });
 
     c.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    c.addEventListener('mouseleave', () => {
+      this._cursorX = null;
+      this._cursorY = null;
+      if (this._lastBitmap) this._drawStretched();
+    });
+
+    // --- Touch gestures ---
+    // 1-finger: tap=seek, drag=selection
+    // 2-finger: drag=pan, pinch=zoom
+    this._touchMode = 'none';
+    this._touchStartX = 0;
+    this._touchMoved = false;
+    this._touchStartDist = 0;
+    this._touchMidX = 0;
+    this._touchViewStart = 0;
+    this._touchViewEnd = 0;
+
+    c.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (e.touches.length === 1) {
+        this._touchMode = 'select';
+        const rect = c.getBoundingClientRect();
+        this._touchStartX = e.touches[0].clientX - rect.left;
+        this._touchMoved = false;
+      } else if (e.touches.length === 2) {
+        this._touchMode = 'pan';
+        const rect = c.getBoundingClientRect();
+        const x0 = e.touches[0].clientX - rect.left;
+        const x1 = e.touches[1].clientX - rect.left;
+        const y0 = e.touches[0].clientY - rect.top;
+        const y1 = e.touches[1].clientY - rect.top;
+        this._touchStartDist = Math.hypot(x1 - x0, y1 - y0);
+        this._touchMidX = (x0 + x1) / 2;
+        this._touchViewStart = this.viewStart;
+        this._touchViewEnd = this.viewEnd;
+      }
+    }, { passive: false });
+
+    c.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (!this.wavInfo) return;
+
+      if (e.touches.length === 1 && this._touchMode === 'select') {
+        const rect = c.getBoundingClientRect();
+        const x = e.touches[0].clientX - rect.left;
+        const dx = Math.abs(x - this._touchStartX);
+        if (dx > 5) this._touchMoved = true;
+        if (this._touchMoved) {
+          const t1 = this._xToTime(this._touchStartX);
+          const t2 = this._xToTime(x);
+          if (t1 !== null && t2 !== null) {
+            this.selectionStart = Math.min(t1, t2);
+            this.selectionEnd = Math.max(t1, t2);
+            this._drawOverlays();
+            if (this.onSelectionChange) {
+              this.onSelectionChange(this.selectionStart, this.selectionEnd);
+            }
+          }
+        }
+      } else if (e.touches.length === 2 && (this._touchMode === 'pan' || this._touchMode === 'select')) {
+        this._touchMode = 'pan';
+        const rect = c.getBoundingClientRect();
+        const x0 = e.touches[0].clientX - rect.left;
+        const x1 = e.touches[1].clientX - rect.left;
+        const y0 = e.touches[0].clientY - rect.top;
+        const y1 = e.touches[1].clientY - rect.top;
+        const newDist = Math.hypot(x1 - x0, y1 - y0);
+        const newMidX = (x0 + x1) / 2;
+
+        // Pinch zoom
+        const viewDuration = this._touchViewEnd - this._touchViewStart;
+        const pinchRatio = this._touchStartDist / Math.max(1, newDist);
+        const newDuration = Math.min(this.totalSamples, Math.max(128, viewDuration * pinchRatio));
+
+        // Center of pinch in sample space
+        const w = this.canvas.width - MARGIN_LEFT;
+        const midFrac = (this._touchMidX - MARGIN_LEFT) / w;
+        const centerSample = this._touchViewStart + midFrac * viewDuration;
+
+        // Pan offset
+        const panDx = newMidX - this._touchMidX;
+        const panSamples = -(panDx / w) * newDuration;
+
+        let newStart = centerSample - midFrac * newDuration + panSamples;
+        let newEnd = newStart + newDuration;
+        if (newStart < 0) { newEnd -= newStart; newStart = 0; }
+        if (newEnd > this.totalSamples) { newStart -= (newEnd - this.totalSamples); newEnd = this.totalSamples; }
+        newStart = Math.max(0, newStart);
+
+        this.viewStart = Math.floor(newStart);
+        this.viewEnd = Math.floor(newEnd);
+        this._drawStretched();
+        if (this._wheelTimer) clearTimeout(this._wheelTimer);
+        this._wheelTimer = setTimeout(() => this.render(), 150);
+      }
+    }, { passive: false });
+
+    c.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      if (e.touches.length === 0) {
+        if (this._touchMode === 'select' && !this._touchMoved) {
+          // Tap = seek
+          const time = this._xToTime(this._touchStartX);
+          if (time !== null && this.onSeek) {
+            this.onSeek(time / this.wavInfo.sampleRate);
+          }
+        }
+        // Validate minimum selection (0.1s)
+        if (this._touchMode === 'select' && this._touchMoved && this.selectionStart !== null) {
+          const dur = Math.abs(this.selectionEnd - this.selectionStart) / this.wavInfo.sampleRate;
+          if (dur < 0.1) {
+            this.selectionStart = null;
+            this.selectionEnd = null;
+            if (this.onSelectionChange) this.onSelectionChange(null, null);
+            this._drawOverlays();
+          }
+        }
+        this._touchMode = 'none';
+      }
+    }, { passive: false });
+
+    c.addEventListener('touchcancel', () => {
+      this._touchMode = 'none';
+    });
 
     // Resize observer
     this._resizeTimer = null;
@@ -735,6 +880,7 @@ export class SpectrogramRenderer {
     this.ctx.drawImage(this._lastBitmap, MARGIN_LEFT, 0, w, h);
     this._drawAxes();
     this._drawOverlaysOnly();
+    this._drawOverview();
   }
 
   _drawOverlays() {
@@ -752,9 +898,17 @@ export class SpectrogramRenderer {
       const x2 = this._timeToX(this.selectionEnd);
       ctx.fillStyle = 'rgba(241, 86, 86, 0.15)';
       ctx.fillRect(Math.max(MARGIN_LEFT, x1), 0, x2 - x1, plotH);
+      // Dashed edge lines
       ctx.strokeStyle = 'rgba(241, 86, 86, 0.6)';
       ctx.lineWidth = 1;
-      ctx.strokeRect(Math.max(MARGIN_LEFT, x1), 0, x2 - x1, plotH);
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(Math.max(MARGIN_LEFT, x1), 0);
+      ctx.lineTo(Math.max(MARGIN_LEFT, x1), plotH);
+      ctx.moveTo(x2, 0);
+      ctx.lineTo(x2, plotH);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
 
     // Annotations
@@ -770,6 +924,66 @@ export class SpectrogramRenderer {
         ctx.textAlign = 'left';
         ctx.fillText(ann.note, Math.max(MARGIN_LEFT + 2, x1 + 2), 14);
       }
+    }
+
+    // Crosshair cursor
+    if (this._cursorX !== null && this._cursorY !== null &&
+        this._cursorX >= MARGIN_LEFT && this._cursorX <= this.canvas.width &&
+        this._cursorY >= 0 && this._cursorY <= plotH) {
+      const isDarkColormap = this.colormap !== 'grayscale';
+      const lineColor = isDarkColormap ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)';
+      const labelBg = isDarkColormap ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.8)';
+      const labelColor = isDarkColormap ? '#ccc' : '#333';
+
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = lineColor;
+      ctx.lineWidth = 1;
+
+      // Vertical line (time)
+      ctx.beginPath();
+      ctx.moveTo(this._cursorX, 0);
+      ctx.lineTo(this._cursorX, plotH);
+      ctx.stroke();
+
+      // Horizontal line (frequency)
+      ctx.beginPath();
+      ctx.moveTo(MARGIN_LEFT, this._cursorY);
+      ctx.lineTo(this.canvas.width, this._cursorY);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+
+      // Labels
+      ctx.font = '10px monospace';
+      const timeSample = this._xToTime(this._cursorX);
+      const freq = this._yToFreq(this._cursorY);
+
+      // Time label at bottom of vertical line
+      if (timeSample !== null && this.wavInfo) {
+        const timeSec = timeSample / this.wavInfo.sampleRate;
+        const timeStr = this._formatTime(timeSec);
+        const tw = ctx.measureText(timeStr).width + 6;
+        const tx = Math.min(this._cursorX - tw / 2, this.canvas.width - tw);
+        ctx.fillStyle = labelBg;
+        ctx.fillRect(Math.max(MARGIN_LEFT, tx), plotH + 1, tw, 14);
+        ctx.fillStyle = labelColor;
+        ctx.textAlign = 'center';
+        ctx.fillText(timeStr, Math.max(MARGIN_LEFT + tw / 2, this._cursorX), plotH + 12);
+      }
+
+      // Frequency label at left edge of horizontal line
+      if (freq !== null) {
+        const freqStr = freq >= 1000 ? (freq / 1000).toFixed(1) + ' kHz' : Math.round(freq) + ' Hz';
+        const fw = ctx.measureText(freqStr).width + 6;
+        ctx.fillStyle = labelBg;
+        ctx.fillRect(0, this._cursorY - 7, MARGIN_LEFT - 2, 14);
+        ctx.fillStyle = labelColor;
+        ctx.textAlign = 'right';
+        ctx.fillText(freqStr, MARGIN_LEFT - 4, this._cursorY + 4);
+      }
+
+      ctx.restore();
     }
 
     // Playback cursor is handled by DOM element (_updateCursorElement)
@@ -902,6 +1116,160 @@ export class SpectrogramRenderer {
     this.viewStart = Math.max(0, Math.floor(newStart));
     this.viewEnd = Math.floor(newEnd);
     this.render();
+  }
+
+  // --- Waveform overview / minimap ---
+
+  setOverviewCanvas(canvas) {
+    this._overviewCanvas = canvas;
+    this._overviewCtx = canvas.getContext('2d');
+    this._overviewData = null;
+    this._overviewDragging = false;
+
+    // Interaction: click/drag to navigate
+    canvas.addEventListener('mousedown', (e) => {
+      this._overviewDragging = true;
+      this._overviewNavigate(e.offsetX);
+    });
+    canvas.addEventListener('mousemove', (e) => {
+      if (this._overviewDragging) this._overviewNavigate(e.offsetX);
+    });
+    canvas.addEventListener('mouseup', () => { this._overviewDragging = false; });
+    canvas.addEventListener('mouseleave', () => { this._overviewDragging = false; });
+
+    // Touch support on overview
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      this._overviewDragging = true;
+      const rect = canvas.getBoundingClientRect();
+      this._overviewNavigate(e.touches[0].clientX - rect.left);
+    }, { passive: false });
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (this._overviewDragging) {
+        const rect = canvas.getBoundingClientRect();
+        this._overviewNavigate(e.touches[0].clientX - rect.left);
+      }
+    }, { passive: false });
+    canvas.addEventListener('touchend', () => { this._overviewDragging = false; });
+
+    // Resize handling
+    new ResizeObserver(() => {
+      canvas.width = Math.floor(canvas.clientWidth);
+      canvas.height = 30;
+      if (this._overviewData) this._drawOverview();
+    }).observe(canvas);
+  }
+
+  _overviewNavigate(x) {
+    if (!this._overviewCanvas || !this.wavInfo) return;
+    const frac = x / this._overviewCanvas.width;
+    const centerSample = Math.floor(frac * this.totalSamples);
+    const viewDuration = this.viewEnd - this.viewStart;
+    let newStart = centerSample - viewDuration / 2;
+    let newEnd = newStart + viewDuration;
+    if (newStart < 0) { newEnd -= newStart; newStart = 0; }
+    if (newEnd > this.totalSamples) { newStart -= (newEnd - this.totalSamples); newEnd = this.totalSamples; }
+    this.viewStart = Math.max(0, Math.floor(newStart));
+    this.viewEnd = Math.floor(newEnd);
+    this.render();
+  }
+
+  async computeOverview() {
+    if (!this.wavInfo || !this._overviewCanvas) return;
+    const w = this._overviewCanvas.width || this._overviewCanvas.clientWidth;
+    if (w <= 0) return;
+
+    const blocksPerPixel = Math.max(1, Math.floor(this.totalSamples / w));
+    const data = new Float32Array(w);
+
+    // Read in chunks for efficiency
+    const chunkPixels = 200;
+    const chunkSamples = chunkPixels * blocksPerPixel;
+
+    for (let px = 0; px < w; px += chunkPixels) {
+      const startSample = px * blocksPerPixel;
+      const count = Math.min(chunkSamples, this.totalSamples - startSample);
+      if (count <= 0) break;
+
+      try {
+        const samples = await this._readSamplesRange(startSample, startSample + count, 'mix');
+        // Compute peak per pixel
+        for (let p = 0; p < chunkPixels && (px + p) < w; p++) {
+          const from = p * blocksPerPixel;
+          const to = Math.min(from + blocksPerPixel, samples.length);
+          let peak = 0;
+          for (let i = from; i < to; i++) {
+            const abs = Math.abs(samples[i]);
+            if (abs > peak) peak = abs;
+          }
+          data[px + p] = peak;
+        }
+      } catch (e) {
+        // Skip on error
+      }
+    }
+
+    this._overviewData = data;
+    this._overviewCanvas.classList.add('visible');
+    this._overviewCanvas.width = Math.floor(this._overviewCanvas.clientWidth);
+    this._overviewCanvas.height = 30;
+    this._drawOverview();
+  }
+
+  _drawOverview() {
+    if (!this._overviewCtx || !this._overviewData) return;
+    const ctx = this._overviewCtx;
+    const w = this._overviewCanvas.width;
+    const h = this._overviewCanvas.height;
+    const data = this._overviewData;
+
+    // Clear
+    const isDark = document.body.classList.contains('dark');
+    ctx.fillStyle = isDark ? '#111' : '#d8d8d8';
+    ctx.fillRect(0, 0, w, h);
+
+    // Draw waveform (mirrored)
+    ctx.fillStyle = isDark ? '#555' : '#888';
+    const mid = h / 2;
+    const scale = w / data.length;
+    for (let i = 0; i < data.length; i++) {
+      const amp = Math.min(1, data[i]) * mid;
+      if (amp < 0.5) continue;
+      const x = Math.floor(i * scale);
+      ctx.fillRect(x, mid - amp, Math.max(1, Math.ceil(scale)), amp * 2);
+    }
+
+    // Viewport indicator
+    if (this.totalSamples > 0) {
+      const vx1 = (this.viewStart / this.totalSamples) * w;
+      const vx2 = (this.viewEnd / this.totalSamples) * w;
+      ctx.fillStyle = isDark ? 'rgba(90,159,212,0.25)' : 'rgba(58,122,191,0.2)';
+      ctx.fillRect(vx1, 0, vx2 - vx1, h);
+      ctx.strokeStyle = isDark ? 'rgba(90,159,212,0.6)' : 'rgba(58,122,191,0.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(vx1, 0, vx2 - vx1, h);
+
+      // Dim areas outside trim bounds
+      if (this.trimStart !== null && this.trimEnd !== null) {
+        const tx1 = (this.trimStart / this.totalSamples) * w;
+        const tx2 = (this.trimEnd / this.totalSamples) * w;
+        ctx.fillStyle = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
+        ctx.fillRect(0, 0, tx1, h);
+        ctx.fillRect(tx2, 0, w - tx2, h);
+      }
+
+      // Playback cursor on overview
+      if (this._lastPlaybackTime !== null && this.wavInfo) {
+        const cx = (this._lastPlaybackTime * this.wavInfo.sampleRate / this.totalSamples) * w;
+        ctx.strokeStyle = '#f15656';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx, 0);
+        ctx.lineTo(cx, h);
+        ctx.stroke();
+      }
+    }
   }
 
   destroy() {

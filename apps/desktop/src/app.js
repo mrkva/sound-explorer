@@ -124,6 +124,10 @@ class App {
       maxFreq: parseInt(this.maxFreqInput.value)
     });
 
+    // Waveform overview / minimap
+    const overviewEl = document.getElementById('overview-canvas');
+    if (overviewEl) this.spectrogram.setOverviewCanvas(overviewEl);
+
     this.spectrogram.onTimeClick = (time) => {
       this.engine.seek(time);
       this.spectrogram.draw(time);
@@ -833,6 +837,9 @@ class App {
 
     this._setStatus(this._readyStatusMessage());
     this._updateTimeDisplays(0);
+
+    // Compute waveform overview in background
+    this.spectrogram.computeOverview();
 
     // Try to auto-load session.frm.txt first, then fall back to annotations.json
     await this._autoloadSessionData();
