@@ -27,6 +27,8 @@ self.onmessage = function(e) {
     }
 
     const spectrum = fft(windowed, fftSize);
+    // Normalize FFT output (web app dB range assumes normalized magnitudes)
+    for (let i = 0; i < spectrum.length; i++) spectrum[i] /= fftSize;
     const mag = magnitudesDB(spectrum, fftSize);
 
     // Copy into packed output
