@@ -229,23 +229,47 @@ export class SpectrogramRenderer {
 
   _onWheel(e) {
     if (!this.wavInfo) return;
-    const zoomFactor = e.deltaY > 0 ? 1.3 : 1 / 1.3;
-    const viewDuration = this.viewEnd - this.viewStart;
-    const newDuration = Math.min(this.totalSamples, Math.max(128, viewDuration * zoomFactor));
 
-    // Center zoom on playback cursor if available, else mouse position
-    let centerSample;
-    if (this._lastPlaybackTime !== null) {
-      centerSample = Math.floor(this._lastPlaybackTime * this.wavInfo.sampleRate);
-    } else {
-      const mx = this._xToTime(e.offsetX);
-      centerSample = mx !== null ? mx : Math.floor((this.viewStart + this.viewEnd) / 2);
+    // Pinch-to-zoom (ctrlKey+wheel on trackpad, or Ctrl+scroll wheel)
+    if (e.ctrlKey) {
+      const zoomFactor = 1 + e.deltaY * 0.02;
+      const viewDuration = this.viewEnd - this.viewStart;
+      const newDuration = Math.min(this.totalSamples, Math.max(128, viewDuration * zoomFactor));
+
+      // Center zoom on playback cursor if playing, else mouse position
+      let centerSample;
+      if (this._lastPlaybackTime !== null) {
+        centerSample = Math.floor(this._lastPlaybackTime * this.wavInfo.sampleRate);
+      } else {
+        const mx = this._xToTime(e.offsetX);
+        centerSample = mx !== null ? mx : Math.floor((this.viewStart + this.viewEnd) / 2);
+      }
+
+      // Always center on the target position
+      let newStart = centerSample - newDuration / 2;
+      let newEnd = newStart + newDuration;
+      if (newStart < 0) { newEnd -= newStart; newStart = 0; }
+      if (newEnd > this.totalSamples) { newStart -= (newEnd - this.totalSamples); newEnd = this.totalSamples; }
+      newStart = Math.max(0, newStart);
+
+      this.viewStart = Math.floor(newStart);
+      this.viewEnd = Math.floor(newEnd);
+
+      if (this._wheelTimer) clearTimeout(this._wheelTimer);
+      this._drawStretched();
+      this._wheelTimer = setTimeout(() => this.render(), 150);
+      return;
     }
 
-    const ratio = (centerSample - this.viewStart) / viewDuration;
-    let newStart = centerSample - ratio * newDuration;
-    let newEnd = newStart + newDuration;
+    // Two-finger horizontal scroll on trackpad → pan in time
+    const dx = e.deltaX || 0;
+    if (dx === 0 && e.deltaY !== 0) return; // pure vertical scroll — ignore
 
+    const viewDuration = this.viewEnd - this.viewStart;
+    const w = this.canvas.width - MARGIN_LEFT;
+    const panSamples = (dx / w) * viewDuration * 2;
+    let newStart = this.viewStart + panSamples;
+    let newEnd = newStart + viewDuration;
     if (newStart < 0) { newEnd -= newStart; newStart = 0; }
     if (newEnd > this.totalSamples) { newStart -= (newEnd - this.totalSamples); newEnd = this.totalSamples; }
     newStart = Math.max(0, newStart);
@@ -253,7 +277,6 @@ export class SpectrogramRenderer {
     this.viewStart = Math.floor(newStart);
     this.viewEnd = Math.floor(newEnd);
 
-    // Debounce
     if (this._wheelTimer) clearTimeout(this._wheelTimer);
     this._drawStretched();
     this._wheelTimer = setTimeout(() => this.render(), 150);
