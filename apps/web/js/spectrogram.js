@@ -78,13 +78,13 @@ export class SpectrogramRenderer {
   _initWorkers() {
     const numWorkers = Math.min(navigator.hardwareConcurrency || 4, 8);
     for (let i = 0; i < numWorkers; i++) {
-      const w = new Worker('js/fft-worker.js');
+      const w = new Worker('js/fft-worker.js', { type: 'module' });
       w.onmessage = (e) => this._onFFTResult(e.data);
       this._fftWorkers.push(w);
     }
     this._nextWorker = 0;
 
-    this._renderWorker = new Worker('js/render-worker.js');
+    this._renderWorker = new Worker('js/render-worker.js', { type: 'module' });
     this._renderWorker.onmessage = (e) => this._onRenderResult(e.data);
   }
 

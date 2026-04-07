@@ -433,7 +433,7 @@ export class SpectrogramRenderer {
   _initWorkers() {
     try {
       for (let i = 0; i < NUM_WORKERS; i++) {
-        const worker = new Worker('src/fft-worker.js');
+        const worker = new Worker('src/fft-worker.js', { type: 'module' });
         this._workers.push(worker);
         this._workerReady.push(true);
       }
@@ -446,7 +446,7 @@ export class SpectrogramRenderer {
 
   _initRenderWorker() {
     try {
-      this._renderWorker = new Worker('src/render-worker.js');
+      this._renderWorker = new Worker('src/render-worker.js', { type: 'module' });
     } catch (err) {
       console.warn('Render worker not available, using main thread rendering:', err.message);
       this._renderWorker = null;

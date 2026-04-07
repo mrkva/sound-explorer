@@ -1,0 +1,42 @@
+name: Deploy web app to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble site
+        run: |
+          mkdir _site
+          # Web app at root so URL stays mrkva.github.io/sound-explorer/
+          cp -r apps/web/* _site/
+          # Shared lib alongside the app
+          cp -r lib _site/lib
+          # Workers import from '../../../lib/' (3 levels up from apps/web/js/)
+          # In flat deployment, lib/ is a sibling of js/, so fix to '../lib/'
+          sed -i "s|from '../../../lib/|from '../lib/|g" _site/js/fft-worker.js _site/js/render-worker.js
+          # Service worker caches lib with ../../lib/ path, fix to ./lib/
+          sed -i "s|'../../lib/|'./lib/|g" _site/sw.js
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/deploy-pages@v4
+        id: deployment

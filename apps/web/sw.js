@@ -4,7 +4,7 @@
  */
 
 // Keep in sync with js/version.js
-const CACHE_VERSION = '0.2.3';
+const CACHE_VERSION = '0.3.0';
 const CACHE_NAME = 'sound-explorer-v' + CACHE_VERSION;
 
 const APP_SHELL = [
@@ -18,6 +18,8 @@ const APP_SHELL = [
   './js/fft-worker.js',
   './js/render-worker.js',
   './js/version.js',
+  '../../lib/fft-core.js',
+  '../../lib/colormaps.js',
   './img/logo_black.png',
   './img/logo_white.png',
   './img/icon.svg',
