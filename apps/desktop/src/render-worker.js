@@ -8,7 +8,7 @@
  * Returns:  { type: 'rendered', bitmap: ImageBitmap } (transferred)
  */
 
-import { buildColorLUT } from '../../../lib/colormaps.js';
+import { buildColorLUT } from '../lib/colormaps.js';
 
 self.onmessage = function(e) {
   const { type } = e.data;

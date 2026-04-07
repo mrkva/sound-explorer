@@ -4,11 +4,12 @@
   "description": "High-resolution spectrogram viewer with BWF timecode navigation for field recordings",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "npm run prebuild && electron .",
     "pack": "electron-builder --dir",
     "clean": "rm -rf dist",
     "predist": "npm run clean",
-    "dist": "electron-builder"
+    "prebuild": "mkdir -p lib && cp ../../lib/*.js lib/",
+    "dist": "npm run prebuild && electron-builder"
   },
   "author": "",
   "license": "MIT",
@@ -24,7 +25,8 @@
       "preload.js",
       "index.html",
       "src/**/*",
-      "styles/**/*"
+      "styles/**/*",
+      "lib/**/*"
     ],
     "fileAssociations": [
       {
