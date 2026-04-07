@@ -1,7 +1,7 @@
 {
-  "name": "field-recording-explorer",
-  "version": "0.2.4",
-  "description": "High-resolution spectrogram viewer with BWF timecode navigation for field recordings",
+  "name": "sound-explorer",
+  "version": "0.3.0",
+  "description": "Spectrogram viewer and audio explorer for field recordings and ultrasonics",
   "main": "main.js",
   "scripts": {
     "start": "npm run prebuild && electron .",
@@ -18,8 +18,8 @@
     "electron-builder": "^25.0.0"
   },
   "build": {
-    "appId": "com.fieldrecording.explorer",
-    "productName": "Field Recording Explorer",
+    "appId": "com.soundexplorer.app",
+    "productName": "Sound Explorer",
     "files": [
       "main.js",
       "preload.js",

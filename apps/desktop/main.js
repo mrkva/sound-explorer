@@ -52,7 +52,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'Field Recording Explorer v0.2.4',
+    title: 'Sound Explorer v0.3.0',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
