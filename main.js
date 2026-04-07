@@ -833,13 +833,12 @@ ipcMain.handle('read-ixml', async (event, filePath) => {
 
 /**
  * Inject or replace the iXML chunk in a WAV file.
- * Reads the entire file, strips existing iXML, appends new one, updates RIFF size.
- * For large files, only reads/writes the non-data portion to avoid memory issues.
+ * Reads the file, strips existing iXML, appends new one, updates RIFF size.
+ * Writes to a temp file first, then atomically renames to prevent corruption.
  */
-ipcMain.handle('write-ixml', async (event, filePath, ixmlString) => {
+async function writeIXMLToFile(filePath, ixmlString) {
   const ixmlBuf = Buffer.from(ixmlString, 'utf-8');
 
-  // Read the full file
   const data = await fs.promises.readFile(filePath);
   if (data.toString('ascii', 0, 4) !== 'RIFF' || data.toString('ascii', 8, 12) !== 'WAVE') {
     throw new Error('Not a valid WAV file');
@@ -857,7 +856,7 @@ ipcMain.handle('write-ixml', async (event, filePath, ixmlString) => {
     if (!/^[\x20-\x7E]{4}$/.test(chunkId) || chunkSize >= 0xFFFFFFF0) break;
 
     if (chunkId !== 'iXML' && chunkId !== 'IXML') {
-      chunks.push(data.slice(offset, offset + totalChunk));
+      chunks.push(data.subarray(offset, offset + totalChunk));
     }
     offset += totalChunk;
   }
@@ -875,10 +874,10 @@ ipcMain.handle('write-ixml', async (event, filePath, ixmlString) => {
   for (const chunk of chunks) totalSize += chunk.length;
   totalSize += ixmlChunk.length;
 
-  // Write output
+  // Write to temp file first, then atomically rename
+  const tmpPath = filePath + '.tmp';
   const out = Buffer.alloc(totalSize);
   let pos = 0;
-  // RIFF header
   out.write('RIFF', pos); pos += 4;
   out.writeUInt32LE(Math.min(totalSize - 8, 0xFFFFFFFF), pos); pos += 4;
   out.write('WAVE', pos); pos += 4;
@@ -889,8 +888,13 @@ ipcMain.handle('write-ixml', async (event, filePath, ixmlString) => {
   }
   ixmlChunk.copy(out, pos);
 
-  await fs.promises.writeFile(filePath, out);
+  await fs.promises.writeFile(tmpPath, out);
+  await fs.promises.rename(tmpPath, filePath);
   return { success: true, ixmlSize: ixmlChunkSize };
+}
+
+ipcMain.handle('write-ixml', async (event, filePath, ixmlString) => {
+  return await writeIXMLToFile(filePath, ixmlString);
 });
 
 /**
@@ -926,47 +930,7 @@ ipcMain.handle('write-ixml-to-folder', async (event, folderPath, ixmlString) => 
   const results = [];
   for (const filePath of wavFiles) {
     try {
-      const ixmlBuf = Buffer.from(ixmlString, 'utf-8');
-      const data = await fs.promises.readFile(filePath);
-      if (data.toString('ascii', 0, 4) !== 'RIFF') {
-        results.push({ filePath, success: false, error: 'Not a RIFF file' });
-        continue;
-      }
-
-      const chunks = [];
-      let offset = 12;
-      while (offset + 8 <= data.length) {
-        const chunkId = data.toString('ascii', offset, offset + 4);
-        const chunkSize = data.readUInt32LE(offset + 4);
-        let totalChunk = 8 + chunkSize;
-        if (chunkSize % 2 === 1) totalChunk++;
-        if (!/^[\x20-\x7E]{4}$/.test(chunkId) || chunkSize >= 0xFFFFFFF0) break;
-        if (chunkId !== 'iXML' && chunkId !== 'IXML') {
-          chunks.push(data.slice(offset, offset + totalChunk));
-        }
-        offset += totalChunk;
-      }
-
-      const ixmlChunkSize = ixmlBuf.length;
-      const ixmlPadded = ixmlChunkSize % 2 === 1;
-      const ixmlChunk = Buffer.alloc(8 + ixmlChunkSize + (ixmlPadded ? 1 : 0));
-      ixmlChunk.write('iXML', 0, 4, 'ascii');
-      ixmlChunk.writeUInt32LE(ixmlChunkSize, 4);
-      ixmlBuf.copy(ixmlChunk, 8);
-
-      let totalSize = 12;
-      for (const chunk of chunks) totalSize += chunk.length;
-      totalSize += ixmlChunk.length;
-
-      const out = Buffer.alloc(totalSize);
-      let pos = 0;
-      out.write('RIFF', pos); pos += 4;
-      out.writeUInt32LE(Math.min(totalSize - 8, 0xFFFFFFFF), pos); pos += 4;
-      out.write('WAVE', pos); pos += 4;
-      for (const chunk of chunks) { chunk.copy(out, pos); pos += chunk.length; }
-      ixmlChunk.copy(out, pos);
-
-      await fs.promises.writeFile(filePath, out);
+      await writeIXMLToFile(filePath, ixmlString);
       results.push({ filePath, success: true });
     } catch (err) {
       results.push({ filePath, success: false, error: err.message });

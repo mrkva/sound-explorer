@@ -1298,9 +1298,9 @@ class App {
     const s = str.trim();
     if (!s) return null;
 
-    // Try to match two numbers with optional N/S/E/W suffixes or prefixes
-    // Pattern: optional NSEW, then number, optional NSEW, separator, repeat
-    const re = /([NSEW]?)\s*(-?\d+\.?\d*)\s*([NSEW]?)[\s,]+([NSEW]?)\s*(-?\d+\.?\d*)\s*([NSEW]?)/i;
+    // Match two numbers with optional N/S/E/W direction letters.
+    // Direction must be word-boundary-adjacent to avoid matching 'E' in exponents.
+    const re = /\b([NSEW])?\s*(-?\d+\.?\d*)\s*([NSEW])?\b[\s,]+\b([NSEW])?\s*(-?\d+\.?\d*)\s*([NSEW])?\b/i;
     const m = s.match(re);
     if (!m) return null;
 
