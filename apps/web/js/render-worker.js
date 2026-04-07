@@ -4,7 +4,7 @@
  * Colormap presets and LUT builder imported from shared lib.
  */
 
-import { COLORMAPS, buildColorLUT } from '../../../lib/colormaps.js';
+import { COLORMAPS, buildColorLUT } from './colormaps.js';
 
 // Pre-build LUT cache for all colormaps
 const lutCache = {};

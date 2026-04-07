@@ -64,13 +64,12 @@ See [apps/desktop/README.md](apps/desktop/README.md) for build and usage details
 
 ```
 sound-explorer/
-  lib/             ← shared: FFT engine, colormaps
   apps/
     desktop/       ← Electron version (large files, multi-file sessions)
     web/           ← browser version (GitHub Pages, PWA)
 ```
 
-The shared `lib/` contains the FFT core (Cooley-Tukey radix-2 with pre-computed twiddle factors) and colormap definitions. Both versions import these as ES module workers.
+Both versions share the same FFT engine (Cooley-Tukey radix-2) and colormap code, kept as local copies in each app's source folder.
 
 ## How it was made
 

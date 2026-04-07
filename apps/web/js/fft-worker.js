@@ -4,7 +4,7 @@
  * Receives PCM Float32Array slices, returns packed dB magnitude array.
  */
 
-import { getHann, fft, magnitudesDB } from '../../../lib/fft-core.js';
+import { getHann, fft, magnitudesDB } from './fft-core.js';
 
 self.onmessage = function(e) {
   const { samples, fftSize, hopSize, id } = e.data;

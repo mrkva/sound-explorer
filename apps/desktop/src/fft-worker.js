@@ -11,7 +11,7 @@
  *       (magnitudes ArrayBuffers are transferred, not copied)
  */
 
-import { fft, magnitudesDB } from '../lib/fft-core.js';
+import { fft, magnitudesDB } from './fft-core.js';
 
 self.onmessage = function(e) {
   const { type } = e.data;
