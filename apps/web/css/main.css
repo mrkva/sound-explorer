@@ -116,6 +116,35 @@ body.dark .drop-logo {
   opacity: 0.7;
 }
 
+.drop-shortcuts {
+  margin-top: 24px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 2;
+  opacity: 0.5;
+}
+
+.shortcut-row {
+  white-space: nowrap;
+}
+
+.drop-shortcuts kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--text-secondary);
+  border-radius: 3px;
+  margin: 0 1px;
+}
+
+@media (max-width: 600px) {
+  .drop-shortcuts { display: none; }
+  .drop-hint-desktop { display: none; }
+}
+
 /* --- Main layout --- */
 
 #main-ui {

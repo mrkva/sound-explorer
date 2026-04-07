@@ -44,6 +44,10 @@ export class SpectrogramRenderer {
     this.selectionStart = null;
     this.selectionEnd = null;
 
+    // Trim bounds (null = no trim)
+    this.trimStart = null;
+    this.trimEnd = null;
+
     // Playback cursor
     this._lastPlaybackTime = null;
 
@@ -294,8 +298,19 @@ export class SpectrogramRenderer {
 
   fitAll() {
     if (!this.wavInfo) return;
-    this.viewStart = 0;
-    this.viewEnd = this.totalSamples;
+    if (this.trimStart !== null && this.trimEnd !== null) {
+      this.viewStart = this.trimStart;
+      this.viewEnd = this.trimEnd;
+    } else {
+      this.viewStart = 0;
+      this.viewEnd = this.totalSamples;
+    }
+    this.render();
+  }
+
+  setView(start, end) {
+    this.viewStart = Math.max(0, start);
+    this.viewEnd = Math.min(this.totalSamples, end);
     this.render();
   }
 

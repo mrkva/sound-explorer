@@ -65,6 +65,9 @@ class App {
     document.getElementById('btn-zoom-in').addEventListener('click', () => this.spectrogram.zoomIn());
     document.getElementById('btn-zoom-out').addEventListener('click', () => this.spectrogram.zoomOut());
     document.getElementById('btn-fit').addEventListener('click', () => this.spectrogram.fitAll());
+    document.getElementById('btn-sel').addEventListener('click', () => this._zoomToSelection());
+    document.getElementById('btn-trim').addEventListener('click', () => this._trimSelection());
+    document.getElementById('btn-untrim').addEventListener('click', () => this._untrimSession());
 
     // Go To
     document.getElementById('btn-goto').addEventListener('click', () => this._goTo());
@@ -295,6 +298,15 @@ class App {
           break;
         case 'f': case 'F':
           this.spectrogram.fitAll();
+          break;
+        case 's': case 'S':
+          this._zoomToSelection();
+          break;
+        case 't': case 'T':
+          this._trimSelection();
+          break;
+        case 'u': case 'U':
+          this._untrimSession();
           break;
         case 'g': case 'G':
           e.preventDefault();
@@ -587,11 +599,66 @@ class App {
     }
   }
 
+  // --- Zoom to Selection / Trim ---
+
+  _zoomToSelection() {
+    if (!this.spectrogram || this.spectrogram.selectionStart === null) return;
+    const start = this.spectrogram.selectionStart;
+    const end = this.spectrogram.selectionEnd;
+    if (end - start < 1) return;
+    const pad = (end - start) * 0.05;
+    this.spectrogram.setView(start - pad, end + pad);
+  }
+
+  _trimSelection() {
+    if (!this.spectrogram || this.spectrogram.selectionStart === null) return;
+    const start = this.spectrogram.selectionStart;
+    const end = this.spectrogram.selectionEnd;
+    if (end - start < 1) return;
+
+    this.spectrogram.trimStart = start;
+    this.spectrogram.trimEnd = end;
+
+    // Clear selection and zoom to trim
+    this.spectrogram.clearSelection();
+    this._updateSelectionUI(null, null);
+    this.spectrogram.setView(start, end);
+    this._updateTrimUI();
+
+    const sr = this.wavInfos[0].sampleRate;
+    const dur = (end - start) / sr;
+    this._setStatus(`Trimmed to ${this._formatTime(dur)} — press U or click Untrim to restore`);
+  }
+
+  _untrimSession() {
+    if (!this.spectrogram || this.spectrogram.trimStart === null) return;
+    this.spectrogram.trimStart = null;
+    this.spectrogram.trimEnd = null;
+    this.spectrogram.fitAll();
+    this._updateTrimUI();
+    this._setStatus('Trim removed — full file restored');
+  }
+
+  _updateTrimUI() {
+    const trimmed = this.spectrogram && this.spectrogram.trimStart !== null;
+    document.getElementById('btn-untrim').style.display = trimmed ? '' : 'none';
+  }
+
   // --- Export ---
 
   _getExportRange() {
-    const start = this.spectrogram.selectionStart !== null ? this.spectrogram.selectionStart : 0;
-    const end = this.spectrogram.selectionEnd !== null ? this.spectrogram.selectionEnd : this.spectrogram.totalSamples;
+    const sp = this.spectrogram;
+    let start, end;
+    if (sp.selectionStart !== null) {
+      start = sp.selectionStart;
+      end = sp.selectionEnd;
+    } else if (sp.trimStart !== null) {
+      start = sp.trimStart;
+      end = sp.trimEnd;
+    } else {
+      start = 0;
+      end = sp.totalSamples;
+    }
     return { startSample: start, endSample: end, numSamples: end - start };
   }
 

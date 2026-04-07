@@ -22,6 +22,11 @@
       <p class="drop-sub drop-hint-desktop">or</p>
       <button id="btn-open" class="btn btn-accent">Open Files</button>
       <input type="file" id="file-input" multiple accept=".wav" style="display:none">
+      <div class="drop-shortcuts">
+        <div class="shortcut-row"><kbd>Space</kbd> Play/Pause &nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> Seek &plusmn;1s &nbsp; <kbd>Shift</kbd>+<kbd>&larr;</kbd><kbd>&rarr;</kbd> &plusmn;10s</div>
+        <div class="shortcut-row"><kbd>&uarr;</kbd><kbd>&darr;</kbd> Gain &nbsp; <kbd>+</kbd><kbd>-</kbd> Zoom &nbsp; <kbd>F</kbd> Fit &nbsp; <kbd>S</kbd> Sel &nbsp; <kbd>T</kbd> Trim &nbsp; <kbd>U</kbd> Untrim</div>
+        <div class="shortcut-row"><kbd>G</kbd> Go to &nbsp; <kbd>Home</kbd><kbd>End</kbd> Jump &nbsp; <kbd>Esc</kbd> Clear selection</div>
+      </div>
     </div>
   </div>
 
@@ -54,6 +59,9 @@
       <button id="btn-zoom-in" class="btn toolbar-btn">+Zoom</button>
       <button id="btn-zoom-out" class="btn toolbar-btn">-Zoom</button>
       <button id="btn-fit" class="btn toolbar-btn">Fit</button>
+      <button id="btn-sel" class="btn toolbar-btn" title="Zoom to selection (S)">Sel</button>
+      <button id="btn-trim" class="btn toolbar-btn" title="Trim to selection (T)">Trim</button>
+      <button id="btn-untrim" class="btn toolbar-btn" title="Restore full view (U)" style="display:none">Untrim</button>
 
       <span class="toolbar-sep"></span>
 
@@ -237,6 +245,9 @@
       <tr><td>&uarr; / &darr;</td><td>Spectrogram gain &plusmn;5 dB</td></tr>
       <tr><td>+ / -</td><td>Zoom in / out</td></tr>
       <tr><td>F</td><td>Fit entire file</td></tr>
+      <tr><td>S</td><td>Zoom to selection</td></tr>
+      <tr><td>T</td><td>Trim to selection</td></tr>
+      <tr><td>U</td><td>Untrim (restore full view)</td></tr>
       <tr><td>G</td><td>Focus Go To input</td></tr>
       <tr><td>Home / End</td><td>Jump to start / end</td></tr>
       <tr><td>Esc</td><td>Clear selection</td></tr>

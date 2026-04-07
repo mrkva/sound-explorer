@@ -1965,18 +1965,26 @@ class App {
     // These are relative to the server output rate (which may differ from
     // native for high-SR files due to decimation).
     const serverRate = this._currentOutputSampleRate || nativeSampleRate;
-    const speeds = [0.125, 0.25, 0.5, 1, 2, 4];
+    const speeds = [0.0625, 0.125, 0.25, 0.5, 1, 2, 4];
 
     for (const speed of speeds) {
       const interpretedRate = Math.round(nativeSampleRate * speed);
       const el = document.createElement('option');
       el.value = speed.toString();
-      if (speed === 1) {
-        const label = nativeSampleRate >= 1000 ? `${nativeSampleRate / 1000}kHz` : `${nativeSampleRate}Hz`;
-        el.textContent = `${label} (native)`;
+      let rateStr;
+      if (interpretedRate >= 1000) {
+        const kHz = interpretedRate / 1000;
+        rateStr = `${kHz % 1 === 0 ? kHz.toFixed(0) : kHz.toFixed(1)}kHz`;
       } else {
-        const label = interpretedRate >= 1000 ? `${interpretedRate / 1000}kHz` : `${interpretedRate}Hz`;
-        el.textContent = `${label} (${speed}x)`;
+        rateStr = `${interpretedRate}Hz`;
+      }
+      if (speed === 1) {
+        el.textContent = `${rateStr} (Original)`;
+      } else if (speed < 1) {
+        const factor = Math.round(1 / speed);
+        el.textContent = `${rateStr} (${factor}x slower)`;
+      } else {
+        el.textContent = `${rateStr} (${speed}x faster)`;
       }
       select.appendChild(el);
     }

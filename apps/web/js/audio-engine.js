@@ -587,18 +587,21 @@ export class AudioEngine {
 
     for (const r of rates) {
       const effectiveRate = sr * r;
-      const displayRate = effectiveRate / 1000;
-      const rateStr = displayRate >= 1
-        ? displayRate.toFixed(displayRate % 1 === 0 ? 0 : 1)
-        : displayRate.toFixed(2);
+      let rateStr;
+      if (effectiveRate >= 1000) {
+        const kHz = effectiveRate / 1000;
+        rateStr = `${kHz % 1 === 0 ? kHz.toFixed(0) : kHz.toFixed(1)}kHz`;
+      } else {
+        rateStr = `${effectiveRate}Hz`;
+      }
       let label;
       if (r === 1) {
-        label = `${rateStr}kHz — Original`;
+        label = `${rateStr} (Original)`;
       } else if (r < 1) {
         const factor = Math.round(1 / r);
-        label = `${rateStr}kHz — ${factor}x slower`;
+        label = `${rateStr} (${factor}x slower)`;
       } else {
-        label = `${rateStr}kHz — ${r}x faster`;
+        label = `${rateStr} (${r}x faster)`;
       }
       options.push({ rate: r, label });
     }
