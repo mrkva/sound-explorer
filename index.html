@@ -82,7 +82,7 @@
 
     <div class="toolbar-group">
       <button id="btn-annotations" class="annotations-btn">Annotations</button>
-      <button id="btn-session-meta" class="annotations-btn" title="Session metadata (iXML / .frm.txt)">Session</button>
+      <button id="btn-session-meta" class="annotations-btn" title="Edit iXML / session metadata">Metadata</button>
     </div>
 
     <div class="toolbar-group" style="margin-left: auto;">
@@ -228,8 +228,7 @@
             <label>Name <input type="text" id="frm-loc-name" placeholder="Human-readable place name"></label>
             <label>Region <input type="text" id="frm-loc-region" placeholder="City, country"></label>
             <div class="frm-row">
-              <label>Lat <input type="text" id="frm-loc-lat" placeholder="48.1486" class="frm-narrow"></label>
-              <label>Lon <input type="text" id="frm-loc-lon" placeholder="17.1077" class="frm-narrow"></label>
+              <label>GPS <input type="text" id="frm-loc-gps" placeholder="48.1486, 17.1077 or 48.1486N, 17.1077E" class="frm-wide"></label>
               <label>Elev (m) <input type="text" id="frm-loc-elev" placeholder="145" class="frm-narrow"></label>
             </div>
             <label>Environment <input type="text" id="frm-loc-env" placeholder="Free-text habitat/setting"></label>
@@ -280,7 +279,7 @@
         </div>
         <div class="frm-modal-footer">
           <button id="frm-save-ixml" class="frm-primary-btn" title="Embed iXML metadata into all WAV files in the session folder">Save to WAV(s)</button>
-          <button id="frm-save-ixml-file" class="frm-secondary-btn" title="Save iXML to a single selected WAV file">Save to File...</button>
+          <button id="frm-save-ixml-file" class="frm-primary-btn" title="Embed iXML into the currently open WAV file">Save to File</button>
           <button id="frm-save" class="frm-secondary-btn" title="Save as session.frm.txt sidecar">Save .frm.txt</button>
           <button id="frm-save-as" class="frm-secondary-btn">Save As...</button>
         </div>

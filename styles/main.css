@@ -1083,6 +1083,9 @@ button.primary:hover { background: var(--btn-primary-hover); }
 .frm-narrow {
   max-width: 100px;
 }
+.frm-wide {
+  min-width: 220px;
+}
 .frm-subsection-header {
   display: flex;
   align-items: center;

@@ -1264,6 +1264,44 @@ class App {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  /**
+   * Parse GPS coordinate string in various formats:
+   * - "48.1486, 17.1077" (decimal)
+   * - "49.2124267N, 21.1153514E" (map app format with N/S/E/W)
+   * - "48.1486 17.1077" (space separated)
+   * - "N48.1486, E17.1077"
+   * Returns {lat, lon} or null if unparseable.
+   */
+  _parseGPS(str) {
+    // Strip whitespace around separators
+    const s = str.trim();
+    if (!s) return null;
+
+    // Try to match two numbers with optional N/S/E/W suffixes or prefixes
+    // Pattern: optional NSEW, then number, optional NSEW, separator, repeat
+    const re = /([NSEW]?)\s*(-?\d+\.?\d*)\s*([NSEW]?)[\s,]+([NSEW]?)\s*(-?\d+\.?\d*)\s*([NSEW]?)/i;
+    const m = s.match(re);
+    if (!m) return null;
+
+    let lat = parseFloat(m[2]);
+    let lon = parseFloat(m[5]);
+    if (isNaN(lat) || isNaN(lon)) return null;
+
+    // Apply direction from prefix or suffix
+    const latDir = (m[1] || m[3] || '').toUpperCase();
+    const lonDir = (m[4] || m[6] || '').toUpperCase();
+
+    if (latDir === 'S') lat = -Math.abs(lat);
+    if (latDir === 'N') lat = Math.abs(lat);
+    if (lonDir === 'W') lon = -Math.abs(lon);
+    if (lonDir === 'E') lon = Math.abs(lon);
+
+    // Basic sanity check
+    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+
+    return { lat, lon };
+  }
+
   async _exportAnnotations() {
     if (this.annotations.length === 0) {
       this._setStatus('No annotations to export');
@@ -2034,10 +2072,22 @@ class App {
 
     // Enable/disable folder save based on whether we have a folder
     const saveIxmlBtn = document.getElementById('frm-save-ixml');
-    saveIxmlBtn.disabled = !this._sessionFolderPath;
-    saveIxmlBtn.title = this._sessionFolderPath
-      ? `Embed iXML into all WAV files in ${this._sessionFolderPath.split(/[/\\]/).pop()}/`
+    const hasFolder = !!this._sessionFolderPath;
+    const fileCount = this.session?.files?.length || 0;
+    saveIxmlBtn.disabled = !hasFolder;
+    saveIxmlBtn.title = hasFolder
+      ? `Embed iXML into all ${fileCount} WAV file${fileCount !== 1 ? 's' : ''} in ${this._sessionFolderPath.split(/[/\\]/).pop()}/`
       : 'Open a folder first to save iXML to all WAV files';
+
+    // Configure single-file save button
+    const saveIxmlFileBtn = document.getElementById('frm-save-ixml-file');
+    if (fileCount > 0) {
+      const fname = this.session.files[0].filePath.split(/[/\\]/).pop();
+      saveIxmlFileBtn.disabled = false;
+      saveIxmlFileBtn.title = `Embed iXML into ${fname}`;
+    } else {
+      saveIxmlFileBtn.disabled = true;
+    }
   }
 
   _populateFRMForm(data) {
@@ -2060,8 +2110,12 @@ class App {
 
     document.getElementById('frm-loc-name').value = loc.name || '';
     document.getElementById('frm-loc-region').value = loc.region || '';
-    document.getElementById('frm-loc-lat').value = loc.latitude != null ? loc.latitude : '';
-    document.getElementById('frm-loc-lon').value = loc.longitude != null ? loc.longitude : '';
+    // Combine lat/lon into single GPS string
+    if (loc.latitude != null && loc.longitude != null) {
+      document.getElementById('frm-loc-gps').value = `${loc.latitude}, ${loc.longitude}`;
+    } else {
+      document.getElementById('frm-loc-gps').value = '';
+    }
     document.getElementById('frm-loc-elev').value = loc.elevation_m != null ? loc.elevation_m : '';
     document.getElementById('frm-loc-env').value = loc.environment || '';
 
@@ -2156,14 +2210,18 @@ class App {
     const loc = {};
     const locName = document.getElementById('frm-loc-name').value.trim();
     const locRegion = document.getElementById('frm-loc-region').value.trim();
-    const locLat = document.getElementById('frm-loc-lat').value.trim();
-    const locLon = document.getElementById('frm-loc-lon').value.trim();
+    const locGps = document.getElementById('frm-loc-gps').value.trim();
     const locElev = document.getElementById('frm-loc-elev').value.trim();
     const locEnv = document.getElementById('frm-loc-env').value.trim();
     if (locName) loc.name = locName;
     if (locRegion) loc.region = locRegion;
-    if (locLat) loc.latitude = parseFloat(locLat);
-    if (locLon) loc.longitude = parseFloat(locLon);
+    if (locGps) {
+      const coords = this._parseGPS(locGps);
+      if (coords) {
+        loc.latitude = coords.lat;
+        loc.longitude = coords.lon;
+      }
+    }
     if (locElev) loc.elevation_m = parseFloat(locElev);
     if (locEnv) loc.environment = locEnv;
     if (Object.keys(loc).length) data.location = loc;
@@ -2425,19 +2483,15 @@ class App {
   }
 
   /**
-   * Build iXML and save to a single WAV file chosen by the user.
+   * Build iXML and save to the currently open WAV file (first file in session).
    */
   async _saveIXMLToFile() {
-    const filePath = await window.electronAPI.saveFileDialog({
-      title: 'Save iXML to WAV File',
-      defaultPath: this._sessionFolderPath || '',
-      filters: [
-        { name: 'WAV Audio', extensions: ['wav', 'wave', 'bwf'] },
-        { name: 'All Files', extensions: ['*'] }
-      ]
-    });
-    if (!filePath) return;
+    if (!this.session || this.session.files.length === 0) {
+      this._setStatus('No file open');
+      return;
+    }
 
+    const filePath = this.session.files[0].filePath;
     const formData = this._readFRMForm();
     const ixmlMeta = formDataToIXML(formData, this.session, this.annotations);
     const xml = buildIXML(ixmlMeta);
@@ -2447,8 +2501,9 @@ class App {
       this._frmData = formData;
       this._frmLoaded = true;
       this._ixmlSource = 'ixml';
-      document.getElementById('frm-status').textContent = 'Saved to WAV';
-      this._setStatus(`iXML written to ${filePath.split(/[/\\]/).pop()}`);
+      const fname = filePath.split(/[/\\]/).pop();
+      document.getElementById('frm-status').textContent = `Saved to ${fname}`;
+      this._setStatus(`iXML written to ${fname}`);
     } catch (err) {
       this._setStatus(`Error writing iXML: ${err.message}`);
     }
