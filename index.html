@@ -82,7 +82,7 @@
 
     <div class="toolbar-group">
       <button id="btn-annotations" class="annotations-btn">Annotations</button>
-      <button id="btn-session-meta" class="annotations-btn" title="Session metadata (.frm.txt)">Session</button>
+      <button id="btn-session-meta" class="annotations-btn" title="Session metadata (iXML / .frm.txt)">Session</button>
     </div>
 
     <div class="toolbar-group" style="margin-left: auto;">
@@ -279,7 +279,9 @@
 
         </div>
         <div class="frm-modal-footer">
-          <button id="frm-save" class="frm-primary-btn">Save session.frm.txt</button>
+          <button id="frm-save-ixml" class="frm-primary-btn" title="Embed iXML metadata into all WAV files in the session folder">Save to WAV(s)</button>
+          <button id="frm-save-ixml-file" class="frm-secondary-btn" title="Save iXML to a single selected WAV file">Save to File...</button>
+          <button id="frm-save" class="frm-secondary-btn" title="Save as session.frm.txt sidecar">Save .frm.txt</button>
           <button id="frm-save-as" class="frm-secondary-btn">Save As...</button>
         </div>
       </div>

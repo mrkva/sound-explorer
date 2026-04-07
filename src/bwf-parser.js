@@ -150,7 +150,8 @@ export class BWFParser {
   }
 
   static parseIXMLChunk(view, offset, size, result) {
-    const xmlString = this.readString(view, offset, Math.min(size, 8192)).trim();
+    // Read up to 256KB for iXML (can be large with many annotations)
+    const xmlString = this.readString(view, offset, Math.min(size, 262144)).trim();
     result.ixml = xmlString;
 
     // Try to extract timecode from iXML
@@ -169,6 +170,118 @@ export class BWFParser {
         result.startTimeOfDay = h * 3600 + m * 60 + s;
       }
     }
+
+    // Parse structured iXML data using regex (no DOM in this context)
+    result.ixmlData = this.parseIXMLStructured(xmlString, result.sampleRate);
+  }
+
+  /**
+   * Parse iXML XML string into structured metadata using regex.
+   * Works in both browser and Node.js contexts.
+   */
+  static parseIXMLStructured(xmlStr, sampleRate = 48000) {
+    const meta = {};
+    const tag = (name) => {
+      const m = xmlStr.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, 'i'));
+      return m ? m[1].trim() : '';
+    };
+
+    meta.project = tag('PROJECT');
+    meta.scene = tag('SCENE');
+    meta.tape = tag('TAPE');
+    meta.take = tag('TAKE');
+    meta.note = tag('NOTE');
+    meta.file_uid = tag('FILE_UID');
+    meta.circled = tag('CIRCLED').toUpperCase() === 'TRUE';
+
+    // LOCATION
+    const locBlock = xmlStr.match(/<LOCATION>([\s\S]*?)<\/LOCATION>/i);
+    if (locBlock) {
+      const lb = locBlock[1];
+      const ltag = (name) => {
+        const m = lb.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, 'i'));
+        return m ? m[1].trim() : '';
+      };
+      meta.location = {
+        name: ltag('LOCATION_NAME'),
+        gps: ltag('LOCATION_GPS'),
+        altitude: ltag('LOCATION_ALTITUDE'),
+      };
+    }
+
+    // SPEED
+    const speedBlock = xmlStr.match(/<SPEED>([\s\S]*?)<\/SPEED>/i);
+    if (speedBlock) {
+      const sb = speedBlock[1];
+      const stag = (name) => {
+        const m = sb.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, 'i'));
+        return m ? m[1].trim() : '';
+      };
+      meta.speed = {
+        sample_rate: parseInt(stag('FILE_SAMPLE_RATE')) || 0,
+        bit_depth: parseInt(stag('AUDIO_BIT_DEPTH')) || 0,
+      };
+      if (meta.speed.sample_rate) sampleRate = meta.speed.sample_rate;
+    }
+
+    // TRACK_LIST
+    const trackBlock = xmlStr.match(/<TRACK_LIST>([\s\S]*?)<\/TRACK_LIST>/i);
+    if (trackBlock) {
+      meta.tracks = [];
+      const trackMatches = trackBlock[1].matchAll(/<TRACK>([\s\S]*?)<\/TRACK>/gi);
+      for (const tm of trackMatches) {
+        const tb = tm[1];
+        const ttag = (name) => {
+          const m = tb.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, 'i'));
+          return m ? m[1].trim() : '';
+        };
+        meta.tracks.push({
+          channel_index: parseInt(ttag('CHANNEL_INDEX')) || 0,
+          interleave_index: parseInt(ttag('INTERLEAVE_INDEX')) || 0,
+          name: ttag('n'),
+          function: ttag('FUNCTION'),
+        });
+      }
+    }
+
+    // SYNC_POINT_LIST
+    const splBlock = xmlStr.match(/<SYNC_POINT_LIST>([\s\S]*?)<\/SYNC_POINT_LIST>/i);
+    if (splBlock) {
+      meta.annotations = [];
+      const spMatches = splBlock[1].matchAll(/<SYNC_POINT>([\s\S]*?)<\/SYNC_POINT>/gi);
+      for (const sm of spMatches) {
+        const sb = sm[1];
+        const sptag = (name) => {
+          const m = sb.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, 'i'));
+          return m ? m[1].trim() : '';
+        };
+        const low = parseInt(sptag('SYNC_POINT_LOW')) || 0;
+        const high = parseInt(sptag('SYNC_POINT_HIGH')) || 0;
+        const sampleOffset = high * 0x100000000 + low;
+        const durSamples = parseInt(sptag('SYNC_POINT_EVENT_DURATION')) || 0;
+        meta.annotations.push({
+          comment: sptag('SYNC_POINT_COMMENT'),
+          offset_seconds: sampleOffset / sampleRate,
+          duration_seconds: durSamples / sampleRate,
+        });
+      }
+    }
+
+    // USER — extract plain text key:value pairs
+    const userBlock = xmlStr.match(/<USER>([\s\S]*?)<\/USER>/i);
+    if (userBlock) {
+      meta.user_data = {};
+      const lines = userBlock[1].split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && trimmed.includes(': ') && !trimmed.startsWith('<')) {
+          const idx = trimmed.indexOf(': ');
+          meta.user_data[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 2).trim();
+        }
+      }
+    }
+
+    return meta;
   }
 
   static readString(view, offset, length) {

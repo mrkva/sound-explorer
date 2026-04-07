@@ -18,5 +18,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readPcmScattered: (filePath, dataOffset, windows) =>
     ipcRenderer.invoke('read-pcm-scattered', filePath, dataOffset, windows),
   setupAudioServer: (files, outputRate) => ipcRenderer.invoke('setup-audio-server', files, outputRate),
-  onOpenFiles: (callback) => ipcRenderer.on('open-files', (_event, filePaths) => callback(filePaths))
+  onOpenFiles: (callback) => ipcRenderer.on('open-files', (_event, filePaths) => callback(filePaths)),
+
+  // iXML metadata
+  readIXML: (filePath) => ipcRenderer.invoke('read-ixml', filePath),
+  writeIXML: (filePath, ixmlString) => ipcRenderer.invoke('write-ixml', filePath, ixmlString),
+  readIXMLFromFolder: (folderPath) => ipcRenderer.invoke('read-ixml-from-folder', folderPath),
+  writeIXMLToFolder: (folderPath, ixmlString) => ipcRenderer.invoke('write-ixml-to-folder', folderPath, ixmlString),
 });

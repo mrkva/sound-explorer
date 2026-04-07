@@ -784,3 +784,193 @@ function readStr(view, offset, len) {
   }
   return s;
 }
+
+// ── iXML chunk read/write ───────────────────────────────────────────────
+
+/**
+ * Read the raw iXML chunk string from a WAV file.
+ * Returns the XML string or null if no iXML chunk found.
+ */
+async function readIXMLFromFile(filePath) {
+  const fd = await fs.promises.open(filePath, 'r');
+  const stat = await fd.stat();
+  // Read up to 2MB to find iXML chunk (may be large with annotations)
+  const headerSize = Math.min(2 * 1024 * 1024, stat.size);
+  const buf = Buffer.alloc(headerSize);
+  await fd.read(buf, 0, headerSize, 0);
+  await fd.close();
+
+  if (buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') {
+    return null;
+  }
+
+  let offset = 12;
+  while (offset + 8 <= buf.length) {
+    const chunkId = buf.toString('ascii', offset, offset + 4);
+    const chunkSize = buf.readUInt32LE(offset + 4);
+    const chunkData = offset + 8;
+
+    if (!/^[\x20-\x7E]{4}$/.test(chunkId) || chunkSize >= 0xFFFFFFF0) break;
+
+    if (chunkId === 'iXML' || chunkId === 'IXML') {
+      const xmlEnd = Math.min(chunkData + chunkSize, buf.length);
+      let xmlStr = buf.toString('utf-8', chunkData, xmlEnd);
+      // Strip trailing nulls
+      const nullIdx = xmlStr.indexOf('\0');
+      if (nullIdx >= 0) xmlStr = xmlStr.slice(0, nullIdx);
+      return xmlStr.trim();
+    }
+
+    offset = chunkData + chunkSize;
+    if (offset % 2 !== 0) offset++;
+  }
+  return null;
+}
+
+ipcMain.handle('read-ixml', async (event, filePath) => {
+  return await readIXMLFromFile(filePath);
+});
+
+/**
+ * Inject or replace the iXML chunk in a WAV file.
+ * Reads the entire file, strips existing iXML, appends new one, updates RIFF size.
+ * For large files, only reads/writes the non-data portion to avoid memory issues.
+ */
+ipcMain.handle('write-ixml', async (event, filePath, ixmlString) => {
+  const ixmlBuf = Buffer.from(ixmlString, 'utf-8');
+
+  // Read the full file
+  const data = await fs.promises.readFile(filePath);
+  if (data.toString('ascii', 0, 4) !== 'RIFF' || data.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error('Not a valid WAV file');
+  }
+
+  // Rebuild: copy all chunks except existing iXML, then append new iXML
+  const chunks = [];
+  let offset = 12;
+  while (offset + 8 <= data.length) {
+    const chunkId = data.toString('ascii', offset, offset + 4);
+    const chunkSize = data.readUInt32LE(offset + 4);
+    let totalChunk = 8 + chunkSize;
+    if (chunkSize % 2 === 1) totalChunk++; // RIFF pad byte
+
+    if (!/^[\x20-\x7E]{4}$/.test(chunkId) || chunkSize >= 0xFFFFFFF0) break;
+
+    if (chunkId !== 'iXML' && chunkId !== 'IXML') {
+      chunks.push(data.slice(offset, offset + totalChunk));
+    }
+    offset += totalChunk;
+  }
+
+  // Build new iXML chunk
+  const ixmlChunkSize = ixmlBuf.length;
+  const ixmlPadded = ixmlChunkSize % 2 === 1;
+  const ixmlChunk = Buffer.alloc(8 + ixmlChunkSize + (ixmlPadded ? 1 : 0));
+  ixmlChunk.write('iXML', 0, 4, 'ascii');
+  ixmlChunk.writeUInt32LE(ixmlChunkSize, 4);
+  ixmlBuf.copy(ixmlChunk, 8);
+
+  // Calculate total size
+  let totalSize = 12; // RIFF + size + WAVE
+  for (const chunk of chunks) totalSize += chunk.length;
+  totalSize += ixmlChunk.length;
+
+  // Write output
+  const out = Buffer.alloc(totalSize);
+  let pos = 0;
+  // RIFF header
+  out.write('RIFF', pos); pos += 4;
+  out.writeUInt32LE(Math.min(totalSize - 8, 0xFFFFFFFF), pos); pos += 4;
+  out.write('WAVE', pos); pos += 4;
+
+  for (const chunk of chunks) {
+    chunk.copy(out, pos);
+    pos += chunk.length;
+  }
+  ixmlChunk.copy(out, pos);
+
+  await fs.promises.writeFile(filePath, out);
+  return { success: true, ixmlSize: ixmlChunkSize };
+});
+
+/**
+ * Read iXML from all WAV files in a folder, return first one found.
+ * Used for auto-loading session metadata from any file in the session.
+ */
+ipcMain.handle('read-ixml-from-folder', async (event, folderPath) => {
+  const entries = await fs.promises.readdir(folderPath);
+  const wavFiles = entries
+    .filter(f => /\.(wav|wave|bwf)$/i.test(f))
+    .sort();
+
+  for (const fname of wavFiles) {
+    const filePath = path.join(folderPath, fname);
+    const xml = await readIXMLFromFile(filePath);
+    if (xml && xml.includes('<BWFXML')) {
+      return { filePath, xml };
+    }
+  }
+  return null;
+});
+
+/**
+ * Write iXML to all WAV files in a folder.
+ */
+ipcMain.handle('write-ixml-to-folder', async (event, folderPath, ixmlString) => {
+  const entries = await fs.promises.readdir(folderPath);
+  const wavFiles = entries
+    .filter(f => /\.(wav|wave|bwf)$/i.test(f))
+    .sort()
+    .map(f => path.join(folderPath, f));
+
+  const results = [];
+  for (const filePath of wavFiles) {
+    try {
+      const ixmlBuf = Buffer.from(ixmlString, 'utf-8');
+      const data = await fs.promises.readFile(filePath);
+      if (data.toString('ascii', 0, 4) !== 'RIFF') {
+        results.push({ filePath, success: false, error: 'Not a RIFF file' });
+        continue;
+      }
+
+      const chunks = [];
+      let offset = 12;
+      while (offset + 8 <= data.length) {
+        const chunkId = data.toString('ascii', offset, offset + 4);
+        const chunkSize = data.readUInt32LE(offset + 4);
+        let totalChunk = 8 + chunkSize;
+        if (chunkSize % 2 === 1) totalChunk++;
+        if (!/^[\x20-\x7E]{4}$/.test(chunkId) || chunkSize >= 0xFFFFFFF0) break;
+        if (chunkId !== 'iXML' && chunkId !== 'IXML') {
+          chunks.push(data.slice(offset, offset + totalChunk));
+        }
+        offset += totalChunk;
+      }
+
+      const ixmlChunkSize = ixmlBuf.length;
+      const ixmlPadded = ixmlChunkSize % 2 === 1;
+      const ixmlChunk = Buffer.alloc(8 + ixmlChunkSize + (ixmlPadded ? 1 : 0));
+      ixmlChunk.write('iXML', 0, 4, 'ascii');
+      ixmlChunk.writeUInt32LE(ixmlChunkSize, 4);
+      ixmlBuf.copy(ixmlChunk, 8);
+
+      let totalSize = 12;
+      for (const chunk of chunks) totalSize += chunk.length;
+      totalSize += ixmlChunk.length;
+
+      const out = Buffer.alloc(totalSize);
+      let pos = 0;
+      out.write('RIFF', pos); pos += 4;
+      out.writeUInt32LE(Math.min(totalSize - 8, 0xFFFFFFFF), pos); pos += 4;
+      out.write('WAVE', pos); pos += 4;
+      for (const chunk of chunks) { chunk.copy(out, pos); pos += chunk.length; }
+      ixmlChunk.copy(out, pos);
+
+      await fs.promises.writeFile(filePath, out);
+      results.push({ filePath, success: true });
+    } catch (err) {
+      results.push({ filePath, success: false, error: err.message });
+    }
+  }
+  return results;
+});

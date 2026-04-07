@@ -7,6 +7,7 @@ import { SpectrogramRenderer } from './spectrogram.js';
 import { AudioEngine } from './audio-engine.js';
 import { Session } from './session.js';
 import { parseFRM, serializeFRM, autoPopulateFromSession, annotationsToFRM, annotationsFromFRM } from './frm.js';
+import { buildIXML, parseIXML, formDataToIXML, ixmlToFormData, syncPointsToAnnotations } from './ixml.js';
 
 class App {
   constructor() {
@@ -75,10 +76,11 @@ class App {
     this._currentOutputSampleRate = 48000;
     this._currentDecimationFactor = 1;
 
-    // FRM session metadata
+    // Session metadata (iXML or FRM sidecar)
     this._sessionFolderPath = null;
-    this._frmData = null;   // Parsed .frm.txt content
-    this._frmLoaded = false; // Whether loaded from existing file
+    this._frmData = null;   // Parsed form data (from iXML or .frm.txt)
+    this._frmLoaded = false; // Whether loaded from existing source
+    this._ixmlSource = null; // 'ixml' | 'frm' | null — tracks metadata origin
 
     this._setupCanvas();
     this._setupSpectrogram();
@@ -700,9 +702,10 @@ class App {
     if (session.files.length > 0) {
       this._sessionFolderPath = session.files[0].filePath.replace(/[/\\][^/\\]+$/, '');
     }
-    // Reset FRM state
+    // Reset metadata state
     this._frmData = null;
     this._frmLoaded = false;
+    this._ixmlSource = null;
 
     // Clear previous annotations
     this.annotations = [];
@@ -1267,15 +1270,26 @@ class App {
       return;
     }
 
-    // Default to saving as session.frm.txt if we have a session folder
+    // Default: save annotations to the best available destination
     if (this._sessionFolderPath) {
-      // If FRM data exists, update it with current annotations and save
+      if (this._ixmlSource === 'ixml') {
+        // Save as iXML SYNC_POINTs into WAV files
+        if (!this._frmData) this._frmData = autoPopulateFromSession(this.session);
+        const ixmlMeta = formDataToIXML(this._frmData, this.session, this.annotations);
+        const xml = buildIXML(ixmlMeta);
+        const results = await window.electronAPI.writeIXMLToFolder(this._sessionFolderPath, xml);
+        const ok = results.filter(r => r.success).length;
+        this._setStatus(`Saved ${this.annotations.length} annotations as iXML SYNC_POINTs to ${ok} WAV file${ok !== 1 ? 's' : ''}`);
+        return;
+      }
+      // Save as session.frm.txt
       if (!this._frmData) this._frmData = autoPopulateFromSession(this.session);
       this._frmData.annotations = annotationsToFRM(this.annotations, this.session);
       const yaml = serializeFRM(this._frmData);
       const frmPath = this._sessionFolderPath + '/session.frm.txt';
       await window.electronAPI.writeFile(frmPath, yaml);
       this._frmLoaded = true;
+      this._ixmlSource = 'frm';
       this._setStatus(`Saved ${this.annotations.length} annotations to session.frm.txt`);
       return;
     }
@@ -1642,13 +1656,25 @@ class App {
     if (!this.session || this.session.files.length === 0) return;
 
     const folderPath = this._sessionFolderPath;
+
+    // 1. Try iXML from WAV files (embedded metadata — preferred)
+    if (folderPath) {
+      const ixmlLoaded = await this._loadIXMLFromFolder(folderPath);
+      if (ixmlLoaded) return;
+    } else if (this.session.files.length > 0) {
+      // Single file mode — try reading iXML from the first file
+      const ixmlLoaded = await this._loadIXMLFromFile(this.session.files[0].filePath);
+      if (ixmlLoaded) return;
+    }
+
+    // 2. Try session.frm.txt sidecar
+    if (folderPath) {
+      const frmLoaded = await this._loadFRMFile(folderPath);
+      if (frmLoaded) return;
+    }
+
+    // 3. Fall back to annotations.json
     if (!folderPath) return;
-
-    // Try session.frm.txt first
-    const frmLoaded = await this._loadFRMFile(folderPath);
-    if (frmLoaded) return;
-
-    // Fall back to annotations.json
     const firstFilePath = this.session.files[0].filePath;
     const baseName = firstFilePath.replace(/^.*[/\\]/, '').replace(/\.[^.]+$/, '');
     const candidates = [
@@ -1961,6 +1987,8 @@ class App {
     const closeBtn = document.getElementById('frm-close');
     const saveBtn = document.getElementById('frm-save');
     const saveAsBtn = document.getElementById('frm-save-as');
+    const saveIxmlBtn = document.getElementById('frm-save-ixml');
+    const saveIxmlFileBtn = document.getElementById('frm-save-ixml-file');
     const openBtn = document.getElementById('btn-session-meta');
 
     openBtn.addEventListener('click', () => this._openFRMModal());
@@ -1970,6 +1998,8 @@ class App {
     });
     saveBtn.addEventListener('click', () => this._saveFRM());
     saveAsBtn.addEventListener('click', () => this._saveFRMAs());
+    saveIxmlBtn.addEventListener('click', () => this._saveIXMLToFolder());
+    saveIxmlFileBtn.addEventListener('click', () => this._saveIXMLToFile());
 
     // Add mic button
     document.getElementById('frm-add-mic').addEventListener('click', () => {
@@ -1996,8 +2026,18 @@ class App {
 
     this._populateFRMForm(this._frmData);
     document.getElementById('frm-modal').style.display = 'flex';
-    document.getElementById('frm-status').textContent =
-      this._frmLoaded ? 'Loaded from session.frm.txt' : 'Auto-populated from BWF metadata';
+
+    let statusText = 'Auto-populated from BWF metadata';
+    if (this._ixmlSource === 'ixml') statusText = 'Loaded from iXML chunk';
+    else if (this._ixmlSource === 'frm') statusText = 'Loaded from session.frm.txt';
+    document.getElementById('frm-status').textContent = statusText;
+
+    // Enable/disable folder save based on whether we have a folder
+    const saveIxmlBtn = document.getElementById('frm-save-ixml');
+    saveIxmlBtn.disabled = !this._sessionFolderPath;
+    saveIxmlBtn.title = this._sessionFolderPath
+      ? `Embed iXML into all WAV files in ${this._sessionFolderPath.split(/[/\\]/).pop()}/`
+      : 'Open a folder first to save iXML to all WAV files';
   }
 
   _populateFRMForm(data) {
@@ -2253,7 +2293,8 @@ class App {
     await window.electronAPI.writeFile(frmPath, yaml);
     this._frmData = data;
     this._frmLoaded = true;
-    document.getElementById('frm-status').textContent = 'Saved';
+    this._ixmlSource = 'frm';
+    document.getElementById('frm-status').textContent = 'Saved .frm.txt';
     this._setStatus(`Saved session metadata to ${frmPath.split(/[/\\]/).pop()}`);
   }
 
@@ -2265,6 +2306,7 @@ class App {
       const content = await window.electronAPI.readTextFile(frmPath);
       this._frmData = parseFRM(content);
       this._frmLoaded = true;
+      this._ixmlSource = 'frm';
 
       // Load annotations from FRM
       if (this._frmData.annotations && this._frmData.annotations.length > 0) {
@@ -2286,7 +2328,133 @@ class App {
       return false;
     }
   }
+
+  // ── iXML read/write ────────────────────────────────────────────────────
+
+  /**
+   * Load iXML metadata from WAV files in a folder.
+   * Reads the first file that has an iXML chunk with <BWFXML>.
+   */
+  async _loadIXMLFromFolder(folderPath) {
+    try {
+      const result = await window.electronAPI.readIXMLFromFolder(folderPath);
+      if (!result || !result.xml) return false;
+      return this._processLoadedIXML(result.xml, result.filePath);
+    } catch (err) {
+      console.warn('Could not load iXML from folder:', err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Load iXML metadata from a single WAV file.
+   */
+  async _loadIXMLFromFile(filePath) {
+    try {
+      const xml = await window.electronAPI.readIXML(filePath);
+      if (!xml || !xml.includes('<BWFXML')) return false;
+      return this._processLoadedIXML(xml, filePath);
+    } catch (err) {
+      console.warn('Could not load iXML:', err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Process a loaded iXML string: parse it, convert to form data,
+   * load annotations, update state.
+   */
+  _processLoadedIXML(xmlStr, sourceFilePath) {
+    const ixmlMeta = parseIXML(xmlStr);
+    // Only consider it "loaded" if it has meaningful user-added content
+    // (beyond what the recorder writes automatically like SPEED/TRACK_LIST)
+    const hasMeaningfulData = ixmlMeta.note || ixmlMeta.project || ixmlMeta.scene ||
+      ixmlMeta.user_text || (ixmlMeta.annotations && ixmlMeta.annotations.length > 0) ||
+      ixmlMeta.location;
+    if (!hasMeaningfulData) return false;
+
+    this._frmData = ixmlToFormData(ixmlMeta);
+    this._frmLoaded = true;
+    this._ixmlSource = 'ixml';
+
+    // Load annotations from SYNC_POINTs
+    if (ixmlMeta.annotations && ixmlMeta.annotations.length > 0) {
+      const appAnns = syncPointsToAnnotations(ixmlMeta.annotations);
+      if (appAnns.length > 0) {
+        this.annotations = appAnns;
+        this._updateAnnotationsList();
+        this.spectrogram.annotations = this.annotations;
+        if (!this.annotationsSidebar.classList.contains('open')) {
+          this._toggleAnnotationsSidebar();
+        }
+      }
+    }
+
+    const title = ixmlMeta.scene || ixmlMeta.project || '';
+    const fname = sourceFilePath.split(/[/\\]/).pop();
+    this._setStatus(`Loaded iXML metadata from ${fname}${title ? ' — ' + title : ''}`);
+    return true;
+  }
+
+  /**
+   * Build iXML from the current form data and save to all WAV files in the session folder.
+   */
+  async _saveIXMLToFolder() {
+    if (!this._sessionFolderPath) {
+      this._setStatus('No session folder — use "Save to File..." instead');
+      return;
+    }
+
+    const formData = this._readFRMForm();
+    const ixmlMeta = formDataToIXML(formData, this.session, this.annotations);
+    const xml = buildIXML(ixmlMeta);
+
+    this._setStatus('Writing iXML to WAV files...');
+    try {
+      const results = await window.electronAPI.writeIXMLToFolder(this._sessionFolderPath, xml);
+      const ok = results.filter(r => r.success).length;
+      const fail = results.filter(r => !r.success).length;
+      this._frmData = formData;
+      this._frmLoaded = true;
+      this._ixmlSource = 'ixml';
+      document.getElementById('frm-status').textContent = 'Saved to WAV files';
+      this._setStatus(`iXML written to ${ok} WAV file${ok !== 1 ? 's' : ''}${fail > 0 ? ` (${fail} failed)` : ''}`);
+    } catch (err) {
+      this._setStatus(`Error writing iXML: ${err.message}`);
+    }
+  }
+
+  /**
+   * Build iXML and save to a single WAV file chosen by the user.
+   */
+  async _saveIXMLToFile() {
+    const filePath = await window.electronAPI.saveFileDialog({
+      title: 'Save iXML to WAV File',
+      defaultPath: this._sessionFolderPath || '',
+      filters: [
+        { name: 'WAV Audio', extensions: ['wav', 'wave', 'bwf'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    if (!filePath) return;
+
+    const formData = this._readFRMForm();
+    const ixmlMeta = formDataToIXML(formData, this.session, this.annotations);
+    const xml = buildIXML(ixmlMeta);
+
+    try {
+      await window.electronAPI.writeIXML(filePath, xml);
+      this._frmData = formData;
+      this._frmLoaded = true;
+      this._ixmlSource = 'ixml';
+      document.getElementById('frm-status').textContent = 'Saved to WAV';
+      this._setStatus(`iXML written to ${filePath.split(/[/\\]/).pop()}`);
+    } catch (err) {
+      this._setStatus(`Error writing iXML: ${err.message}`);
+    }
+  }
 }
+
 
 document.addEventListener('DOMContentLoaded', () => {
   window.app = new App();

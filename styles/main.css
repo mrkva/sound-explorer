@@ -1008,6 +1008,7 @@ button.primary:hover { background: var(--btn-primary-hover); }
   cursor: pointer;
 }
 .frm-primary-btn:hover { filter: brightness(1.15); }
+.frm-primary-btn:disabled { opacity: 0.4; cursor: default; filter: none; }
 .frm-secondary-btn {
   background: var(--bg-secondary);
   color: var(--text-primary);
