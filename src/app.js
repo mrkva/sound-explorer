@@ -78,6 +78,7 @@ class App {
 
     // Session metadata (iXML or FRM sidecar)
     this._sessionFolderPath = null;
+    this._openedAsFolder = false; // true only when user opened a folder
     this._frmData = null;   // Parsed form data (from iXML or .frm.txt)
     this._frmLoaded = false; // Whether loaded from existing source
     this._ixmlSource = null; // 'ixml' | 'frm' | null — tracks metadata origin
@@ -612,6 +613,7 @@ class App {
         } else {
           await this.session.loadFiles(filePaths);
         }
+        this._openedAsFolder = false;
         await this._initSession();
       } catch (err) {
         this._setStatus('Error: ' + err.message);
@@ -631,6 +633,7 @@ class App {
           } else {
             await this.session.loadFiles(filePaths);
           }
+          this._openedAsFolder = false;
           await this._initSession();
         } catch (err) {
           this._setStatus('Error: ' + err.message);
@@ -669,6 +672,7 @@ class App {
       this._setStatus('Scanning folder...');
       this.session = new Session();
       await this.session.loadFolder(folderPath);
+      this._openedAsFolder = true;
       await this._initSession();
     } catch (err) {
       this._setStatus('Error: ' + err.message);
@@ -688,6 +692,7 @@ class App {
       } else {
         await this.session.loadFiles(filePaths);
       }
+      this._openedAsFolder = false;
       await this._initSession();
     } catch (err) {
       this._setStatus('Error: ' + err.message);
@@ -702,7 +707,7 @@ class App {
     if (session.files.length > 0) {
       this._sessionFolderPath = session.files[0].filePath.replace(/[/\\][^/\\]+$/, '');
     }
-    // Reset metadata state
+    // Reset metadata state (preserve _openedAsFolder — set before _initSession)
     this._frmData = null;
     this._frmLoaded = false;
     this._ixmlSource = null;
@@ -2070,16 +2075,19 @@ class App {
     else if (this._ixmlSource === 'frm') statusText = 'Loaded from session.frm.txt';
     document.getElementById('frm-status').textContent = statusText;
 
-    // Enable/disable folder save based on whether we have a folder
+    // "Save to WAV(s)" — only visible when opened as a folder
     const saveIxmlBtn = document.getElementById('frm-save-ixml');
-    const hasFolder = !!this._sessionFolderPath;
     const fileCount = this.session?.files?.length || 0;
-    saveIxmlBtn.disabled = !hasFolder;
-    saveIxmlBtn.title = hasFolder
-      ? `Embed iXML into all ${fileCount} WAV file${fileCount !== 1 ? 's' : ''} in ${this._sessionFolderPath.split(/[/\\]/).pop()}/`
-      : 'Open a folder first to save iXML to all WAV files';
+    if (this._openedAsFolder && this._sessionFolderPath) {
+      saveIxmlBtn.style.display = '';
+      saveIxmlBtn.disabled = false;
+      saveIxmlBtn.textContent = `Save to ${fileCount} WAV${fileCount !== 1 ? 's' : ''}`;
+      saveIxmlBtn.title = `Embed iXML into all WAV files in ${this._sessionFolderPath.split(/[/\\]/).pop()}/`;
+    } else {
+      saveIxmlBtn.style.display = 'none';
+    }
 
-    // Configure single-file save button
+    // "Save to File" — saves to the currently open first file
     const saveIxmlFileBtn = document.getElementById('frm-save-ixml-file');
     if (fileCount > 0) {
       const fname = this.session.files[0].filePath.split(/[/\\]/).pop();
