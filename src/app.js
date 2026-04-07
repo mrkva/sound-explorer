@@ -428,6 +428,9 @@ class App {
       e.target.value = ''; // Reset selector
     });
 
+    document.getElementById('btn-trim-selection').addEventListener('click', () => {
+      this._trimSelection();
+    });
     document.getElementById('btn-export-selection').addEventListener('click', () => {
       this._exportSelectionAsWav();
     });
@@ -1451,6 +1454,64 @@ class App {
       sampleRate: session.sampleRate,
       format: session.format
     }));
+  }
+
+  /**
+   * Trim: instantly save the current selection as a new WAV file
+   * in the same folder as the source, no dialog needed.
+   * Output: originalname_trim_MM-SS--MM-SS.wav
+   */
+  async _trimSelection() {
+    if (!this._pendingSelection || !this.session) return;
+    const { start, end } = this._pendingSelection;
+    if (end <= start) return;
+
+    const segments = this._getSelectionSegments(start, end);
+    if (segments.length === 0) return;
+
+    // Build output filename next to the source file
+    const srcPath = segments[0].filePath;
+    const srcDir = srcPath.replace(/[/\\][^/\\]+$/, '');
+    const srcName = srcPath.replace(/^.*[/\\]/, '').replace(/\.[^.]+$/, '');
+
+    const fmtTime = (s) => {
+      const m = Math.floor(s / 60);
+      const sec = Math.floor(s % 60);
+      return `${m}-${String(sec).padStart(2, '0')}`;
+    };
+    const outputName = `${srcName}_trim_${fmtTime(start)}--${fmtTime(end)}.wav`;
+    const outputPath = srcDir + '/' + outputName;
+
+    // Check for overwrite
+    const exists = await window.electronAPI.fileExists(outputPath);
+    if (exists) {
+      // Add a counter to avoid overwriting
+      let counter = 2;
+      let altPath;
+      do {
+        altPath = srcDir + '/' + `${srcName}_trim_${fmtTime(start)}--${fmtTime(end)}_${counter}.wav`;
+        counter++;
+      } while (await window.electronAPI.fileExists(altPath));
+      // Use the non-conflicting name
+      var finalPath = altPath;
+    } else {
+      var finalPath = outputPath;
+    }
+
+    try {
+      this._setStatus('Trimming...');
+      const ann = { note: 'trim', segments, wallClockStartISO: null, wallClockEndISO: null };
+      const exportSegments = this._buildExportSegments(ann);
+      const bextMeta = this._buildBextMetadata(ann);
+      const result = await window.electronAPI.exportWavSegment(exportSegments, finalPath, bextMeta);
+      const sizeMB = (result.totalDataBytes / (1024 * 1024)).toFixed(1);
+      const dur = (end - start);
+      const durStr = dur >= 60 ? `${Math.floor(dur / 60)}m${Math.floor(dur % 60)}s` : `${dur.toFixed(1)}s`;
+      this._setStatus(`Trimmed ${durStr} (${sizeMB} MB) → ${finalPath.split(/[/\\]/).pop()}`);
+    } catch (err) {
+      this._setStatus(`Trim error: ${err.message}`);
+      console.error('Trim error:', err);
+    }
   }
 
   async _exportSelectionAsWav() {
