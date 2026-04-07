@@ -2,7 +2,7 @@
 
 A browser-based spectrogram viewer and audio player for ultrasonic field recordings, built by [LOM](https://lom.audio).
 
-**Try it live: [mrkva.github.io/sound-explorer](https://mrkva.github.io/sound-explorer/)** (redirects to `apps/web/`)
+**Try it live: [mrkva.github.io/sound-explorer](https://mrkva.github.io/sound-explorer/)**
 
 ## Your data stays on your machine
 
