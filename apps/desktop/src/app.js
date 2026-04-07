@@ -1025,7 +1025,6 @@ class App {
   _startVUMeter() {
     if (this._vuRafId) cancelAnimationFrame(this._vuRafId);
 
-    const bigRows = this._bigVURows;
     let lastTime = performance.now();
     let lastTextUpdate = 0;
     let wasPlaying = false;
@@ -1036,6 +1035,7 @@ class App {
 
       if (this.engine.isPlaying) {
         wasPlaying = true;
+        const bigRows = this._bigVURows;
 
         if (bigRows.length > 0 && this._bigVUVisible) {
           const channels = this.engine.getChannelLevels();
