@@ -39,6 +39,10 @@ export class SpectrogramRenderer {
     this.viewEnd = 10;
     this.totalDuration = 0;
 
+    // Trim bounds: when set, navigation is locked to this range
+    this.trimStart = null;
+    this.trimEnd = null;
+
     // Session reference (set by app)
     this.session = null;
 
@@ -124,6 +128,8 @@ export class SpectrogramRenderer {
     this.maxFreq = Math.min(this.maxFreq, session.sampleRate / 2);
     this.viewStart = 0;
     this.viewEnd = this.totalDuration;
+    this.trimStart = null;
+    this.trimEnd = null;
     this.tileCache.clear();
     this._window = null;
   }
@@ -1508,14 +1514,17 @@ export class SpectrogramRenderer {
 
   setView(start, end) {
     const duration = end - start;
+    // Use trim bounds if active, otherwise full session
+    const lo = this.trimStart != null ? this.trimStart : 0;
+    const hi = this.trimEnd != null ? this.trimEnd : this.totalDuration;
     // Clamp while preserving view duration (prevents accidental zoom at boundaries)
-    if (start < 0) {
-      start = 0;
-      end = Math.min(duration, this.totalDuration);
+    if (start < lo) {
+      start = lo;
+      end = Math.min(start + duration, hi);
     }
-    if (end > this.totalDuration) {
-      end = this.totalDuration;
-      start = Math.max(0, end - duration);
+    if (end > hi) {
+      end = hi;
+      start = Math.max(lo, end - duration);
     }
     this.viewStart = start;
     this.viewEnd = end;
@@ -1526,7 +1535,8 @@ export class SpectrogramRenderer {
 
   zoom(centerTime, factor) {
     const currentDuration = this.viewEnd - this.viewStart;
-    const newDuration = Math.max(0.5, Math.min(this.totalDuration, currentDuration * factor));
+    const maxDur = this.trimEnd != null ? (this.trimEnd - this.trimStart) : this.totalDuration;
+    const newDuration = Math.max(0.5, Math.min(maxDur, currentDuration * factor));
     // Always center on the target time (both zoom in and out)
     const newStart = centerTime - newDuration / 2;
     this.setView(newStart, newStart + newDuration);
@@ -1591,7 +1601,9 @@ export class SpectrogramRenderer {
       const newLeft = Math.max(0, Math.min(maxLeft, dragStartLeft + dx));
       const ratio = maxLeft > 0 ? newLeft / maxLeft : 0;
       const viewDuration = this.viewEnd - this.viewStart;
-      const newStart = ratio * (this.totalDuration - viewDuration);
+      const range = this.trimEnd != null ? (this.trimEnd - this.trimStart) : this.totalDuration;
+      const rangeStart = this.trimStart != null ? this.trimStart : 0;
+      const newStart = rangeStart + ratio * (range - viewDuration);
       this.setView(newStart, newStart + viewDuration);
       clearTimeout(this._scrollComputeTimeout);
       this._scrollComputeTimeout = setTimeout(() => this.computeVisible(), 150);
@@ -1611,11 +1623,13 @@ export class SpectrogramRenderer {
       const clickX = e.clientX - rect.left;
       const trackWidth = this._scrollbar.clientWidth;
       const viewDuration = this.viewEnd - this.viewStart;
-      const thumbWidth = (viewDuration / this.totalDuration) * trackWidth;
+      const range = this.trimEnd != null ? (this.trimEnd - this.trimStart) : this.totalDuration;
+      const rangeStart = this.trimStart != null ? this.trimStart : 0;
+      const thumbWidth = (viewDuration / range) * trackWidth;
       const maxLeft = trackWidth - thumbWidth;
       const newLeft = Math.max(0, Math.min(maxLeft, clickX - thumbWidth / 2));
       const ratio = maxLeft > 0 ? newLeft / maxLeft : 0;
-      const newStart = ratio * (this.totalDuration - viewDuration);
+      const newStart = rangeStart + ratio * (range - viewDuration);
       this.setView(newStart, newStart + viewDuration);
       clearTimeout(this._scrollComputeTimeout);
       this._scrollComputeTimeout = setTimeout(() => this.computeVisible(), 150);
@@ -1626,11 +1640,13 @@ export class SpectrogramRenderer {
     if (!this._scrollbar || !this._scrollThumb) return;
     const trackWidth = this._scrollbar.clientWidth;
     const viewDuration = this.viewEnd - this.viewStart;
-    const thumbRatio = Math.min(1, viewDuration / this.totalDuration);
+    const range = this.trimEnd != null ? (this.trimEnd - this.trimStart) : this.totalDuration;
+    const rangeStart = this.trimStart != null ? this.trimStart : 0;
+    const thumbRatio = Math.min(1, viewDuration / range);
     const thumbWidth = Math.max(30, thumbRatio * trackWidth);
     const maxLeft = trackWidth - thumbWidth;
-    const scrollableRange = this.totalDuration - viewDuration;
-    const posRatio = scrollableRange > 0 ? this.viewStart / scrollableRange : 0;
+    const scrollableRange = range - viewDuration;
+    const posRatio = scrollableRange > 0 ? (this.viewStart - rangeStart) / scrollableRange : 0;
     this._scrollThumb.style.width = thumbWidth + 'px';
     this._scrollThumb.style.left = (posRatio * maxLeft) + 'px';
     // Hide scrollbar when viewing full duration

@@ -76,12 +76,13 @@
       </div>
       <span class="selection-info" id="selection-info"></span>
       <button id="btn-annotate-selection" class="annotations-btn">Annotate</button>
-      <button id="btn-trim-selection" title="Save selection as a new trimmed WAV file (no dialog)">Trim</button>
-      <button id="btn-export-selection" title="Export selection as WAV (with save dialog)">Export WAV</button>
+      <button id="btn-trim-selection" title="Crop view to selection (T). Use Export WAV to save.">Trim</button>
+      <button id="btn-export-selection" title="Export selection as WAV">Export WAV</button>
       <button id="btn-export-slowed" title="Export selection with current playback speed applied" style="display:none;">Export Slowed</button>
     </div>
 
     <div class="toolbar-group">
+      <button id="btn-untrim" style="display:none;" title="Restore full session (U)">Untrim</button>
       <button id="btn-annotations" class="annotations-btn">Annotations</button>
       <button id="btn-session-meta" class="annotations-btn" title="Edit iXML / session metadata">Metadata</button>
     </div>
@@ -460,6 +461,8 @@
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">+ / -</td><td>Zoom in / out</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">F</td><td>Fit entire file in view</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">S</td><td>Zoom to selection</td></tr>
+        <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">T</td><td>Trim to selection</td></tr>
+        <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">U</td><td>Untrim (restore full session)</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">G</td><td>Go to time input</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">Esc</td><td>Clear selection</td></tr>
       </table>

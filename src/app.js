@@ -250,7 +250,9 @@ class App {
     });
 
     this.btnZoomFit.addEventListener('click', () => {
-      this.spectrogram.setView(0, this.spectrogram.totalDuration);
+      const lo = this.spectrogram.trimStart != null ? this.spectrogram.trimStart : 0;
+      const hi = this.spectrogram.trimEnd != null ? this.spectrogram.trimEnd : this.spectrogram.totalDuration;
+      this.spectrogram.setView(lo, hi);
       this.spectrogram.computeVisible();
     });
 
@@ -431,6 +433,9 @@ class App {
     document.getElementById('btn-trim-selection').addEventListener('click', () => {
       this._trimSelection();
     });
+    document.getElementById('btn-untrim').addEventListener('click', () => {
+      this._untrimSession();
+    });
     document.getElementById('btn-export-selection').addEventListener('click', () => {
       this._exportSelectionAsWav();
     });
@@ -535,6 +540,14 @@ class App {
         case 'NumpadSubtract':
           e.preventDefault();
           this.btnZoomOut.click();
+          break;
+        case 'KeyT':
+          e.preventDefault();
+          this._trimSelection();
+          break;
+        case 'KeyU':
+          e.preventDefault();
+          if (this.spectrogram.trimStart != null) this._untrimSession();
           break;
         case 'Escape':
           e.preventDefault();
@@ -1457,66 +1470,79 @@ class App {
   }
 
   /**
-   * Trim: instantly save the current selection as a new WAV file
-   * in the same folder as the source, no dialog needed.
-   * Output: originalname_trim_MM-SS--MM-SS.wav
+   * Trim: crop the loaded session to the current selection.
+   * Navigation, zoom-fit, and export are constrained to the trim region.
+   * Original files are never modified. Use Untrim to restore full view.
    */
-  async _trimSelection() {
+  _trimSelection() {
     if (!this._pendingSelection || !this.session) return;
-    const { start, end } = this._pendingSelection;
-    if (end <= start) return;
+    const start = Math.min(this._pendingSelection.start, this._pendingSelection.end);
+    const end = Math.max(this._pendingSelection.start, this._pendingSelection.end);
+    if (end - start < 0.01) return;
 
-    const segments = this._getSelectionSegments(start, end);
-    if (segments.length === 0) return;
+    this.spectrogram.trimStart = start;
+    this.spectrogram.trimEnd = end;
 
-    // Build output filename next to the source file
-    const srcPath = segments[0].filePath;
-    const srcDir = srcPath.replace(/[/\\][^/\\]+$/, '');
-    const srcName = srcPath.replace(/^.*[/\\]/, '').replace(/\.[^.]+$/, '');
+    // Clear selection and zoom to trimmed region
+    this.spectrogram.selectionStart = null;
+    this.spectrogram.selectionEnd = null;
+    this._pendingSelection = null;
+    this.selectionActions.style.display = 'none';
 
-    const fmtTime = (s) => {
-      const m = Math.floor(s / 60);
-      const sec = Math.floor(s % 60);
-      return `${m}-${String(sec).padStart(2, '0')}`;
-    };
-    const outputName = `${srcName}_trim_${fmtTime(start)}--${fmtTime(end)}.wav`;
-    const outputPath = srcDir + '/' + outputName;
+    this.spectrogram.setView(start, end);
+    this.spectrogram.computeVisible();
 
-    // Check for overwrite
-    const exists = await window.electronAPI.fileExists(outputPath);
-    if (exists) {
-      // Add a counter to avoid overwriting
-      let counter = 2;
-      let altPath;
-      do {
-        altPath = srcDir + '/' + `${srcName}_trim_${fmtTime(start)}--${fmtTime(end)}_${counter}.wav`;
-        counter++;
-      } while (await window.electronAPI.fileExists(altPath));
-      // Use the non-conflicting name
-      var finalPath = altPath;
-    } else {
-      var finalPath = outputPath;
+    // Show untrim button, update duration display
+    this._updateTrimUI();
+
+    const dur = end - start;
+    const durStr = dur >= 60 ? `${Math.floor(dur / 60)}m${Math.floor(dur % 60)}s` : `${dur.toFixed(1)}s`;
+    this._setStatus(`Trimmed to ${durStr} — use Export WAV to save. Press U or click Untrim to restore.`);
+  }
+
+  /**
+   * Untrim: restore full session view, remove trim bounds.
+   */
+  _untrimSession() {
+    this.spectrogram.trimStart = null;
+    this.spectrogram.trimEnd = null;
+    this.spectrogram.setView(0, Math.min(120, this.spectrogram.totalDuration));
+    this.spectrogram.computeVisible();
+    this._updateTrimUI();
+    this._setStatus('Trim removed — full session restored');
+  }
+
+  /**
+   * Update UI elements that reflect trim state.
+   */
+  _updateTrimUI() {
+    const isTrimmed = this.spectrogram.trimStart != null;
+    const untrimBtn = document.getElementById('btn-untrim');
+    if (untrimBtn) {
+      untrimBtn.style.display = isTrimmed ? '' : 'none';
     }
-
-    try {
-      this._setStatus('Trimming...');
-      const ann = { note: 'trim', segments, wallClockStartISO: null, wallClockEndISO: null };
-      const exportSegments = this._buildExportSegments(ann);
-      const bextMeta = this._buildBextMetadata(ann);
-      const result = await window.electronAPI.exportWavSegment(exportSegments, finalPath, bextMeta);
-      const sizeMB = (result.totalDataBytes / (1024 * 1024)).toFixed(1);
-      const dur = (end - start);
-      const durStr = dur >= 60 ? `${Math.floor(dur / 60)}m${Math.floor(dur % 60)}s` : `${dur.toFixed(1)}s`;
-      this._setStatus(`Trimmed ${durStr} (${sizeMB} MB) → ${finalPath.split(/[/\\]/).pop()}`);
-    } catch (err) {
-      this._setStatus(`Trim error: ${err.message}`);
-      console.error('Trim error:', err);
+    // Update duration display to show trimmed duration
+    if (isTrimmed) {
+      const dur = this.spectrogram.trimEnd - this.spectrogram.trimStart;
+      this.durationDisplay.textContent = this._formatTime(dur) + ' (trimmed)';
+    } else if (this.session) {
+      this.durationDisplay.textContent = this._formatTime(this.session.totalDuration);
     }
   }
 
   async _exportSelectionAsWav() {
-    if (!this._pendingSelection || !this.session) return;
-    const { start, end } = this._pendingSelection;
+    if (!this.session) return;
+    // Use selection if available, fall back to trim bounds
+    let start, end;
+    if (this._pendingSelection) {
+      start = this._pendingSelection.start;
+      end = this._pendingSelection.end;
+    } else if (this.spectrogram.trimStart != null) {
+      start = this.spectrogram.trimStart;
+      end = this.spectrogram.trimEnd;
+    } else {
+      return;
+    }
     const note = this.annotationNoteInput.value.trim() || 'selection';
 
     // Build a temporary annotation for the export
