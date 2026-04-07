@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#111111">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Sound Explorer</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="img/icon-192.png">
+  <link rel="icon" type="image/svg+xml" href="img/icon.svg">
+  <link rel="stylesheet" href="css/main.css?v=0.2.3">
+</head>
+<body>
+  <!-- Drop zone (shown before files loaded) -->
+  <div id="drop-zone">
+    <div class="drop-content">
+      <img id="drop-logo" src="img/logo_black.png" alt="LOM" class="drop-logo">
+      <h2>Sound Explorer <span class="drop-version">v0.1</span></h2>
+      <p class="drop-hint-desktop">Drag &amp; drop WAV files here</p>
+      <p class="drop-sub drop-hint-desktop">or</p>
+      <button id="btn-open" class="btn btn-accent">Open Files</button>
+      <input type="file" id="file-input" multiple accept=".wav" style="display:none">
+    </div>
+  </div>
+
+  <!-- Main UI (hidden until files loaded) -->
+  <div id="main-ui" style="display:none">
+    <!-- Toolbar -->
+    <div id="toolbar">
+      <img id="logo-img" src="img/logo_black.png" alt="LOM" class="toolbar-logo">
+      <span class="toolbar-title">Sound Explorer <span class="toolbar-version">v0.1</span></span>
+
+      <span class="toolbar-sep"></span>
+
+      <button id="btn-open-file" class="btn toolbar-btn">Open</button>
+      <input type="file" id="file-input-toolbar" multiple accept=".wav" style="display:none">
+
+      <span class="toolbar-sep"></span>
+
+      <button id="btn-play" class="btn btn-accent toolbar-btn btn-play-pause">&triangleright; Play</button>
+      <button id="btn-stop" class="btn toolbar-btn">&square; Stop</button>
+
+      <span class="toolbar-sep"></span>
+
+      <label class="toolbar-label">Play as:</label>
+      <select id="select-speed" class="select"></select>
+      <button id="btn-export" class="btn btn-accent toolbar-btn">Export WAV</button>
+      <button id="btn-export-speed" class="btn btn-accent toolbar-btn" style="display:none">Export 0.25x</button>
+
+      <span class="toolbar-sep"></span>
+
+      <button id="btn-zoom-in" class="btn toolbar-btn">+Zoom</button>
+      <button id="btn-zoom-out" class="btn toolbar-btn">-Zoom</button>
+      <button id="btn-fit" class="btn toolbar-btn">Fit</button>
+
+      <span class="toolbar-sep"></span>
+
+      <label class="toolbar-label">Go To:</label>
+      <button id="btn-goto-mode" class="btn toolbar-btn" title="Toggle between file position and wall clock time">Position</button>
+      <input id="input-goto" type="text" class="input input-time" placeholder="0:00.00">
+      <button id="btn-goto" class="btn toolbar-btn">Go</button>
+
+      <span class="toolbar-sep"></span>
+
+      <!-- Selection controls (hidden until selection) -->
+      <div id="selection-controls" style="display:none">
+        <label class="toolbar-label">From:</label>
+        <input id="input-sel-from" type="text" class="input input-time" value="">
+        <label class="toolbar-label">To:</label>
+        <input id="input-sel-to" type="text" class="input input-time" value="">
+        <select id="select-duration-preset" class="select select-small">
+          <option value="">Duration...</option>
+          <option value="5">5s</option>
+          <option value="10">10s</option>
+          <option value="15">15s</option>
+          <option value="30">30s</option>
+          <option value="45">45s</option>
+          <option value="60">60s</option>
+          <option value="120">2m</option>
+          <option value="300">5m</option>
+        </select>
+        <span id="label-sel-duration" class="info-text"></span>
+        <button id="btn-loop" class="btn toolbar-btn">Loop</button>
+      </div>
+
+      <span class="toolbar-spacer"></span>
+
+      <button id="btn-annotations" class="btn toolbar-btn">Annotations</button>
+      <button id="btn-theme" class="btn toolbar-btn btn-theme" title="Toggle dark mode">&#x263E;</button>
+      <button id="btn-shortcuts" class="btn toolbar-btn btn-help" title="Keyboard shortcuts">?</button>
+    </div>
+
+    <!-- Info strip -->
+    <div id="info-strip">
+      <span id="info-position" class="info-cell">POS 0:00.00</span>
+      <span id="info-wallclock" class="info-cell"></span>
+      <span id="info-duration" class="info-cell">DUR 0:00.00</span>
+      <span id="info-cursor" class="info-cell">CUR</span>
+      <span id="info-file" class="info-cell"></span>
+    </div>
+
+    <!-- Spectrogram + annotations area -->
+    <div id="spec-area">
+      <div id="canvas-container">
+        <canvas id="spectrogram-canvas"></canvas>
+        <div id="cursor-line" class="cursor-line"></div>
+        <div id="computing-indicator" class="computing-indicator" style="display:none">Computing...</div>
+      </div>
+      <div id="annotations-panel" class="annotations-panel" style="display:none">
+        <div class="annotations-panel-header">
+          <h3>Annotations</h3>
+          <button id="btn-close-annotations" class="btn btn-small">&times;</button>
+        </div>
+        <div id="annotations-list" class="annotations-list"></div>
+        <div class="annotation-add">
+          <input id="input-annotation-note" type="text" class="input" placeholder="Annotation note...">
+          <button id="btn-add-annotation" class="btn btn-small">Add</button>
+        </div>
+        <div class="annotation-actions">
+          <button id="btn-export-annotations" class="btn btn-small">Export JSON</button>
+          <button id="btn-import-annotations" class="btn btn-small">Import JSON</button>
+          <input type="file" id="annotations-import-input" accept=".json" style="display:none">
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom bar -->
+    <div id="bottom-bar">
+      <div class="control-section">
+        <span class="section-label">Audio</span>
+        <div class="control-group">
+          <label class="ctrl-label" title="Audio amplification boost (0-60 dB)">Boost</label>
+          <input id="input-gain" type="range" min="0" max="60" value="0" step="1" class="slider">
+          <span id="label-gain" class="ctrl-value">0 dB</span>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">Volume</label>
+          <input id="input-volume" type="range" min="0" max="1" value="1" step="0.01" class="slider">
+        </div>
+      </div>
+
+      <div class="control-section">
+        <span class="section-label">Spectrogram</span>
+        <div class="control-group">
+          <label class="ctrl-label" title="Spectrogram brightness threshold">Brightness</label>
+          <input id="input-spec-gain" type="range" min="-60" max="0" value="-20" step="1" class="slider">
+          <span id="label-spec-gain" class="ctrl-value">-20 dB</span>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label" title="Spectrogram dynamic range floor">Floor</label>
+          <input id="input-spec-range" type="range" min="-120" max="-40" value="-100" step="1" class="slider">
+          <span id="label-spec-range" class="ctrl-value">-100 dB</span>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">FFT</label>
+          <select id="select-fft" class="select select-small">
+            <option value="128">128</option>
+            <option value="256">256</option>
+            <option value="512">512</option>
+            <option value="1024">1024</option>
+            <option value="2048" selected>2048</option>
+            <option value="4096">4096</option>
+            <option value="8192">8192</option>
+            <option value="16384">16384</option>
+            <option value="32768">32768</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">Colors</label>
+          <select id="select-colormap" class="select select-small">
+            <option value="viridis" selected>Viridis</option>
+            <option value="magma">Magma</option>
+            <option value="inferno">Inferno</option>
+            <option value="grayscale">Grayscale</option>
+            <option value="green">Green</option>
+            <option value="hot">Hot</option>
+          </select>
+        </div>
+        <div id="channel-group" class="control-group" style="display:none">
+          <label class="ctrl-label">Ch</label>
+          <select id="select-channel" class="select select-small"></select>
+        </div>
+      </div>
+
+      <div class="control-section">
+        <span class="section-label">Frequency</span>
+        <div class="control-group">
+          <label class="ctrl-label">Min</label>
+          <input id="input-freq-min" type="number" class="input input-freq" value="0">
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">Max</label>
+          <input id="input-freq-max" type="number" class="input input-freq" value="96000">
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">Preset</label>
+          <select id="select-freq-preset" class="select select-small">
+            <option value="full">Full</option>
+            <option value="bat">Bat</option>
+            <option value="bird">Bird</option>
+            <option value="audible">Audible</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">
+            <input type="checkbox" id="check-log"> Log
+          </label>
+        </div>
+      </div>
+
+      <button id="btn-vu" class="btn toolbar-btn btn-small" title="Toggle VU meter">VU Meter</button>
+    </div>
+
+    <!-- Big VU Meter -->
+    <div id="vu-meter-big" class="vu-meter-big"></div>
+
+    <!-- Status bar -->
+    <div id="status-bar">Ready</div>
+
+    <!-- Update banner -->
+    <div id="update-banner" class="update-banner" style="display:none">
+      <span>A new version is available.</span>
+      <button id="btn-update" class="btn btn-accent btn-small">Update now</button>
+      <button id="btn-dismiss-update" class="btn btn-small">&times;</button>
+    </div>
+  </div>
+
+  <!-- Shortcuts dialog -->
+  <dialog id="shortcuts-dialog">
+    <h3>Keyboard Shortcuts</h3>
+    <table class="shortcuts-table">
+      <tr><td>Space</td><td>Play / Pause</td></tr>
+      <tr><td>&larr; / &rarr;</td><td>Seek &plusmn;1s (&plusmn;10s with Shift)</td></tr>
+      <tr><td>&uarr; / &darr;</td><td>Spectrogram gain &plusmn;5 dB</td></tr>
+      <tr><td>+ / -</td><td>Zoom in / out</td></tr>
+      <tr><td>F</td><td>Fit entire file</td></tr>
+      <tr><td>G</td><td>Focus Go To input</td></tr>
+      <tr><td>Home / End</td><td>Jump to start / end</td></tr>
+      <tr><td>Esc</td><td>Clear selection</td></tr>
+    </table>
+    <h4>Mouse</h4>
+    <table class="shortcuts-table">
+      <tr><td>Left-click + drag</td><td>Select time range</td></tr>
+      <tr><td>Right-click + drag</td><td>Pan view</td></tr>
+      <tr><td>Click (no drag)</td><td>Seek to position</td></tr>
+      <tr><td>Scroll wheel</td><td>Zoom in / out</td></tr>
+    </table>
+    <button id="btn-close-shortcuts" class="btn">Close</button>
+  </dialog>
+
+
+  <script type="module" src="js/app.js?v=0.2.3"></script>
+</body>
+</html>
