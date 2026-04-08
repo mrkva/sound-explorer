@@ -2691,11 +2691,16 @@ class App {
    */
   _processLoadedIXML(xmlStr, sourceFilePath) {
     const ixmlMeta = parseIXML(xmlStr);
-    // Only consider it "loaded" if it has meaningful user-added content
-    // (beyond what the recorder writes automatically like SPEED/TRACK_LIST)
+    // Consider it loaded if there is any meaningful content at all
     const hasMeaningfulData = ixmlMeta.note || ixmlMeta.project || ixmlMeta.scene ||
+      ixmlMeta.tape || ixmlMeta.take ||
       ixmlMeta.user_text || (ixmlMeta.annotations && ixmlMeta.annotations.length > 0) ||
-      ixmlMeta.location;
+      ixmlMeta.location ||
+      (ixmlMeta.tracks && ixmlMeta.tracks.length > 0) ||
+      (ixmlMeta.speed && (ixmlMeta.speed.sample_rate || ixmlMeta.speed.bit_depth)) ||
+      (ixmlMeta.user_tags && Object.keys(ixmlMeta.user_tags).length > 0) ||
+      (ixmlMeta.user_data && Object.keys(ixmlMeta.user_data).length > 0) ||
+      (ixmlMeta.aswg && Object.keys(ixmlMeta.aswg).length > 0);
     if (!hasMeaningfulData) return false;
 
     this._frmData = ixmlToFormData(ixmlMeta);

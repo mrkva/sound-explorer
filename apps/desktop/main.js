@@ -793,38 +793,50 @@ function readStr(view, offset, len) {
  */
 async function readIXMLFromFile(filePath) {
   const fd = await fs.promises.open(filePath, 'r');
-  const stat = await fd.stat();
-  // Read up to 2MB to find iXML chunk (may be large with annotations)
-  const headerSize = Math.min(2 * 1024 * 1024, stat.size);
-  const buf = Buffer.alloc(headerSize);
-  await fd.read(buf, 0, headerSize, 0);
-  await fd.close();
+  try {
+    const stat = await fd.stat();
+    // Read RIFF header (12 bytes)
+    const headerBuf = Buffer.alloc(12);
+    await fd.read(headerBuf, 0, 12, 0);
 
-  if (buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') {
-    return null;
-  }
-
-  let offset = 12;
-  while (offset + 8 <= buf.length) {
-    const chunkId = buf.toString('ascii', offset, offset + 4);
-    const chunkSize = buf.readUInt32LE(offset + 4);
-    const chunkData = offset + 8;
-
-    if (!/^[\x20-\x7E]{4}$/.test(chunkId) || chunkSize >= 0xFFFFFFF0) break;
-
-    if (chunkId === 'iXML' || chunkId === 'IXML') {
-      const xmlEnd = Math.min(chunkData + chunkSize, buf.length);
-      let xmlStr = buf.toString('utf-8', chunkData, xmlEnd);
-      // Strip trailing nulls
-      const nullIdx = xmlStr.indexOf('\0');
-      if (nullIdx >= 0) xmlStr = xmlStr.slice(0, nullIdx);
-      return xmlStr.trim();
+    if (headerBuf.toString('ascii', 0, 4) !== 'RIFF' || headerBuf.toString('ascii', 8, 12) !== 'WAVE') {
+      return null;
     }
 
-    offset = chunkData + chunkSize;
-    if (offset % 2 !== 0) offset++;
+    // Walk chunks by seeking — don't buffer the whole file
+    const chunkHeader = Buffer.alloc(8);
+    let offset = 12;
+
+    while (offset + 8 <= stat.size) {
+      const { bytesRead } = await fd.read(chunkHeader, 0, 8, offset);
+      if (bytesRead < 8) break;
+
+      const chunkId = chunkHeader.toString('ascii', 0, 4);
+      const chunkSize = chunkHeader.readUInt32LE(4);
+      const chunkData = offset + 8;
+
+      if (!/^[\x20-\x7E]{4}$/.test(chunkId) || chunkSize >= 0xFFFFFFF0) break;
+
+      if (chunkId === 'iXML' || chunkId === 'IXML') {
+        // Read iXML chunk body (up to 2MB)
+        const readSize = Math.min(chunkSize, 2 * 1024 * 1024);
+        const xmlBuf = Buffer.alloc(readSize);
+        await fd.read(xmlBuf, 0, readSize, chunkData);
+        let xmlStr = xmlBuf.toString('utf-8');
+        // Strip trailing nulls
+        const nullIdx = xmlStr.indexOf('\0');
+        if (nullIdx >= 0) xmlStr = xmlStr.slice(0, nullIdx);
+        return xmlStr.trim();
+      }
+
+      // Skip to next chunk (chunks are 2-byte aligned)
+      offset = chunkData + chunkSize;
+      if (offset % 2 !== 0) offset++;
+    }
+    return null;
+  } finally {
+    await fd.close();
   }
-  return null;
 }
 
 ipcMain.handle('read-ixml', async (event, filePath) => {
