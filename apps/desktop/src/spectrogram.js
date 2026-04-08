@@ -1754,7 +1754,8 @@ export class SpectrogramRenderer {
     if (newStart < 0) { newEnd -= newStart; newStart = 0; }
     if (newEnd > this.totalDuration) { newStart -= (newEnd - this.totalDuration); newEnd = this.totalDuration; }
     this.setView(Math.max(0, newStart), newEnd);
-    this.computeIfNeeded();
+    clearTimeout(this._overviewComputeTimeout);
+    this._overviewComputeTimeout = setTimeout(() => this.computeVisible(), 150);
   }
 
   async computeOverview() {
