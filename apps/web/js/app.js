@@ -389,6 +389,9 @@ class App {
       document.getElementById('drop-zone').style.display = 'none';
       document.getElementById('main-ui').style.display = 'flex';
 
+      // Wait for browser to complete layout before measuring canvas
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
       // Force canvas size update now that main UI is visible
       this.spectrogram._updateCanvasSize();
       // Pre-initialize cursor element so Safari sets up compositing layers before playback
