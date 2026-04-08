@@ -26,6 +26,7 @@
       "index.html",
       "src/**/*",
       "styles/**/*",
+      "img/**/*",
       "icon.png"
     ],
     "fileAssociations": [

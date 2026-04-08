@@ -9,6 +9,9 @@
 <body>
   <!-- Primary toolbar: file, transport, zoom, annotations -->
   <div class="toolbar toolbar-primary">
+    <img id="logo-img" src="img/logo_black.png" alt="LOM" class="toolbar-logo">
+    <span class="toolbar-title">Sound Explorer</span>
+    <div class="toolbar-separator"></div>
     <div class="toolbar-group">
       <button id="btn-open-folder" class="primary">Open Folder</button>
       <button id="btn-open-file">Open File(s)</button>
@@ -173,7 +176,9 @@
       </div>
 
       <div class="welcome-overlay" id="welcome">
-        <h2>Open a folder of WAV files or a single file</h2>
+        <img src="img/logo_white.png" alt="LOM" class="welcome-logo">
+        <h2>Sound Explorer</h2>
+        <p>Open a folder of WAV files or a single file</p>
         <p>Supports Broadcast Wave Format (BWF) with embedded timecode</p>
         <p style="margin-top: 8px; font-size: 12px; opacity: 0.7;">
           Multiple files from the same session will be stitched together automatically

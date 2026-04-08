@@ -107,6 +107,20 @@ body {
   gap: 4px;
 }
 
+.toolbar-logo {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  content: url('../img/logo_white.png');
+}
+
+.toolbar-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .toolbar-separator {
   width: 1px;
   height: 24px;
@@ -682,6 +696,14 @@ button.primary:hover { background: var(--btn-primary-hover); }
   background: rgba(0, 0, 0, 0.75);
   z-index: 10;
   pointer-events: none;
+}
+
+.welcome-logo {
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  margin-bottom: 20px;
+  opacity: 0.6;
 }
 
 .welcome-overlay h2 {
