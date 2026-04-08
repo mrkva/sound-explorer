@@ -19,12 +19,14 @@
   "build": {
     "appId": "com.soundexplorer.app",
     "productName": "Sound Explorer",
+    "icon": "icon.png",
     "files": [
       "main.js",
       "preload.js",
       "index.html",
       "src/**/*",
-      "styles/**/*"
+      "styles/**/*",
+      "icon.png"
     ],
     "fileAssociations": [
       {
