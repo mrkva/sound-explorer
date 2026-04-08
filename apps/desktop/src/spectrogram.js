@@ -57,6 +57,7 @@ export class SpectrogramRenderer {
     // Currently computing
     this._computing = false;
     this._pendingCompute = false;
+    this._suppressProgress = false;
 
     // Interaction
     this.isDragging = false;
@@ -429,7 +430,7 @@ export class SpectrogramRenderer {
   }
 
   _reportProgress(phase, percent) {
-    if (this.onProgress) this.onProgress(phase, percent);
+    if (this.onProgress && !this._suppressProgress) this.onProgress(phase, percent);
   }
 
   // ── Web Worker Pool ─────────────────────────────────────────────────────
@@ -1758,6 +1759,7 @@ export class SpectrogramRenderer {
 
   async computeOverview() {
     if (!this.session || !this._overviewCanvas) return;
+    this._suppressProgress = true;
     const w = this._overviewCanvas.clientWidth || 800;
     if (w <= 0) return;
 
@@ -1791,6 +1793,7 @@ export class SpectrogramRenderer {
       }
     }
 
+    this._suppressProgress = false;
     this._overviewData = data;
     this._overviewCanvas.classList.add('visible');
     this._overviewCanvas.width = Math.floor(this._overviewCanvas.clientWidth);
