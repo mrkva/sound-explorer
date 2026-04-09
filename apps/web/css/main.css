@@ -768,11 +768,17 @@ body.dark .toolbar-logo {
   flex-shrink: 0;
 }
 
-.vu-channel-track {
+.vu-channel-track-wrap {
   flex: 1;
   height: 16px;
-  background: linear-gradient(to right, #2d8a4e, #4fc353 60%, #e8c840 85%, #f15656 95%);
   position: relative;
+  background: var(--vu-bg);
+}
+
+.vu-channel-track {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, #2d8a4e, #4fc353 60%, #e8c840 85%, #f15656 95%);
   clip-path: inset(0 100% 0 0);
 }
 

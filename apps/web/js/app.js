@@ -1021,15 +1021,19 @@ class App {
       label.textContent = numChannels === 1 ? 'M' : (labels[i] || `${i + 1}`);
       row.appendChild(label);
 
+      const trackWrap = document.createElement('div');
+      trackWrap.className = 'vu-channel-track-wrap';
+
       const track = document.createElement('div');
       track.className = 'vu-channel-track';
+      trackWrap.appendChild(track);
 
       const peakBar = document.createElement('div');
       peakBar.className = 'vu-channel-peak';
       peakBar.style.left = '0%';
-      track.appendChild(peakBar);
+      trackWrap.appendChild(peakBar);
 
-      row.appendChild(track);
+      row.appendChild(trackWrap);
 
       const dbLabel = document.createElement('span');
       dbLabel.className = 'vu-channel-db';

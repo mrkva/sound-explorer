@@ -149,7 +149,7 @@ export class SpectrogramRenderer {
       if (this._dragButton === 0) {
         const dx = Math.abs(e.offsetX - this._dragStartX);
         if (dx > 3) this._dragMoved = true;
-        if (this._dragMoved) {
+        if (this._dragMoved && !this.isLive) {
           const t1 = this._xToTime(this._dragStartX);
           const t2 = this._xToTime(e.offsetX);
           if (t1 !== null && t2 !== null) {
@@ -179,10 +179,17 @@ export class SpectrogramRenderer {
 
     c.addEventListener('mouseup', (e) => {
       if (this._isDragging && this._dragButton === 0 && !this._dragMoved) {
-        // Click without drag = seek
-        const time = this._xToTime(e.offsetX);
-        if (time !== null && this.onSeek) {
-          this.onSeek(time / this.wavInfo.sampleRate);
+        // Click without drag: clear selection if one exists, otherwise seek
+        if (this.selectionStart !== null) {
+          this.selectionStart = null;
+          this.selectionEnd = null;
+          if (this.onSelectionChange) this.onSelectionChange(null, null);
+          this._drawOverlays();
+        } else {
+          const time = this._xToTime(e.offsetX);
+          if (time !== null && this.onSeek) {
+            this.onSeek(time / this.wavInfo.sampleRate);
+          }
         }
       }
       // Validate minimum selection duration (0.1s)
@@ -235,13 +242,14 @@ export class SpectrogramRenderer {
         this._cursorY = e.touches[0].clientY - rect.top;
         this._fireCursorMove();
         if (this._lastBitmap) this._drawStretched();
-        // Long-press (300ms) enables selection mode
-        this._touchLongPressTimer = setTimeout(() => {
-          this._touchIsLongPress = true;
-          this._touchMode = 'select';
-          // Haptic feedback if available
-          if (navigator.vibrate) navigator.vibrate(20);
-        }, 300);
+        // Long-press (1s) enables selection mode (disabled during live)
+        if (!this.isLive) {
+          this._touchLongPressTimer = setTimeout(() => {
+            this._touchIsLongPress = true;
+            this._touchMode = 'select';
+            if (navigator.vibrate) navigator.vibrate(20);
+          }, 1000);
+        }
       } else if (e.touches.length === 2) {
         if (this._touchLongPressTimer) { clearTimeout(this._touchLongPressTimer); this._touchLongPressTimer = null; }
         this._touchMode = 'pan';
@@ -334,10 +342,16 @@ export class SpectrogramRenderer {
       if (this._touchLongPressTimer) { clearTimeout(this._touchLongPressTimer); this._touchLongPressTimer = null; }
       if (e.touches.length === 0) {
         if ((this._touchMode === 'cursor' || this._touchMode === 'select') && !this._touchMoved) {
-          // Tap = seek
-          const time = this._xToTime(this._touchStartX);
-          if (time !== null && this.onSeek) {
-            this.onSeek(time / this.wavInfo.sampleRate);
+          // Tap: clear selection if one exists, otherwise seek
+          if (this.selectionStart !== null) {
+            this.selectionStart = null;
+            this.selectionEnd = null;
+            if (this.onSelectionChange) this.onSelectionChange(null, null);
+          } else {
+            const time = this._xToTime(this._touchStartX);
+            if (time !== null && this.onSeek) {
+              this.onSeek(time / this.wavInfo.sampleRate);
+            }
           }
         }
         // Validate minimum selection (0.1s)
