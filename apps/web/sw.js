@@ -4,7 +4,7 @@
  */
 
 // Keep in sync with js/version.js
-const CACHE_VERSION = '0.3.11';
+const CACHE_VERSION = '0.3.12';
 const CACHE_NAME = 'sound-explorer-v' + CACHE_VERSION;
 
 const APP_SHELL = [
@@ -31,10 +31,16 @@ const APP_SHELL = [
   './manifest.json'
 ];
 
-// Install: cache the app shell
+// Install: cache the app shell (bypass HTTP cache to ensure fresh files)
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then((cache) => {
+      return Promise.all(
+        APP_SHELL.map((url) =>
+          fetch(url, { cache: 'reload' }).then((res) => cache.put(url, res))
+        )
+      );
+    })
   );
 });
 

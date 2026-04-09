@@ -7,6 +7,7 @@
 const twiddleCache = new Map();
 const bitRevCache = new Map();
 const hannCache = new Map();
+const blackmanHarrisCache = new Map();
 
 export function getTwiddle(N) {
   let t = twiddleCache.get(N);
@@ -48,6 +49,23 @@ export function getHann(N) {
     w[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
   }
   hannCache.set(N, w);
+  return w;
+}
+
+/**
+ * 4-term Blackman-Harris window. Sidelobe suppression: -92 dB (vs -31 dB for Hann).
+ * Better for live spectrograms where transient leakage creates visible vertical lines.
+ */
+export function getBlackmanHarris(N) {
+  let w = blackmanHarrisCache.get(N);
+  if (w) return w;
+  w = new Float32Array(N);
+  const a0 = 0.35875, a1 = 0.48829, a2 = 0.14128, a3 = 0.01168;
+  for (let i = 0; i < N; i++) {
+    const x = 2 * Math.PI * i / (N - 1);
+    w[i] = a0 - a1 * Math.cos(x) + a2 * Math.cos(2 * x) - a3 * Math.cos(3 * x);
+  }
+  blackmanHarrisCache.set(N, w);
   return w;
 }
 

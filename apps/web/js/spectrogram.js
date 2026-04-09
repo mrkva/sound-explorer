@@ -3,7 +3,7 @@
  */
 
 import { WavParser } from './wav-parser.js?v=3';
-import { getHann, fft, magnitudesDB } from './fft-core.js';
+import { getHann, getBlackmanHarris, fft, magnitudesDB } from './fft-core.js';
 import { buildColorLUT } from './colormaps.js';
 
 const MARGIN_LEFT = 50;
@@ -1336,9 +1336,11 @@ export class SpectrogramRenderer {
     this._liveLastCol = 0;
     this._liveColCache = null;
 
-    // Pre-build color LUT and Hann window for main-thread rendering
+    // Pre-build color LUT and window for main-thread rendering
     this._liveColorLUT = buildColorLUT(this.colormap);
-    this._liveHann = getHann(this.fftSize);
+    // Blackman-Harris: -92 dB sidelobes (vs Hann's -31 dB) — suppresses
+    // spectral leakage that causes bright vertical lines on transients
+    this._liveHann = getBlackmanHarris(this.fftSize);
 
     this._liveRenderLoop();
   }
@@ -1431,12 +1433,6 @@ export class SpectrogramRenderer {
     if (!this._liveColorLUT || this._liveLUTColormap !== this.colormap) {
       this._liveColorLUT = buildColorLUT(this.colormap);
       this._liveLUTColormap = this.colormap;
-      // DEBUG: dump LUT to verify colormaps.js is up-to-date
-      const l = this._liveColorLUT;
-      console.log(`Live LUT for "${this.colormap}" — first 10 entries:`);
-      for (let i = 0; i < 10; i++) {
-        console.log(`  LUT[${i}]: (${l[i*4]}, ${l[i*4+1]}, ${l[i*4+2]})`);
-      }
     }
     const lut = this._liveColorLUT;
 
@@ -1507,19 +1503,6 @@ export class SpectrogramRenderer {
         pixels[pixIdx + 2] = lut[lutIdx + 2];
         pixels[pixIdx + 3] = 255;
 
-        // DEBUG: detect magenta pixels (high R, low G, high B)
-        if (!this._dbgMagentaLogged && y < 50 && lut[lutIdx] > 50 && lut[lutIdx+2] > 50 && lut[lutIdx+1] < 20) {
-          console.log(`MAGENTA at (${x},${y}): RGB(${lut[lutIdx]},${lut[lutIdx+1]},${lut[lutIdx+2]}) norm=${norm} db=${db.toFixed(1)} bin=${yBins[y].toFixed(1)}`);
-          this._dbgMagentaLogged = true;
-        }
-      }
-    }
-
-    // DEBUG: Paint a 5px green stripe at the top to verify pixel ownership
-    for (let x = 0; x < w; x++) {
-      for (let dy = 0; dy < 5; dy++) {
-        const pi = (dy * w + x) * 4;
-        pixels[pi] = 0; pixels[pi+1] = 255; pixels[pi+2] = 0; pixels[pi+3] = 255;
       }
     }
 

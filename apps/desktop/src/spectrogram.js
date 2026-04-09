@@ -78,8 +78,10 @@ export class SpectrogramRenderer {
     // Annotation markers (set by app): [{sessionStart, sessionEnd, note}]
     this.annotations = [];
 
-    // Hann window (pre-computed)
+    // Hann window (pre-computed for file-based rendering)
     this._window = null;
+    // Blackman-Harris window (pre-computed for live capture — better sidelobe suppression)
+    this._liveWindow = null;
 
     // Rendered spectrogram image (ImageData or ImageBitmap)
     this._spectBitmap = null;
@@ -138,6 +140,7 @@ export class SpectrogramRenderer {
     this.trimEnd = null;
     this.tileCache.clear();
     this._window = null;
+    this._liveWindow = null;
   }
 
   // Progress callback: (phase, percent) => void
@@ -580,6 +583,19 @@ export class SpectrogramRenderer {
       this._window = new Float32Array(N);
       for (let i = 0; i < N; i++) {
         this._window[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
+      }
+    }
+  }
+
+  _ensureLiveWindow(N) {
+    if (!this._liveWindow || this._liveWindow.length !== N) {
+      // Blackman-Harris: -92 dB sidelobes (vs Hann's -31 dB) — suppresses
+      // spectral leakage that causes bright vertical lines on transients
+      const a0 = 0.35875, a1 = 0.48829, a2 = 0.14128, a3 = 0.01168;
+      this._liveWindow = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        const x = 2 * Math.PI * i / (N - 1);
+        this._liveWindow[i] = a0 - a1 * Math.cos(x) + a2 * Math.cos(2 * x) - a3 * Math.cos(3 * x);
       }
     }
   }
@@ -2034,7 +2050,7 @@ export class SpectrogramRenderer {
     this._liveLastCol = 0;
     this._liveColCache = null;
 
-    this._ensureWindow(this.fftSize);
+    this._ensureLiveWindow(this.fftSize);
     this._liveRenderLoop();
   }
 
@@ -2078,7 +2094,7 @@ export class SpectrogramRenderer {
         for (let i = 0; i < N; i++) {
           const sampleIdx = fftStart + i;
           if (sampleIdx >= 0 && sampleIdx < total) {
-            windowed[i] = this._liveCapture.readSample(sampleIdx) * this._window[i];
+            windowed[i] = this._liveCapture.readSample(sampleIdx) * this._liveWindow[i];
           } else {
             windowed[i] = 0;
           }
