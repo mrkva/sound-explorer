@@ -745,7 +745,7 @@ body.dark .toolbar-logo {
 .vu-meter-big {
   width: 100%;
   background: var(--vu-bg);
-  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   padding: 6px 10px;
   display: none;
   flex-direction: column;
