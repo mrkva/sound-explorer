@@ -41,6 +41,84 @@ class App {
     console.log(`Sound Explorer ${v}`);
   }
 
+  _updateUI() {
+    const hasFile = this.wavInfos && this.wavInfos.length > 0;
+    const isLive = !!(this._liveCapture && this._liveCapture.isCapturing);
+    const isFrozen = !hasFile && !isLive && !!this.spectrogram?._lastBitmap;
+    const hasRecording = !!this._liveRecordingBlob;
+    const isMobile = window.innerWidth <= 768;
+
+    const vis = {
+      // Always visible
+      'btn-open-file': true,
+      'btn-live': true,
+      'btn-vu': true,
+      'btn-theme': !isMobile || !isLive,
+      'btn-shortcuts': !isMobile,
+
+      // File playback
+      'btn-play': hasFile,
+      'btn-stop': hasFile,
+      'select-speed': hasFile,
+      'btn-export': hasFile,
+      'btn-export-speed': false, // managed by speed selector logic
+
+      // Navigation (file or frozen)
+      'btn-zoom-in': hasFile || isFrozen,
+      'btn-zoom-out': hasFile || isFrozen,
+      'btn-fit': hasFile || isFrozen,
+      'btn-sel': hasFile,
+      'btn-trim': hasFile,
+      'btn-untrim': false, // managed by trim logic
+      'btn-goto-mode': hasFile && !isMobile,
+      'input-goto': hasFile && !isMobile,
+      'btn-goto': hasFile && !isMobile,
+
+      // Sidebar
+      'btn-annotations': hasFile,
+      'btn-metadata': hasFile,
+
+      // Live controls (inside #live-controls container)
+      'btn-live-record': isLive,
+      'btn-live-stop': isLive,
+      'btn-live-save': hasRecording && !isLive,
+      'live-status': isLive && !isMobile,
+    };
+
+    for (const [id, show] of Object.entries(vis)) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = show ? '' : 'none';
+    }
+
+    // Live controls container — device selector, window, rec, stop
+    const liveCtrl = document.getElementById('live-controls');
+    if (liveCtrl) liveCtrl.classList.toggle('active', isLive);
+
+    // Volume group (file mode only)
+    const volGroup = document.getElementById('input-volume')?.closest('.control-group');
+    if (volGroup) volGroup.style.display = hasFile ? '' : 'none';
+
+    // Info strip: hide on mobile during active live
+    const infoStrip = document.getElementById('info-strip');
+    if (infoStrip) infoStrip.style.display = (isMobile && isLive) ? 'none' : '';
+
+    // Toolbar separators and labels: show when file or frozen content present
+    const showSeps = hasFile || isFrozen;
+    document.querySelectorAll('#toolbar .toolbar-sep').forEach(el => {
+      el.style.display = showSeps ? '' : 'none';
+    });
+    document.querySelectorAll('#toolbar .toolbar-label').forEach(el => {
+      el.style.display = (showSeps && !isMobile) ? '' : 'none';
+    });
+
+    // Live button label
+    const btnLive = document.getElementById('btn-live');
+    if (btnLive) {
+      btnLive.textContent = isLive ? 'Restart' : 'Live';
+      btnLive.classList.toggle('btn-live-active', isLive);
+    }
+  }
+
   _initFullscreen() {
     // Skip if already running as installed PWA or if Fullscreen API unavailable
     if (window.matchMedia('(display-mode: standalone)').matches) return;
@@ -288,6 +366,7 @@ class App {
 
     // Live input
     document.getElementById('btn-live-start').addEventListener('click', () => this._startLive());
+    document.getElementById('btn-live').addEventListener('click', () => this._startLive());
     document.getElementById('btn-live-stop').addEventListener('click', () => this._stopLive());
     document.getElementById('btn-live-record').addEventListener('click', () => this._toggleLiveRecord());
     document.getElementById('btn-live-save').addEventListener('click', () => this._saveLiveRecording());
@@ -428,6 +507,14 @@ class App {
   async _loadFiles(files) {
     this._setStatus('Loading files...');
     try {
+      // Stop live capture if active
+      if (this._liveCapture) {
+        this.spectrogram.stopLive();
+        try { await this._liveCapture.stop(); } catch (_) {}
+        this._liveCapture = null;
+        this._stopVUMeter();
+      }
+
       const wavInfos = [];
       for (const file of files) {
         const info = await WavParser.parse(file);
@@ -470,6 +557,7 @@ class App {
       this._buildBigVUMeter(wavInfos[0].channels);
       this._updateFileInfo();
       this._updateFreqInputs();
+      this._updateUI();
 
       this._setStatus(`Loaded ${files.length} file(s)`);
       this._showCanvasHint();
@@ -1592,6 +1680,9 @@ class App {
         await this._liveCapture.stop();
       }
 
+      // Stop file playback if active
+      if (this.audio.isPlaying) this.audio.stop();
+
       this._liveCapture = new LiveCapture();
 
       // Populate input device selector
@@ -1608,6 +1699,9 @@ class App {
 
       // Start capture
       await this._liveCapture.start(deviceId || sel.value || null);
+
+      // Clear file state — live replaces file mode
+      this.wavInfos = [];
 
       // Show main UI if hidden
       document.getElementById('drop-zone').style.display = 'none';
@@ -1630,33 +1724,6 @@ class App {
       // Connect spectrogram to live source
       this.spectrogram.setLiveSource(this._liveCapture);
 
-      // Show live controls, hide file-specific controls
-      document.getElementById('live-controls').classList.add('active');
-      document.getElementById('btn-play').style.display = 'none';
-      document.getElementById('btn-stop').style.display = 'none';
-      document.getElementById('btn-export').style.display = 'none';
-      document.getElementById('btn-export-speed').style.display = 'none';
-      // Hide file-only toolbar controls
-      for (const id of ['select-speed', 'btn-zoom-in', 'btn-zoom-out', 'btn-fit',
-          'btn-sel', 'btn-trim', 'btn-untrim', 'btn-goto-mode', 'input-goto',
-          'btn-goto', 'btn-open-file', 'btn-annotations', 'btn-metadata']) {
-        const el = document.getElementById(id);
-        if (el) el.style.display = 'none';
-      }
-      // Hide toolbar labels and separators in live mode
-      document.querySelectorAll('#toolbar .toolbar-label, #toolbar .toolbar-sep').forEach(
-        el => el.style.display = 'none'
-      );
-      // Hide playback volume in bottom bar (not used in live mode)
-      const volGroup = document.getElementById('input-volume')?.closest('.control-group');
-      if (volGroup) volGroup.style.display = 'none';
-      // On mobile, hide info strip (time shown on spectrogram axes) and theme
-      // button (accessible via Settings) to save vertical space
-      if (window.innerWidth <= 768) {
-        document.getElementById('info-strip').style.display = 'none';
-        document.getElementById('btn-theme').style.display = 'none';
-      }
-
       // Build and start VU meter for live input (mono)
       this._buildBigVUMeter(1);
       this._liveCapture.onLevelUpdate = (peak, rms) => {
@@ -1665,6 +1732,7 @@ class App {
       };
       this._startVUMeter(true);
 
+      this._updateUI();
       this._setStatus(`Live input: ${this._liveCapture.sampleRate} Hz`);
       this._updateLiveStatus();
     } catch (e) {
@@ -1694,15 +1762,14 @@ class App {
       }
       this._liveCapture = null;
 
+      // Stop VU meter
+      this._stopVUMeter();
+      this._livePeakDb = -Infinity;
+      this._liveRmsDb = -Infinity;
+
       // If we have a recording, load it into file analysis mode
       if (recordingBlob) {
         this._liveRecordingBlob = null;
-        // Stop VU first
-        this._stopVUMeter();
-        this._livePeakDb = -Infinity;
-        this._liveRmsDb = -Infinity;
-        // Restore all controls for file mode
-        this._restoreLiveControls();
         const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         const file = new File([recordingBlob], `live-recording-${ts}.wav`, { type: 'audio/wav' });
         await this._loadFiles([file]);
@@ -1710,7 +1777,6 @@ class App {
       }
 
       // No recording — freeze spectrogram for exploration
-      // Set up view/zoom state so the frozen image is explorable
       if (totalSamples > 0) {
         this.spectrogram.totalSamples = totalSamples;
         this.spectrogram.wavInfo = { sampleRate: sr, numChannels: 1, bitsPerSample: 16 };
@@ -1719,47 +1785,8 @@ class App {
       }
     }
 
-    // Stop VU meter
-    this._stopVUMeter();
-    this._livePeakDb = -Infinity;
-    this._liveRmsDb = -Infinity;
-
-    // Hide live controls, show exploration controls
-    document.getElementById('live-controls').classList.remove('active');
-    // Show zoom/navigation controls for exploring the frozen spectrogram
-    for (const id of ['btn-zoom-in', 'btn-zoom-out', 'btn-fit', 'btn-open-file']) {
-      const el = document.getElementById(id);
-      if (el) el.style.display = '';
-    }
-    // Restore toolbar labels and separators
-    document.querySelectorAll('#toolbar .toolbar-label, #toolbar .toolbar-sep').forEach(
-      el => el.style.display = ''
-    );
-    // Restore info strip and theme button
-    document.getElementById('info-strip').style.display = '';
-    document.getElementById('btn-theme').style.display = '';
-    // Keep playback/export/file controls hidden (no audio data to play)
+    this._updateUI();
     this._setStatus('Live stopped — explore the spectrogram');
-  }
-
-  _restoreLiveControls() {
-    document.getElementById('live-controls').classList.remove('active');
-    document.getElementById('btn-play').style.display = '';
-    document.getElementById('btn-stop').style.display = '';
-    document.getElementById('btn-export').style.display = '';
-    document.getElementById('btn-live-save').style.display = 'none';
-    for (const id of ['select-speed', 'btn-zoom-in', 'btn-zoom-out', 'btn-fit',
-        'btn-sel', 'btn-trim', 'btn-open-file', 'btn-annotations', 'btn-metadata']) {
-      const el = document.getElementById(id);
-      if (el) el.style.display = '';
-    }
-    document.querySelectorAll('#toolbar .toolbar-label, #toolbar .toolbar-sep').forEach(
-      el => el.style.display = ''
-    );
-    const volGroup = document.getElementById('input-volume')?.closest('.control-group');
-    if (volGroup) volGroup.style.display = '';
-    document.getElementById('info-strip').style.display = '';
-    document.getElementById('btn-theme').style.display = '';
   }
 
   _toggleLiveRecord() {
@@ -1770,16 +1797,13 @@ class App {
       this._liveRecordingBlob = this._liveCapture.stopRecording();
       btn.classList.remove('recording');
       btn.innerHTML = '&#x25CF; Rec';
-      if (this._liveRecordingBlob) {
-        document.getElementById('btn-live-save').style.display = '';
-      }
     } else {
       this._liveCapture.startRecording();
       btn.classList.add('recording');
       btn.innerHTML = '&#x25A0; Stop Rec';
-      document.getElementById('btn-live-save').style.display = 'none';
       this._liveRecordingBlob = null;
     }
+    this._updateUI();
   }
 
   _saveLiveRecording() {

@@ -953,6 +953,22 @@ body.dark .toolbar-logo {
   color: var(--danger);
 }
 
+.btn-live-toggle {
+  background: #2d8a4e;
+  border-color: #2d8a4e;
+  color: #fff;
+}
+
+.btn-live-toggle:hover {
+  background: #36a35d;
+  border-color: #36a35d;
+}
+
+.btn-live-toggle.btn-live-active {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
 #live-controls {
   display: none;
   align-items: center;
