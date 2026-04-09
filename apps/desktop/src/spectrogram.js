@@ -1042,8 +1042,8 @@ export class SpectrogramRenderer {
     this.ctx.fillStyle = t.canvasBg;
     this.ctx.fillRect(0, 0, width, height);
 
-    if (this._liveBuffer) {
-      this.ctx.drawImage(this._liveBuffer, 50, 0);
+    if (this._liveImage) {
+      this.ctx.putImageData(this._liveImage, 50, 0);
     } else if (this._spectBitmap) {
       this.ctx.drawImage(this._spectBitmap, 50, 0);
     } else if (this._spectImage) {
@@ -2003,17 +2003,18 @@ export class SpectrogramRenderer {
     });
   }
 
-  // --- Live input mode (incremental rendering) ---
+  // --- Live input mode (column-cached rendering) ---
 
   _liveCapture = null;
   _liveRAF = null;
   _liveScrolling = true;
   _liveViewSeconds = 10;
-  _liveBuffer = null;
-  _liveBufferCtx = null;
-  _liveLastSample = 0;
+  _liveColCache = null;
+  _liveLastCol = 0;
   _liveYBins = null;
+  _liveYFracs = null;
   _liveYBinsKey = '';
+  _liveMaxBin = 0;
 
   setLiveSource(liveCapture) {
     this.stopLive();
@@ -2029,14 +2030,14 @@ export class SpectrogramRenderer {
     this._lastFFTData = null;
     this._lastFFTDataSplit = null;
     this._liveScrolling = true;
-    this._liveLastSample = 0;
-    this._liveBuffer = null;
+    this._liveLastCol = 0;
+    this._liveColCache = null;
 
     this._ensureWindow(this.fftSize);
     this._liveRenderLoop();
   }
 
-  async _liveRenderLoop() {
+  _liveRenderLoop() {
     if (!this._liveCapture || !this._liveCapture.isCapturing) return;
 
     const sr = this._liveCapture.sampleRate;
@@ -2056,24 +2057,39 @@ export class SpectrogramRenderer {
 
     if (w > 0 && h > 0 && total > this.fftSize) {
       const viewSamples = Math.floor(viewSec * sr);
-      const samplesPerPixel = viewSamples / w;
-      const newSamples = total - this._liveLastSample;
-      const scrollPixels = Math.floor(newSamples / samplesPerPixel);
+      const samplesPerCol = viewSamples / w;
+      const totalCols = Math.floor(total / samplesPerCol);
 
-      if (scrollPixels > 0) {
-        if (!this._liveBuffer || this._liveBuffer.width !== w || this._liveBuffer.height !== h) {
-          this._liveBuffer = new OffscreenCanvas(w, h);
-          this._liveBufferCtx = this._liveBuffer.getContext('2d');
-          this._renderLiveIncremental(w, h, w, samplesPerPixel, sr, total);
-        } else if (scrollPixels >= w) {
-          this._renderLiveIncremental(w, h, w, samplesPerPixel, sr, total);
-        } else {
-          this._renderLiveIncremental(w, h, scrollPixels, samplesPerPixel, sr, total);
+      if (!this._liveColCache || this._liveColCache.length !== w) {
+        this._liveColCache = new Array(w).fill(null);
+        this._liveLastCol = 0;
+      }
+
+      // Compute FFT for new columns only
+      const N = this.fftSize;
+      const windowed = new Float32Array(N);
+      const newStart = Math.max(this._liveLastCol, Math.max(0, totalCols - w));
+
+      for (let col = newStart; col < totalCols; col++) {
+        const centerSample = Math.floor((col + 0.5) * samplesPerCol);
+        const fftStart = centerSample - Math.floor(N / 2);
+
+        for (let i = 0; i < N; i++) {
+          const sampleIdx = fftStart + i;
+          if (sampleIdx >= 0 && sampleIdx < total) {
+            windowed[i] = this._liveCapture.readSample(sampleIdx) * this._window[i];
+          } else {
+            windowed[i] = 0;
+          }
         }
 
-        this._liveLastSample = total;
-        this.draw();
+        this._liveColCache[col % w] = this._fftFrame(windowed);
       }
+      this._liveLastCol = totalCols;
+
+      // Render full frame from cache
+      this._renderLiveFrame(w, h, totalCols, sr);
+      this.draw();
     }
 
     if (this._liveCapture && this._liveCapture.isCapturing) {
@@ -2081,17 +2097,10 @@ export class SpectrogramRenderer {
     }
   }
 
-  _renderLiveIncremental(w, h, newCols, samplesPerPixel, sr, totalSamples) {
-    const ctx = this._liveBufferCtx;
+  _renderLiveFrame(w, h, totalCols, sr) {
     const N = this.fftSize;
     const freqBins = N / 2;
     const floor = -this.dynamicRangeDB;
-
-    // Scroll existing content left (use getImageData to avoid self-copy artifacts)
-    if (newCols < w) {
-      const scrolled = ctx.getImageData(newCols, 0, w - newCols, h);
-      ctx.putImageData(scrolled, 0, 0);
-    }
 
     // Build or reuse Y→bin mapping
     const binRes = sr / N;
@@ -2127,30 +2136,25 @@ export class SpectrogramRenderer {
     const yFracs = this._liveYFracs;
     const maxBinCached = this._liveMaxBin;
 
-    // Render new columns
-    const imgData = ctx.createImageData(newCols, h);
+    // Render into ImageData (stored as _spectImage for draw())
+    const imgData = this.ctx.createImageData(w, h);
     const pixels = imgData.data;
-    const windowed = new Float32Array(N);
-    const viewSamples = Math.floor(this._liveViewSeconds * sr);
-    const viewStart = Math.max(0, totalSamples - viewSamples);
 
-    for (let col = 0; col < newCols; col++) {
-      const canvasCol = w - newCols + col;
-      const centerSample = viewStart + Math.floor((canvasCol + 0.5) * samplesPerPixel);
-      const fftStart = centerSample - Math.floor(N / 2);
-
-      for (let i = 0; i < N; i++) {
-        const sampleIdx = fftStart + i;
-        if (sampleIdx >= 0 && sampleIdx < totalSamples) {
-          windowed[i] = this._liveCapture.readSample(sampleIdx) * this._window[i];
-        } else {
-          windowed[i] = 0;
-        }
-      }
-
-      const mag = this._fftFrame(windowed);
+    for (let x = 0; x < w; x++) {
+      const colIdx = totalCols - w + x;
+      const mag = (colIdx >= 0 && colIdx < totalCols) ? this._liveColCache[colIdx % w] : null;
 
       for (let y = 0; y < h; y++) {
+        const idx = (y * w + x) * 4;
+
+        if (!mag) {
+          pixels[idx] = 0;
+          pixels[idx + 1] = 0;
+          pixels[idx + 2] = 0;
+          pixels[idx + 3] = 255;
+          continue;
+        }
+
         const bin0 = yBins[y];
         const frac = yFracs[y];
         let raw0 = mag[bin0];
@@ -2168,7 +2172,6 @@ export class SpectrogramRenderer {
         const normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
         const [r, g, b] = this._colorize(normalized);
 
-        const idx = (y * newCols + col) * 4;
         pixels[idx] = r;
         pixels[idx + 1] = g;
         pixels[idx + 2] = b;
@@ -2176,7 +2179,8 @@ export class SpectrogramRenderer {
       }
     }
 
-    ctx.putImageData(imgData, w - newCols, 0);
+    // Store as _liveImage for draw() to use
+    this._liveImage = imgData;
   }
 
   stopLive() {
@@ -2185,8 +2189,8 @@ export class SpectrogramRenderer {
       this._liveRAF = null;
     }
     this._liveCapture = null;
-    this._liveBuffer = null;
-    this._liveBufferCtx = null;
+    this._liveColCache = null;
+    this._liveImage = null;
   }
 
   get isLive() {
