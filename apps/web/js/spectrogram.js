@@ -226,6 +226,11 @@ export class SpectrogramRenderer {
         const rect = c.getBoundingClientRect();
         this._touchStartX = e.touches[0].clientX - rect.left;
         this._touchMoved = false;
+        // Show crosshair at touch point
+        this._cursorX = this._touchStartX;
+        this._cursorY = e.touches[0].clientY - rect.top;
+        this._fireCursorMove();
+        if (this._lastBitmap) this._drawStretched();
       } else if (e.touches.length === 2) {
         this._touchMode = 'pan';
         const rect = c.getBoundingClientRect();
@@ -247,6 +252,11 @@ export class SpectrogramRenderer {
       if (e.touches.length === 1 && this._touchMode === 'select') {
         const rect = c.getBoundingClientRect();
         const x = e.touches[0].clientX - rect.left;
+        const y = e.touches[0].clientY - rect.top;
+        // Update crosshair to follow finger
+        this._cursorX = x;
+        this._cursorY = y;
+        this._fireCursorMove();
         const dx = Math.abs(x - this._touchStartX);
         if (dx > 5) this._touchMoved = true;
         if (this._touchMoved) {
@@ -260,6 +270,9 @@ export class SpectrogramRenderer {
               this.onSelectionChange(this.selectionStart, this.selectionEnd);
             }
           }
+        } else if (this._lastBitmap) {
+          // Redraw crosshair even before drag threshold
+          this._drawStretched();
         }
       } else if (e.touches.length === 2 && (this._touchMode === 'pan' || this._touchMode === 'select')) {
         this._touchMode = 'pan';
@@ -316,15 +329,21 @@ export class SpectrogramRenderer {
             this.selectionStart = null;
             this.selectionEnd = null;
             if (this.onSelectionChange) this.onSelectionChange(null, null);
-            this._drawOverlays();
           }
         }
+        // Clear crosshair on touch release
+        this._cursorX = null;
+        this._cursorY = null;
+        if (this._lastBitmap) this._drawStretched();
         this._touchMode = 'none';
       }
     }, { passive: false });
 
     c.addEventListener('touchcancel', () => {
       this._touchMode = 'none';
+      this._cursorX = null;
+      this._cursorY = null;
+      if (this._lastBitmap) this._drawStretched();
     });
 
     // Resize observer
@@ -343,6 +362,16 @@ export class SpectrogramRenderer {
     });
     this._resizeObserver.observe(this.canvas.parentElement);
     this._updateCanvasSize();
+  }
+
+  _fireCursorMove() {
+    if (this.wavInfo && this.onCursorMove) {
+      const time = this._xToTime(this._cursorX);
+      const freq = this._yToFreq(this._cursorY);
+      if (time !== null && freq !== null) {
+        this.onCursorMove(time, freq);
+      }
+    }
   }
 
   _updateCanvasSize() {
