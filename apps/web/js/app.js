@@ -1725,14 +1725,14 @@ class App {
     if (this._liveCapture.isRecording) {
       this._liveRecordingBlob = this._liveCapture.stopRecording();
       btn.classList.remove('recording');
-      btn.innerHTML = '&#x23FA; Rec';
+      btn.innerHTML = '&#x25CF; Rec';
       if (this._liveRecordingBlob) {
         document.getElementById('btn-live-save').style.display = '';
       }
     } else {
       this._liveCapture.startRecording();
       btn.classList.add('recording');
-      btn.innerHTML = '&#x23F9; Stop Rec';
+      btn.innerHTML = '&#x25A0; Stop Rec';
       document.getElementById('btn-live-save').style.display = 'none';
       this._liveRecordingBlob = null;
     }

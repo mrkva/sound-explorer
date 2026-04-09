@@ -782,8 +782,7 @@ body.dark .toolbar-logo {
   top: 0;
   right: 0;
   height: 100%;
-  background: var(--vu-bg, #111);
-  transition: width 80ms linear;
+  background: var(--vu-bg);
   width: 100%;
 }
 
@@ -1270,9 +1269,6 @@ dialog h4 {
   }
 
   /* Hide secondary controls on mobile */
-  .toolbar-title,
-  .toolbar-version,
-  .toolbar-logo,
   #toolbar .toolbar-sep,
   #toolbar .toolbar-label,
   #btn-goto-mode,
@@ -1282,6 +1278,19 @@ dialog h4 {
   #btn-zoom-in,
   #btn-zoom-out {
     display: none !important;
+  }
+
+  .toolbar-logo {
+    width: 20px;
+    height: 20px;
+  }
+
+  .toolbar-title {
+    font-size: 11px;
+  }
+
+  .toolbar-version {
+    display: none;
   }
 
   .toolbar-spacer {
