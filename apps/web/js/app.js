@@ -122,14 +122,19 @@ class App {
     // Dark mode toggle
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark') document.body.classList.add('dark');
-    document.getElementById('btn-theme').addEventListener('click', () => {
+    const toggleTheme = () => {
       document.body.classList.toggle('dark');
       const isDark = document.body.classList.contains('dark');
       localStorage.setItem('theme', isDark ? 'dark' : 'light');
-      document.getElementById('btn-theme').innerHTML = isDark ? '&#x2600;' : '&#x263E;';
-    });
+      const icon = isDark ? '&#x2600;' : '&#x263E;';
+      document.getElementById('btn-theme').innerHTML = icon;
+      document.getElementById('btn-theme-bottom').innerHTML = icon;
+    };
+    document.getElementById('btn-theme').addEventListener('click', toggleTheme);
+    document.getElementById('btn-theme-bottom').addEventListener('click', toggleTheme);
     if (savedTheme === 'dark') {
       document.getElementById('btn-theme').innerHTML = '&#x2600;';
+      document.getElementById('btn-theme-bottom').innerHTML = '&#x2600;';
     }
 
     // Shortcuts dialog
@@ -1626,6 +1631,12 @@ class App {
       // Hide playback volume in bottom bar (not used in live mode)
       const volGroup = document.getElementById('input-volume')?.closest('.control-group');
       if (volGroup) volGroup.style.display = 'none';
+      // On mobile, hide info strip (time shown on spectrogram axes) and theme
+      // button (accessible via Settings) to save vertical space
+      if (window.innerWidth <= 768) {
+        document.getElementById('info-strip').style.display = 'none';
+        document.getElementById('btn-theme').style.display = 'none';
+      }
 
       // Build and start VU meter for live input (mono)
       this._buildBigVUMeter(1);
@@ -1686,6 +1697,9 @@ class App {
     // Restore playback volume
     const volGroup = document.getElementById('input-volume')?.closest('.control-group');
     if (volGroup) volGroup.style.display = '';
+    // Restore info strip and theme button
+    document.getElementById('info-strip').style.display = '';
+    document.getElementById('btn-theme').style.display = '';
 
     // If we have a recording, load it into file analysis mode
     if (recordingBlob) {

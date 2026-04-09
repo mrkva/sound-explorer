@@ -1059,6 +1059,11 @@ body.dark .toolbar-logo {
   padding: 2px 4px;
 }
 
+/* Bottom bar theme button — only visible on mobile (toolbar one hidden in live mode) */
+.btn-theme-bottom {
+  display: none;
+}
+
 /* --- Sliders --- */
 
 .slider {
@@ -1451,32 +1456,37 @@ dialog h4 {
     min-height: 26px;
   }
 
-  /* --- Live controls: mobile layout --- */
+  /* --- Live controls: compact single row on mobile --- */
   #live-controls.active {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 4px 0;
-    justify-content: center;
+    flex-wrap: nowrap;
+    gap: 4px;
+    padding: 2px 0;
     width: 100%;
+    align-items: center;
   }
 
   #live-controls .select {
-    height: 36px;
-    font-size: 12px;
+    height: 34px;
+    font-size: 11px;
     flex: 1;
     min-width: 0;
   }
 
   #select-input-device {
-    max-width: 50%;
+    max-width: 40%;
+  }
+
+  #select-live-window {
+    max-width: 60px;
   }
 
   #live-controls .btn {
-    height: 40px;
-    padding: 0 14px;
-    font-size: 13px;
-    min-width: 44px;
+    height: 34px;
+    padding: 0 10px;
+    font-size: 12px;
+    min-width: 40px;
+    flex-shrink: 0;
   }
 
   #btn-live-stop {
@@ -1484,10 +1494,11 @@ dialog h4 {
   }
 
   #live-status {
-    width: 100%;
-    text-align: center;
-    font-size: 12px;
-    margin: 0;
+    display: none; /* SR in status bar, time on spectrogram axes */
+  }
+
+  .btn-theme-bottom {
+    display: inline-block;
   }
 
   /* --- Status bar --- */
