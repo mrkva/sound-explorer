@@ -219,19 +219,31 @@ export class SpectrogramRenderer {
     this._touchViewStart = 0;
     this._touchViewEnd = 0;
 
+    this._touchLongPressTimer = null;
+    this._touchIsLongPress = false;
+
     c.addEventListener('touchstart', (e) => {
       e.preventDefault();
       if (e.touches.length === 1) {
-        this._touchMode = 'select';
+        this._touchMode = 'cursor';
         const rect = c.getBoundingClientRect();
         this._touchStartX = e.touches[0].clientX - rect.left;
         this._touchMoved = false;
+        this._touchIsLongPress = false;
         // Show crosshair at touch point
         this._cursorX = this._touchStartX;
         this._cursorY = e.touches[0].clientY - rect.top;
         this._fireCursorMove();
         if (this._lastBitmap) this._drawStretched();
+        // Long-press (300ms) enables selection mode
+        this._touchLongPressTimer = setTimeout(() => {
+          this._touchIsLongPress = true;
+          this._touchMode = 'select';
+          // Haptic feedback if available
+          if (navigator.vibrate) navigator.vibrate(20);
+        }, 300);
       } else if (e.touches.length === 2) {
+        if (this._touchLongPressTimer) { clearTimeout(this._touchLongPressTimer); this._touchLongPressTimer = null; }
         this._touchMode = 'pan';
         const rect = c.getBoundingClientRect();
         const x0 = e.touches[0].clientX - rect.left;
@@ -249,17 +261,23 @@ export class SpectrogramRenderer {
       e.preventDefault();
       if (!this.wavInfo) return;
 
-      if (e.touches.length === 1 && this._touchMode === 'select') {
+      if (e.touches.length === 1 && (this._touchMode === 'cursor' || this._touchMode === 'select')) {
         const rect = c.getBoundingClientRect();
         const x = e.touches[0].clientX - rect.left;
         const y = e.touches[0].clientY - rect.top;
+        const dx = Math.abs(x - this._touchStartX);
+        // Cancel long-press if finger moves before timer fires
+        if (dx > 5 && this._touchLongPressTimer) {
+          clearTimeout(this._touchLongPressTimer);
+          this._touchLongPressTimer = null;
+        }
         // Update crosshair to follow finger
         this._cursorX = x;
         this._cursorY = y;
         this._fireCursorMove();
-        const dx = Math.abs(x - this._touchStartX);
         if (dx > 5) this._touchMoved = true;
-        if (this._touchMoved) {
+        // Only create selection if long-press activated selection mode
+        if (this._touchMode === 'select' && this._touchMoved) {
           const t1 = this._xToTime(this._touchStartX);
           const t2 = this._xToTime(x);
           if (t1 !== null && t2 !== null) {
@@ -271,10 +289,9 @@ export class SpectrogramRenderer {
             }
           }
         } else if (this._lastBitmap) {
-          // Redraw crosshair even before drag threshold
           this._drawStretched();
         }
-      } else if (e.touches.length === 2 && (this._touchMode === 'pan' || this._touchMode === 'select')) {
+      } else if (e.touches.length === 2 && (this._touchMode === 'pan' || this._touchMode === 'cursor' || this._touchMode === 'select')) {
         this._touchMode = 'pan';
         const rect = c.getBoundingClientRect();
         const x0 = e.touches[0].clientX - rect.left;
@@ -314,8 +331,9 @@ export class SpectrogramRenderer {
 
     c.addEventListener('touchend', (e) => {
       e.preventDefault();
+      if (this._touchLongPressTimer) { clearTimeout(this._touchLongPressTimer); this._touchLongPressTimer = null; }
       if (e.touches.length === 0) {
-        if (this._touchMode === 'select' && !this._touchMoved) {
+        if ((this._touchMode === 'cursor' || this._touchMode === 'select') && !this._touchMoved) {
           // Tap = seek
           const time = this._xToTime(this._touchStartX);
           if (time !== null && this.onSeek) {
@@ -340,6 +358,7 @@ export class SpectrogramRenderer {
     }, { passive: false });
 
     c.addEventListener('touchcancel', () => {
+      if (this._touchLongPressTimer) { clearTimeout(this._touchLongPressTimer); this._touchLongPressTimer = null; }
       this._touchMode = 'none';
       this._cursorX = null;
       this._cursorY = null;
@@ -1573,10 +1592,9 @@ export class SpectrogramRenderer {
       cancelAnimationFrame(this._liveRAF);
       this._liveRAF = null;
     }
+    // Keep _lastBitmap so the frozen spectrogram remains explorable
     this._liveCapture = null;
     this._liveColCache = null;
-    this._liveCanvas = null;
-    this._liveCanvasCtx = null;
     this._liveIsLive = false;
   }
 

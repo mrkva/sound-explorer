@@ -1679,6 +1679,9 @@ class App {
       // Also grab any previously stopped recording
       if (!recordingBlob) recordingBlob = this._liveRecordingBlob;
 
+      const sr = this._liveCapture.sampleRate;
+      const totalSamples = this._liveCapture.totalSamples;
+
       this.spectrogram.stopLive();
       try {
         await this._liveCapture.stop();
@@ -1686,6 +1689,30 @@ class App {
         console.warn('Error stopping live capture (ignored):', e);
       }
       this._liveCapture = null;
+
+      // If we have a recording, load it into file analysis mode
+      if (recordingBlob) {
+        this._liveRecordingBlob = null;
+        // Stop VU first
+        this._stopVUMeter();
+        this._livePeakDb = -Infinity;
+        this._liveRmsDb = -Infinity;
+        // Restore all controls for file mode
+        this._restoreLiveControls();
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const file = new File([recordingBlob], `live-recording-${ts}.wav`, { type: 'audio/wav' });
+        await this._loadFiles([file]);
+        return;
+      }
+
+      // No recording — freeze spectrogram for exploration
+      // Set up view/zoom state so the frozen image is explorable
+      if (totalSamples > 0) {
+        this.spectrogram.totalSamples = totalSamples;
+        this.spectrogram.wavInfo = { sampleRate: sr, numChannels: 1, bitsPerSample: 16 };
+        this.spectrogram.viewStart = 0;
+        this.spectrogram.viewEnd = totalSamples;
+      }
     }
 
     // Stop VU meter
@@ -1693,15 +1720,10 @@ class App {
     this._livePeakDb = -Infinity;
     this._liveRmsDb = -Infinity;
 
-    // Restore file-mode controls
+    // Hide live controls, show exploration controls
     document.getElementById('live-controls').classList.remove('active');
-    document.getElementById('btn-play').style.display = '';
-    document.getElementById('btn-stop').style.display = '';
-    document.getElementById('btn-export').style.display = '';
-    document.getElementById('btn-live-save').style.display = 'none';
-    // Restore file-only toolbar controls
-    for (const id of ['select-speed', 'btn-zoom-in', 'btn-zoom-out', 'btn-fit',
-        'btn-sel', 'btn-trim', 'btn-open-file', 'btn-annotations', 'btn-metadata']) {
+    // Show zoom/navigation controls for exploring the frozen spectrogram
+    for (const id of ['btn-zoom-in', 'btn-zoom-out', 'btn-fit', 'btn-open-file']) {
       const el = document.getElementById(id);
       if (el) el.style.display = '';
     }
@@ -1709,28 +1731,31 @@ class App {
     document.querySelectorAll('#toolbar .toolbar-label, #toolbar .toolbar-sep').forEach(
       el => el.style.display = ''
     );
-    // Restore playback volume
-    const volGroup = document.getElementById('input-volume')?.closest('.control-group');
-    if (volGroup) volGroup.style.display = '';
     // Restore info strip and theme button
     document.getElementById('info-strip').style.display = '';
     document.getElementById('btn-theme').style.display = '';
+    // Keep playback/export/file controls hidden (no audio data to play)
+    this._setStatus('Live stopped — explore the spectrogram');
+  }
 
-    // If we have a recording, load it into file analysis mode
-    if (recordingBlob) {
-      this._liveRecordingBlob = null;
-      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const file = new File([recordingBlob], `live-recording-${ts}.wav`, { type: 'audio/wav' });
-      await this._loadFiles([file]);
-      return;
+  _restoreLiveControls() {
+    document.getElementById('live-controls').classList.remove('active');
+    document.getElementById('btn-play').style.display = '';
+    document.getElementById('btn-stop').style.display = '';
+    document.getElementById('btn-export').style.display = '';
+    document.getElementById('btn-live-save').style.display = 'none';
+    for (const id of ['select-speed', 'btn-zoom-in', 'btn-zoom-out', 'btn-fit',
+        'btn-sel', 'btn-trim', 'btn-open-file', 'btn-annotations', 'btn-metadata']) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = '';
     }
-
-    // If no files loaded, show drop zone
-    if (!this.wavInfos || this.wavInfos.length === 0) {
-      document.getElementById('main-ui').style.display = 'none';
-      document.getElementById('drop-zone').style.display = '';
-    }
-    this._setStatus('Live input stopped');
+    document.querySelectorAll('#toolbar .toolbar-label, #toolbar .toolbar-sep').forEach(
+      el => el.style.display = ''
+    );
+    const volGroup = document.getElementById('input-volume')?.closest('.control-group');
+    if (volGroup) volGroup.style.display = '';
+    document.getElementById('info-strip').style.display = '';
+    document.getElementById('btn-theme').style.display = '';
   }
 
   _toggleLiveRecord() {
