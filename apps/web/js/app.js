@@ -29,6 +29,7 @@ class App {
     this._initKeyboard();
     this._initAudioCallbacks();
     this._applyVersion();
+    this._initFullscreen();
   }
 
   _applyVersion() {
@@ -38,6 +39,25 @@ class App {
     });
     document.title = `Sound Explorer ${v}`;
     console.log(`Sound Explorer ${v}`);
+  }
+
+  _initFullscreen() {
+    // Skip if already running as installed PWA or if Fullscreen API unavailable
+    if (window.matchMedia('(display-mode: standalone)').matches) return;
+    if (window.matchMedia('(display-mode: fullscreen)').matches) return;
+    if (!document.documentElement.requestFullscreen) return;
+
+    // On first user interaction in landscape, request fullscreen to hide browser toolbar
+    const tryFullscreen = () => {
+      const isLandscape = window.innerWidth > window.innerHeight;
+      if (isLandscape && !document.fullscreenElement) {
+        document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+      }
+      document.removeEventListener('click', tryFullscreen);
+      document.removeEventListener('touchend', tryFullscreen);
+    };
+    document.addEventListener('click', tryFullscreen, { once: true });
+    document.addEventListener('touchend', tryFullscreen, { once: true });
   }
 
   // --- UI References ---

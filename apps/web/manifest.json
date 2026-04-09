@@ -3,7 +3,7 @@
   "short_name": "Sound Explorer",
   "description": "Spectrogram viewer and audio player for ultrasonic field recordings",
   "start_url": ".",
-  "display": "standalone",
+  "display": "fullscreen",
   "background_color": "#000000",
   "theme_color": "#111111",
   "icons": [
