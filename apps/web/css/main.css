@@ -773,16 +773,7 @@ body.dark .toolbar-logo {
   height: 16px;
   background: linear-gradient(to right, #2d8a4e, #4fc353 60%, #e8c840 85%, #f15656 95%);
   position: relative;
-  overflow: hidden;
-}
-
-.vu-channel-cover {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--vu-bg);
-  width: 100%;
+  clip-path: inset(0 100% 0 0);
 }
 
 .vu-channel-peak {
@@ -791,10 +782,6 @@ body.dark .toolbar-logo {
   width: 2px;
   height: 100%;
   background: var(--text-primary);
-}
-
-.vu-channel-clip .vu-channel-cover {
-  display: none;
 }
 
 .vu-channel-db {
@@ -1252,6 +1239,8 @@ dialog h4 {
   #toolbar {
     gap: 3px;
     padding: 4px 6px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
   }
 
   .toolbar-btn {

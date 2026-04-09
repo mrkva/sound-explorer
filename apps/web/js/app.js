@@ -1024,12 +1024,6 @@ class App {
       const track = document.createElement('div');
       track.className = 'vu-channel-track';
 
-      // Dark cover sits on top of the gradient track, shrinks from right to reveal level
-      const cover = document.createElement('div');
-      cover.className = 'vu-channel-cover';
-      cover.style.width = '100%';
-      track.appendChild(cover);
-
       const peakBar = document.createElement('div');
       peakBar.className = 'vu-channel-peak';
       peakBar.style.left = '0%';
@@ -1044,7 +1038,8 @@ class App {
 
       container.appendChild(row);
       this._bigVURows.push({
-        cover, peakBar, track, dbLabel,
+        peakBar, track, dbLabel,
+        smoothedDb: -100,
         peakHoldDb: -100,
         peakHoldTime: 0,
       });
@@ -1127,9 +1122,16 @@ class App {
           const ch = channels[i];
           const r = bigRows[i];
 
-          // Main bar shows instantaneous peak (so it reaches the hold line on transients)
-          const barW = Math.max(0, Math.min(100, (ch.peak + 60) / 60 * 100));
-          r.cover.style.width = (100 - barW) + '%';
+          // Ballistic smoothing: instant attack, ~300ms decay
+          const targetDb = Math.max(-100, ch.peak);
+          if (targetDb >= r.smoothedDb) {
+            r.smoothedDb = targetDb; // instant attack
+          } else {
+            r.smoothedDb -= 80 * dt; // decay 80 dB/s (~300ms from 0 to -24)
+            if (r.smoothedDb < targetDb) r.smoothedDb = targetDb;
+          }
+          const barW = Math.max(0, Math.min(100, (r.smoothedDb + 60) / 60 * 100));
+          r.track.style.clipPath = `inset(0 ${100 - barW}% 0 0)`;
 
           // Peak hold: latch at highest value, hold, then decay
           if (ch.peak >= r.peakHoldDb) {
@@ -1142,13 +1144,6 @@ class App {
 
           const peakW = Math.max(0, Math.min(100, (r.peakHoldDb + 60) / 60 * 100));
           r.peakBar.style.left = peakW + '%';
-
-          // Clip indicator
-          if (ch.peak >= -0.1) {
-            r.track.classList.add('vu-channel-clip');
-          } else {
-            r.track.classList.remove('vu-channel-clip');
-          }
 
           // Throttle text updates to ~7 fps for readability
           if (updateText) {
@@ -1169,9 +1164,9 @@ class App {
     if (this._vuRAF) cancelAnimationFrame(this._vuRAF);
     // Reset big VU bars
     for (const row of this._bigVURows) {
-      row.cover.style.width = '100%';
+      row.track.style.clipPath = 'inset(0 100% 0 0)';
       row.peakBar.style.left = '0%';
-      row.track.classList.remove('vu-channel-clip');
+      row.smoothedDb = -100;
       row.peakHoldDb = -100;
       row.peakHoldTime = 0;
       row.dbLabel.innerHTML = '<span class="vu-db-rms">-∞</span> / <span class="vu-db-peak">-∞</span>';
