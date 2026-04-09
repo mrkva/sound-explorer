@@ -159,6 +159,7 @@ class App {
     document.getElementById('input-gain').addEventListener('input', (e) => {
       const db = parseFloat(e.target.value);
       this.audio.setGain(db);
+      this.spectrogram.gainDB = db;
       document.getElementById('label-gain').textContent = `${db} dB`;
     });
 

@@ -299,7 +299,9 @@ class App {
 
     // Audio gain (amplification)
     this.audioGainSlider.addEventListener('input', (e) => {
-      this.engine.setGainDB(parseFloat(e.target.value));
+      const db = parseFloat(e.target.value);
+      this.engine.setGainDB(db);
+      this.spectrogram.inputGainDB = db;
     });
 
     // Spectrogram gain (visual) - instant re-render, no FFT recompute

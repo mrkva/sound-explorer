@@ -43,6 +43,7 @@ export class SpectrogramRenderer {
     this.freqMax = 0;      // set from sampleRate
     this.logScale = false;
     this.channel = 'mix';
+    this.gainDB = 0;        // audio input gain (dB) — applied to live input
 
     // Selection
     this.selectionStart = null;
@@ -1397,8 +1398,15 @@ export class SpectrogramRenderer {
           this._liveColCache = new Array(w).fill(null);
           this._liveLastCol = 0;
         }
+        // Invalidate cache when input gain changes
+        if (this._liveGainDB !== this.gainDB) {
+          this._liveGainDB = this.gainDB;
+          this._liveColCache = new Array(w).fill(null);
+          this._liveLastCol = 0;
+        }
         const hann = this._liveHann;
         const windowed = new Float32Array(N);
+        const gainLin = Math.pow(10, this.gainDB / 20);  // audio input gain
 
         const newStart = Math.max(this._liveLastCol, Math.max(0, totalCols - w));
         for (let col = newStart; col < totalCols; col++) {
@@ -1408,7 +1416,7 @@ export class SpectrogramRenderer {
           for (let i = 0; i < N; i++) {
             const sampleIdx = fftStart + i;
             if (sampleIdx >= 0 && sampleIdx < total) {
-              windowed[i] = this._liveCapture.readSample(sampleIdx) * hann[i];
+              windowed[i] = this._liveCapture.readSample(sampleIdx) * gainLin * hann[i];
             } else {
               windowed[i] = 0;
             }
@@ -1440,12 +1448,13 @@ export class SpectrogramRenderer {
   _renderLiveFrame(w, h, totalCols, sr) {
     const N = this.fftSize;
     const halfFFT = N / 2;
-    // Shift display floor by FFT normalization offset so dB scale ≈ dBFS.
-    // This pushes window sidelobes and out-of-band noise below the display floor.
-    const normDB = this._liveWindowNormDB;
-    const dbMin = this.dbMin + normDB;
-    const dbRange = this.dbMax - this.dbMin;
+    const dbMin = this.dbMin;
+    const dbRange = this.dbMax - dbMin;
     const nyquist = sr / 2;
+    // Gate threshold in raw FFT dB: suppress bins below the display floor
+    // after FFT normalization. This hides window sidelobes and out-of-band
+    // noise while keeping the bright unnormalized display for real content.
+    const gateThreshold = dbMin + this._liveWindowNormDB;
 
     // Rebuild color LUT if colormap changed since last build
     if (!this._liveColorLUT || this._liveLUTColormap !== this.colormap) {
@@ -1512,7 +1521,10 @@ export class SpectrogramRenderer {
         const lo = binLow < halfFFT ? mag[binLow] : -120;
         const hi = binHigh < halfFFT ? mag[binHigh] : -120;
         const db = lo + (hi - lo) * f;
-        const norm = Math.max(0, Math.min(255, Math.round(((db - dbMin) / dbRange) * 255)));
+        // Gate: suppress bins whose normalized level (≈dBFS) falls below the display floor.
+        // Keeps bright display for real content, hides sidelobes & out-of-band noise.
+        const norm = db < gateThreshold ? 0
+          : Math.max(0, Math.min(255, Math.round(((db - dbMin) / dbRange) * 255)));
         const lutIdx = norm * 4;
         pixels[pixIdx]     = lut[lutIdx];
         pixels[pixIdx + 1] = lut[lutIdx + 1];

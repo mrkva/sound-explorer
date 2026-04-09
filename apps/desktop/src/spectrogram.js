@@ -26,6 +26,7 @@ export class SpectrogramRenderer {
 
     // Gain/contrast controls
     this.gainDB = options.gainDB || 0;          // Boost in dB (positive = amplify faint sounds)
+    this.inputGainDB = 0;                        // Audio input gain (dB) for live mode
     this.dynamicRangeDB = options.dynamicRangeDB || 90;
 
     // Color preset
@@ -2123,6 +2124,13 @@ export class SpectrogramRenderer {
         this._liveLastCol = 0;
       }
       const windowed = new Float32Array(N);
+      const gainLin = Math.pow(10, this.inputGainDB / 20);  // audio input gain
+      // Invalidate cache when input gain changes
+      if (this._liveInputGainDB !== this.inputGainDB) {
+        this._liveInputGainDB = this.inputGainDB;
+        this._liveColCache = new Array(w).fill(null);
+        this._liveLastCol = 0;
+      }
       const newStart = Math.max(this._liveLastCol, Math.max(0, totalCols - w));
 
       for (let col = newStart; col < totalCols; col++) {
@@ -2132,7 +2140,7 @@ export class SpectrogramRenderer {
         for (let i = 0; i < N; i++) {
           const sampleIdx = fftStart + i;
           if (sampleIdx >= 0 && sampleIdx < total) {
-            windowed[i] = this._liveCapture.readSample(sampleIdx) * this._liveWindow[i];
+            windowed[i] = this._liveCapture.readSample(sampleIdx) * gainLin * this._liveWindow[i];
           } else {
             windowed[i] = 0;
           }
@@ -2155,10 +2163,10 @@ export class SpectrogramRenderer {
   _renderLiveFrame(w, h, totalCols, sr) {
     const N = this.fftSize;
     const freqBins = N / 2;
-    // Shift display floor by FFT normalization offset so dB scale ≈ dBFS.
-    // This pushes window sidelobes and out-of-band noise below the display floor.
-    const normDB = this._liveWindowNormDB;
-    const floor = -this.dynamicRangeDB + normDB;
+    const floor = -this.dynamicRangeDB;
+    // Gate threshold in raw FFT dB: suppress bins whose normalized level (≈dBFS)
+    // falls below the display floor. Hides sidelobes & out-of-band noise.
+    const gateThreshold = floor + this._liveWindowNormDB;
 
     // Build or reuse Y→bin mapping
     const binRes = sr / N;
@@ -2227,7 +2235,9 @@ export class SpectrogramRenderer {
         }
 
         const db = raw + this.gainDB;
-        const normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
+        // Gate: suppress bins whose normalized level falls below display floor
+        const normalized = raw < gateThreshold ? 0
+          : Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
 
         const [r, g, b] = this._colorize(normalized);
 
