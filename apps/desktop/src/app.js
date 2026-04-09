@@ -325,8 +325,10 @@ class App {
 
     this.fftWindowSelect.addEventListener('change', (e) => {
       this.spectrogram.windowType = e.target.value;
+      this.spectrogram._window = null; // force window rebuild
       this.spectrogram.tileCache.clear();
       this.spectrogram._lastFFTData = null;
+      this.spectrogram._lastFFTDataSplit = null;
       this.spectrogram._computing = false;
       this.spectrogram.computeVisible();
     });

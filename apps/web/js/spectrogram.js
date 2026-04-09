@@ -88,15 +88,17 @@ export class SpectrogramRenderer {
   }
 
   _initWorkers() {
+    // Cache-bust worker URLs to avoid stale service worker cache
+    const cacheBust = `?v=${Date.now()}`;
     const numWorkers = Math.min(navigator.hardwareConcurrency || 4, 8);
     for (let i = 0; i < numWorkers; i++) {
-      const w = new Worker('js/fft-worker.js', { type: 'module' });
+      const w = new Worker(`js/fft-worker.js${cacheBust}`, { type: 'module' });
       w.onmessage = (e) => this._onFFTResult(e.data);
       this._fftWorkers.push(w);
     }
     this._nextWorker = 0;
 
-    this._renderWorker = new Worker('js/render-worker.js', { type: 'module' });
+    this._renderWorker = new Worker(`js/render-worker.js${cacheBust}`, { type: 'module' });
     this._renderWorker.onmessage = (e) => this._onRenderResult(e.data);
   }
 
