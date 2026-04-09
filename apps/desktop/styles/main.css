@@ -152,6 +152,41 @@ button.primary {
 }
 button.primary:hover { background: var(--btn-primary-hover); }
 
+/* Live input button */
+.live-btn {
+  background: #2a9d2a;
+  border-color: #2a9d2a;
+  color: #fff;
+  font-weight: 600;
+}
+.live-btn:hover { background: #238f23; border-color: #238f23; }
+
+button.danger {
+  color: var(--danger);
+}
+
+.live-controls {
+  gap: 6px;
+}
+
+#btn-live-record.recording {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  animation: pulse-record 1s infinite;
+}
+
+@keyframes pulse-record {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.live-status {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', 'Consolas', monospace;
+}
+
 /* Transport buttons - slightly larger */
 .transport-btn {
   min-width: 72px;

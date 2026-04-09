@@ -8,12 +8,15 @@ import { AudioEngine } from './audio-engine.js';
 import { Session } from './session.js';
 import { parseFRM, serializeFRM, autoPopulateFromSession, annotationsToFRM, annotationsFromFRM } from './frm.js';
 import { buildIXML, parseIXML, formDataToIXML, ixmlToFormData, syncPointsToAnnotations } from './ixml.js';
+import { LiveCapture } from './live-capture.js';
 
 class App {
   constructor() {
     this.engine = new AudioEngine();
     this.spectrogram = null;
     this.session = null;
+    this._liveCapture = null;
+    this._liveRecordingBlob = null;
 
     // DOM elements
     this.canvas = document.getElementById('spectrogram');
@@ -222,6 +225,17 @@ class App {
 
     // Open file(s)
     this.btnOpenFile.addEventListener('click', () => this._openFiles());
+
+    // Live input
+    document.getElementById('btn-live-input').addEventListener('click', () => this._startLive());
+    document.getElementById('btn-live-stop').addEventListener('click', () => this._stopLive());
+    document.getElementById('btn-live-record').addEventListener('click', () => this._toggleLiveRecord());
+    document.getElementById('btn-live-save').addEventListener('click', () => this._saveLiveRecording());
+    document.getElementById('select-input-device').addEventListener('change', (e) => {
+      if (this._liveCapture && this._liveCapture.isCapturing) {
+        this._startLive(e.target.value);
+      }
+    });
 
     // Play/Pause
     this.btnPlay.addEventListener('click', () => {
@@ -2993,6 +3007,136 @@ class App {
     input.value = before + tag + ', ';
     container.classList.remove('open');
     input.focus();
+  }
+
+  // --- Live Input ---
+
+  async _startLive(deviceId = null) {
+    try {
+      if (this._liveCapture) {
+        this.spectrogram.stopLive();
+        await this._liveCapture.stop();
+      }
+
+      this._liveCapture = new LiveCapture();
+
+      // Populate input device selector
+      const devices = await LiveCapture.getInputDevices();
+      const sel = document.getElementById('select-input-device');
+      sel.innerHTML = '';
+      for (const d of devices) {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = d.label;
+        sel.appendChild(opt);
+      }
+      if (deviceId) sel.value = deviceId;
+
+      await this._liveCapture.start(deviceId || sel.value || null);
+
+      // Hide welcome overlay
+      const welcome = document.getElementById('welcome');
+      if (welcome) welcome.style.display = 'none';
+
+      // Resize canvas
+      this._resizeCanvas();
+
+      // Update frequency controls
+      const nyquist = this._liveCapture.sampleRate / 2;
+      this.maxFreqInput.value = nyquist;
+      this.minFreqInput.value = 0;
+      this.spectrogram.minFreq = 0;
+      this.spectrogram.maxFreq = nyquist;
+
+      // Connect spectrogram to live source
+      this.spectrogram.setLiveSource(this._liveCapture);
+
+      // Show live controls, hide file controls
+      document.getElementById('live-controls').style.display = '';
+      this.btnPlay.style.display = 'none';
+      this.btnStop.style.display = 'none';
+
+      this._setStatus(`Live input: ${this._liveCapture.sampleRate} Hz`);
+      this._updateLiveStatus();
+    } catch (e) {
+      console.error('Live input error:', e);
+      this._setStatus(`Live input error: ${e.message}`);
+    }
+  }
+
+  async _stopLive() {
+    if (this._liveCapture) {
+      if (this._liveCapture.isRecording) {
+        this._liveRecordingBlob = this._liveCapture.stopRecording();
+        if (this._liveRecordingBlob) {
+          document.getElementById('btn-live-save').style.display = '';
+        }
+      }
+      this.spectrogram.stopLive();
+      await this._liveCapture.stop();
+      this._liveCapture = null;
+    }
+
+    document.getElementById('live-controls').style.display = 'none';
+    this.btnPlay.style.display = '';
+    this.btnStop.style.display = '';
+
+    // Show welcome if no session
+    if (!this.session) {
+      const welcome = document.getElementById('welcome');
+      if (welcome) welcome.style.display = '';
+    }
+    this._setStatus('Live input stopped');
+  }
+
+  _toggleLiveRecord() {
+    if (!this._liveCapture || !this._liveCapture.isCapturing) return;
+    const btn = document.getElementById('btn-live-record');
+
+    if (this._liveCapture.isRecording) {
+      this._liveRecordingBlob = this._liveCapture.stopRecording();
+      btn.classList.remove('recording');
+      btn.id = 'btn-live-record';
+      btn.innerHTML = '&#x23FA; Rec';
+      if (this._liveRecordingBlob) {
+        document.getElementById('btn-live-save').style.display = '';
+      }
+    } else {
+      this._liveCapture.startRecording();
+      btn.classList.add('recording');
+      btn.innerHTML = '&#x23F9; Stop Rec';
+      document.getElementById('btn-live-save').style.display = 'none';
+      this._liveRecordingBlob = null;
+    }
+  }
+
+  async _saveLiveRecording() {
+    if (!this._liveRecordingBlob) return;
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const filePath = await window.electronAPI.saveFileDialog({
+      title: 'Save Live Recording',
+      defaultPath: `live-recording-${ts}.wav`,
+      filters: [{ name: 'WAV Audio', extensions: ['wav'] }]
+    });
+    if (!filePath) return;
+
+    const arrayBuffer = await this._liveRecordingBlob.arrayBuffer();
+    await window.electronAPI.writeBinaryFile(filePath, new Uint8Array(arrayBuffer));
+    this._setStatus(`Recording saved: ${filePath}`);
+  }
+
+  _updateLiveStatus() {
+    if (!this._liveCapture || !this._liveCapture.isCapturing) return;
+    const sr = this._liveCapture.sampleRate;
+    const totalSec = this._liveCapture.totalSamples / sr;
+    const status = document.getElementById('live-status');
+    const rec = this._liveCapture.isRecording;
+    status.textContent = `${sr} Hz | ${this._formatTime(totalSec)}${rec ? ' | REC' : ''}`;
+
+    this.fileInfoDisplay.textContent = `Live ${sr} Hz`;
+    this.durationDisplay.textContent = this._formatTime(totalSec);
+
+    requestAnimationFrame(() => this._updateLiveStatus());
   }
 }
 

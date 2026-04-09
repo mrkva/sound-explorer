@@ -15,6 +15,7 @@
     <div class="toolbar-group">
       <button id="btn-open-folder" class="primary">Open Folder</button>
       <button id="btn-open-file">Open File(s)</button>
+      <button id="btn-live-input" class="live-btn" title="Live audio input from microphone or sound card">Live Input</button>
     </div>
 
     <div class="toolbar-separator"></div>
@@ -88,6 +89,14 @@
       <button id="btn-untrim" style="display:none;" title="Restore full session (U)">Untrim</button>
       <button id="btn-annotations" class="annotations-btn">Annotations</button>
       <button id="btn-session-meta" class="annotations-btn" title="Edit iXML / session metadata">Metadata</button>
+    </div>
+
+    <div class="toolbar-group live-controls" id="live-controls" style="display: none;">
+      <select id="select-input-device" title="Audio input device"></select>
+      <button id="btn-live-record" title="Record live input">&#x23FA; Rec</button>
+      <button id="btn-live-save" title="Save recording as WAV" style="display:none;">Save WAV</button>
+      <button id="btn-live-stop" class="danger" title="Stop live input">Stop Live</button>
+      <span id="live-status" class="live-status"></span>
     </div>
 
     <div class="toolbar-group" style="margin-left: auto;">

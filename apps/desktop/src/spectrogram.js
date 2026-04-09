@@ -1994,4 +1994,106 @@ export class SpectrogramRenderer {
       this.draw();
     });
   }
+
+  // --- Live input mode ---
+
+  _liveCapture = null;
+  _liveRAF = null;
+  _liveScrolling = true;
+
+  setLiveSource(liveCapture) {
+    this.stopLive();
+    this._liveCapture = liveCapture;
+
+    this.session = null;
+    this.totalDuration = 0;
+    this.viewStart = 0;
+    this.viewEnd = 0;
+    this.selectionStart = null;
+    this.selectionEnd = null;
+    this.tileCache.clear();
+    this._lastFFTData = null;
+    this._lastFFTDataSplit = null;
+    this._liveScrolling = true;
+
+    this._liveRenderLoop();
+  }
+
+  async _liveRenderLoop() {
+    if (!this._liveCapture || !this._liveCapture.isCapturing) return;
+
+    const sr = this._liveCapture.sampleRate;
+    const total = this._liveCapture.totalSamples;
+    const totalDur = total / sr;
+    this.totalDuration = totalDur;
+
+    // Default view: last 10 seconds
+    const viewSec = 10;
+
+    if (this._liveScrolling) {
+      this.viewEnd = totalDur;
+      this.viewStart = Math.max(0, totalDur - viewSec);
+    }
+
+    const canvasWidth = this.canvas.width - 60;
+    const canvasHeight = this.canvas.height - 40;
+
+    if (canvasWidth > 0 && canvasHeight > 0 && total > 0) {
+      const viewSamples = Math.floor((this.viewEnd - this.viewStart) * sr);
+      const numSamples = Math.min(viewSamples, total);
+
+      if (numSamples > this.fftSize) {
+        const samples = this._liveCapture.readLast(numSamples);
+        await this._renderLiveFrame(samples, canvasWidth, canvasHeight, sr);
+      }
+    }
+
+    this._liveRAF = requestAnimationFrame(() => this._liveRenderLoop());
+  }
+
+  async _renderLiveFrame(samples, w, h, sampleRate) {
+    const targetFrames = Math.max(1, Math.min(w * 2, 4000));
+    const hopSize = Math.max(64, Math.floor(samples.length / targetFrames));
+
+    // Use main-thread FFT for live mode to avoid worker overhead
+    this._ensureWindow(this.fftSize);
+    const N = this.fftSize;
+    const freqBins = N / 2;
+    const numFrames = Math.floor((samples.length - N) / hopSize);
+    if (numFrames <= 0) return;
+
+    const frames = new Array(numFrames);
+    for (let i = 0; i < numFrames; i++) {
+      const offset = i * hopSize;
+      const frame = new Float32Array(N);
+      for (let j = 0; j < N; j++) {
+        frame[j] = samples[offset + j] * this._window[j];
+      }
+      frames[i] = this._fftFrame(frame);
+    }
+
+    const data = { frames, freqBins, numFrames, hopSize };
+    this._lastFFTData = data;
+    this._lastFFTDataSplit = null;
+
+    // Temporarily set session-like properties for rendering
+    const fakeSR = sampleRate;
+    const savedSession = this.session;
+    this.session = { sampleRate: fakeSR };
+    await this._renderSpectrogram(data);
+    this.session = savedSession;
+    this.draw();
+  }
+
+  stopLive() {
+    if (this._liveRAF) {
+      cancelAnimationFrame(this._liveRAF);
+      this._liveRAF = null;
+    }
+    this._liveCapture = null;
+  }
+
+  get isLive() {
+    return this._liveCapture !== null && this._liveCapture.isCapturing;
+  }
 }

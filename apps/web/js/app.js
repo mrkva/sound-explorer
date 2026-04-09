@@ -8,6 +8,7 @@ import { SpectrogramRenderer } from './spectrogram.js?v=0.2.3';
 import { AudioEngine } from './audio-engine.js?v=0.2.3';
 import { parseIXML, buildIXML, formDataToIXML, ixmlToFormData } from './ixml.js';
 import { parseFRM, serializeFRM } from './frm.js';
+import { LiveCapture } from './live-capture.js';
 
 class App {
   constructor() {
@@ -19,6 +20,7 @@ class App {
     this._settingsTimer = null;
     this._spectGain = 0;
     this._spectRange = 90;
+    this._liveCapture = null;
 
     this._initUI();
     this._initDragDrop();
@@ -250,6 +252,17 @@ class App {
       document.getElementById('info-cursor').textContent =
         `${this._formatFreq(freq)} @ ${this._formatTime(timeSec)}`;
     };
+
+    // Live input
+    document.getElementById('btn-live-start').addEventListener('click', () => this._startLive());
+    document.getElementById('btn-live-stop').addEventListener('click', () => this._stopLive());
+    document.getElementById('btn-live-record').addEventListener('click', () => this._toggleLiveRecord());
+    document.getElementById('btn-live-save').addEventListener('click', () => this._saveLiveRecording());
+    document.getElementById('select-input-device').addEventListener('change', (e) => {
+      if (this._liveCapture && this._liveCapture.isCapturing) {
+        this._startLive(e.target.value);
+      }
+    });
 
     // Annotations controls
     document.getElementById('btn-add-annotation').addEventListener('click', () => this._addAnnotation());
@@ -1523,6 +1536,141 @@ class App {
       console.warn('Failed to build iXML for export:', e);
       return null;
     }
+  }
+
+  // --- Live Input ---
+
+  async _startLive(deviceId = null) {
+    try {
+      // Stop any previous live session
+      if (this._liveCapture) {
+        this.spectrogram.stopLive();
+        await this._liveCapture.stop();
+      }
+
+      this._liveCapture = new LiveCapture();
+
+      // Populate input device selector
+      const devices = await LiveCapture.getInputDevices();
+      const sel = document.getElementById('select-input-device');
+      sel.innerHTML = '';
+      for (const d of devices) {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = d.label;
+        sel.appendChild(opt);
+      }
+      if (deviceId) sel.value = deviceId;
+
+      // Start capture
+      await this._liveCapture.start(deviceId || sel.value || null);
+
+      // Show main UI if hidden
+      document.getElementById('drop-zone').style.display = 'none';
+      document.getElementById('main-ui').style.display = 'flex';
+
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      this.spectrogram._updateCanvasSize();
+
+      // Update frequency controls
+      const nyquist = this._liveCapture.sampleRate / 2;
+      document.getElementById('input-freq-max').value = nyquist;
+      this.spectrogram.freqMax = nyquist;
+      this.spectrogram.freqMin = 0;
+      document.getElementById('input-freq-min').value = 0;
+
+      // Connect spectrogram to live source
+      this.spectrogram.setLiveSource(this._liveCapture);
+
+      // Show live controls, hide file-specific controls
+      document.getElementById('live-controls').style.display = '';
+      document.getElementById('btn-play').style.display = 'none';
+      document.getElementById('btn-stop').style.display = 'none';
+      document.getElementById('btn-export').style.display = 'none';
+      document.getElementById('btn-export-speed').style.display = 'none';
+
+      this._setStatus(`Live input: ${this._liveCapture.sampleRate} Hz`);
+      this._updateLiveStatus();
+    } catch (e) {
+      console.error('Live input error:', e);
+      this._setStatus(`Live input error: ${e.message}`);
+    }
+  }
+
+  async _stopLive() {
+    if (this._liveCapture) {
+      // Stop recording if active
+      if (this._liveCapture.isRecording) {
+        this._liveRecordingBlob = this._liveCapture.stopRecording();
+        if (this._liveRecordingBlob) {
+          document.getElementById('btn-live-save').style.display = '';
+        }
+      }
+      this.spectrogram.stopLive();
+      await this._liveCapture.stop();
+      this._liveCapture = null;
+    }
+
+    // Restore file-mode controls
+    document.getElementById('live-controls').style.display = 'none';
+    document.getElementById('btn-play').style.display = '';
+    document.getElementById('btn-stop').style.display = '';
+    document.getElementById('btn-export').style.display = '';
+
+    // If no files loaded, show drop zone
+    if (!this.wavInfos || this.wavInfos.length === 0) {
+      document.getElementById('main-ui').style.display = 'none';
+      document.getElementById('drop-zone').style.display = '';
+    }
+    this._setStatus('Live input stopped');
+  }
+
+  _toggleLiveRecord() {
+    if (!this._liveCapture || !this._liveCapture.isCapturing) return;
+    const btn = document.getElementById('btn-live-record');
+
+    if (this._liveCapture.isRecording) {
+      this._liveRecordingBlob = this._liveCapture.stopRecording();
+      btn.classList.remove('recording');
+      btn.innerHTML = '&#x23FA; Rec';
+      if (this._liveRecordingBlob) {
+        document.getElementById('btn-live-save').style.display = '';
+      }
+    } else {
+      this._liveCapture.startRecording();
+      btn.classList.add('recording');
+      btn.innerHTML = '&#x23F9; Stop Rec';
+      document.getElementById('btn-live-save').style.display = 'none';
+      this._liveRecordingBlob = null;
+    }
+  }
+
+  _saveLiveRecording() {
+    if (!this._liveRecordingBlob) return;
+    const url = URL.createObjectURL(this._liveRecordingBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    const now = new Date();
+    const ts = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    a.download = `live-recording-${ts}.wav`;
+    a.click();
+    URL.revokeObjectURL(url);
+    this._setStatus('Recording saved');
+  }
+
+  _updateLiveStatus() {
+    if (!this._liveCapture || !this._liveCapture.isCapturing) return;
+    const sr = this._liveCapture.sampleRate;
+    const totalSec = this._liveCapture.totalSamples / sr;
+    const status = document.getElementById('live-status');
+    const rec = this._liveCapture.isRecording;
+    status.textContent = `${sr} Hz | ${this._formatTime(totalSec)}${rec ? ' | REC' : ''}`;
+
+    // Update info strip
+    document.getElementById('info-file').textContent = `Live ${sr} Hz`;
+    document.getElementById('info-duration').textContent = `DUR ${this._formatTime(totalSec)}`;
+
+    requestAnimationFrame(() => this._updateLiveStatus());
   }
 }
 

@@ -1272,7 +1272,117 @@ export class SpectrogramRenderer {
     }
   }
 
+  // --- Live input mode ---
+
+  _liveCapture = null;
+  _liveRAF = null;
+  _liveScrolling = true; // auto-scroll to follow live input
+
+  /**
+   * Enter live input mode. The spectrogram continuously renders from the
+   * LiveCapture ring buffer instead of files.
+   */
+  setLiveSource(liveCapture) {
+    this.stopLive();
+    this._liveCapture = liveCapture;
+
+    // Set up a virtual wavInfo so the rendering pipeline works
+    this.wavInfo = {
+      sampleRate: liveCapture.sampleRate,
+      channels: 1,
+      bitsPerSample: 32,
+      blockAlign: 4,
+      totalSamples: 0,
+      file: null,
+      dataOffset: 0,
+    };
+    this.files = [];
+    this.totalSamples = 0;
+    this.totalDuration = 0;
+    this.freqMax = liveCapture.sampleRate / 2;
+    this.viewStart = 0;
+    this.viewEnd = 0;
+    this.selectionStart = null;
+    this.selectionEnd = null;
+    this._lastPlaybackTime = null;
+    this._tileCache.clear();
+    this._liveScrolling = true;
+
+    // Start the live render loop
+    this._liveRenderLoop();
+  }
+
+  _liveRenderLoop() {
+    if (!this._liveCapture || !this._liveCapture.isCapturing) return;
+
+    const sr = this._liveCapture.sampleRate;
+    const total = this._liveCapture.totalSamples;
+    this.totalSamples = total;
+    this.totalDuration = total / sr;
+
+    // Default view: last 10 seconds
+    const viewSec = 10;
+    const viewSamples = Math.floor(viewSec * sr);
+
+    if (this._liveScrolling) {
+      this.viewEnd = total;
+      this.viewStart = Math.max(0, total - viewSamples);
+    }
+
+    // Read samples from ring buffer for the visible range
+    const w = this.canvas.width - MARGIN_LEFT;
+    const h = this.canvas.height - MARGIN_BOTTOM;
+    if (w > 0 && h > 0 && total > 0) {
+      const numSamples = Math.min(this.viewEnd - this.viewStart, total);
+      if (numSamples > 0) {
+        const samples = this._liveCapture.readLast(numSamples);
+        this._renderLiveFrame(samples, w, h);
+      }
+    }
+
+    this._liveRAF = requestAnimationFrame(() => this._liveRenderLoop());
+  }
+
+  async _renderLiveFrame(samples, w, h) {
+    const gen = ++this._renderGeneration;
+    const hopSize = Math.max(64, Math.floor(samples.length / Math.min(w * 2, 4000)));
+
+    const workerId = this._workerIdCounter++;
+    const worker = this._fftWorkers[this._nextWorker % this._fftWorkers.length];
+    this._nextWorker++;
+
+    const promise = new Promise((resolve) => {
+      this._pendingFFT.set(workerId, resolve);
+    });
+
+    const buf = samples.buffer.slice(0);
+    worker.postMessage({
+      samples: buf,
+      fftSize: this.fftSize,
+      hopSize,
+      id: workerId,
+    }, [buf]);
+
+    const fftResult = await promise;
+    if (gen !== this._renderGeneration) return;
+
+    this._renderFromMagnitudes(fftResult.magnitudes, fftResult.numFrames, fftResult.halfFFT, w, h, gen);
+  }
+
+  stopLive() {
+    if (this._liveRAF) {
+      cancelAnimationFrame(this._liveRAF);
+      this._liveRAF = null;
+    }
+    this._liveCapture = null;
+  }
+
+  get isLive() {
+    return this._liveCapture !== null && this._liveCapture.isCapturing;
+  }
+
   destroy() {
+    this.stopLive();
     this._resizeObserver.disconnect();
     for (const w of this._fftWorkers) w.terminate();
     if (this._renderWorker) this._renderWorker.terminate();

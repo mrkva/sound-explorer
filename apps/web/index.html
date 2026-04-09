@@ -21,6 +21,7 @@
       <p class="drop-hint-desktop">Drag &amp; drop WAV files here</p>
       <p class="drop-sub drop-hint-desktop">or</p>
       <button id="btn-open" class="btn btn-accent">Open Files</button>
+      <button id="btn-live-start" class="btn btn-live">Live Input</button>
       <input type="file" id="file-input" multiple accept=".wav" style="display:none">
       <div class="drop-shortcuts">
         <div class="shortcut-row"><kbd>Space</kbd> Play/Pause &nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> Seek &plusmn;1s &nbsp; <kbd>Shift</kbd>+<kbd>&larr;</kbd><kbd>&rarr;</kbd> &plusmn;10s</div>
@@ -91,6 +92,17 @@
         </select>
         <span id="label-sel-duration" class="info-text"></span>
         <button id="btn-loop" class="btn toolbar-btn">Loop</button>
+      </div>
+
+      <span class="toolbar-sep"></span>
+
+      <!-- Live input controls (hidden until live mode) -->
+      <div id="live-controls" style="display:none">
+        <select id="select-input-device" class="select" title="Audio input device"></select>
+        <button id="btn-live-record" class="btn toolbar-btn btn-record" title="Record live input">&#x23FA; Rec</button>
+        <button id="btn-live-save" class="btn toolbar-btn" title="Save recording as WAV" style="display:none">Save WAV</button>
+        <button id="btn-live-stop" class="btn toolbar-btn btn-stop-live" title="Stop live input">Stop Live</button>
+        <span id="live-status" class="info-text"></span>
       </div>
 
       <span class="toolbar-spacer"></span>

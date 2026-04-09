@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveFileDialog: (options) => ipcRenderer.invoke('save-file-dialog', options),
   fileExists: (filePath) => ipcRenderer.invoke('file-exists', filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
+  writeBinaryFile: (filePath, data) => ipcRenderer.invoke('write-binary-file', filePath, data),
   readTextFile: (filePath) => ipcRenderer.invoke('read-text-file', filePath),
   openFolderDialog: () => ipcRenderer.invoke('open-folder-dialog'),
   scanFolder: (folderPath) => ipcRenderer.invoke('scan-folder', folderPath),

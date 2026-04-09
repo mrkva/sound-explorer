@@ -453,6 +453,12 @@ ipcMain.handle('write-file', async (event, filePath, content) => {
   return true;
 });
 
+// Write binary data to a file
+ipcMain.handle('write-binary-file', async (event, filePath, data) => {
+  await fs.promises.writeFile(filePath, Buffer.from(data));
+  return true;
+});
+
 // Read a text file
 ipcMain.handle('read-text-file', async (event, filePath) => {
   return await fs.promises.readFile(filePath, 'utf-8');

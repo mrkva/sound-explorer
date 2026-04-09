@@ -851,6 +851,49 @@ body.dark .toolbar-logo {
   border-color: #d94444;
 }
 
+.btn-live {
+  background: #2a9d2a;
+  border-color: #2a9d2a;
+  color: #fff;
+}
+
+.btn-live:hover {
+  background: #238f23;
+  border-color: #238f23;
+}
+
+.btn-record {
+  color: var(--danger);
+}
+
+.btn-record.recording {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  animation: pulse-record 1s infinite;
+}
+
+@keyframes pulse-record {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.btn-stop-live {
+  color: var(--danger);
+}
+
+#live-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#live-status {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 4px;
+}
+
 .btn-small {
   padding: 2px 8px;
   font-size: 11px;

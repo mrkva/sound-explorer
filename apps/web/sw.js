@@ -22,6 +22,7 @@ const APP_SHELL = [
   './js/colormaps.js',
   './js/ixml.js',
   './js/frm.js',
+  './js/live-capture.js',
   './img/logo_black.png',
   './img/logo_white.png',
   './img/icon.svg',
