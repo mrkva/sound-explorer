@@ -13,6 +13,7 @@ export class SpectrogramRenderer {
   constructor(canvas, options = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    this.ctx.imageSmoothingEnabled = false;
     this._refreshThemeColors();
 
     // FFT settings

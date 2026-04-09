@@ -22,6 +22,7 @@ export class SpectrogramRenderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    this.ctx.imageSmoothingEnabled = false;
 
     // DOM cursor line (CSS transform — zero canvas/layout cost)
     this._cursorEl = null;
@@ -529,6 +530,8 @@ export class SpectrogramRenderer {
 
   async render(playbackTime) {
     if (!this.wavInfo) return;
+    // Skip regular render during live mode — _liveRenderLoop handles it
+    if (this._liveIsLive) return;
 
     if (playbackTime !== undefined) {
       this._lastPlaybackTime = playbackTime;
@@ -1418,12 +1421,18 @@ export class SpectrogramRenderer {
   _renderLiveFrame(w, h, totalCols, sr) {
     const N = this.fftSize;
     const halfFFT = N / 2;
-    const lut = this._liveColorLUT;
     const dbMin = this.dbMin;
     const dbRange = this.dbMax - dbMin;
     const nyquist = sr / 2;
 
-    // Build or reuse Y→bin mapping
+    // Rebuild color LUT if colormap changed since last build
+    if (!this._liveColorLUT || this._liveLUTColormap !== this.colormap) {
+      this._liveColorLUT = buildColorLUT(this.colormap);
+      this._liveLUTColormap = this.colormap;
+    }
+    const lut = this._liveColorLUT;
+
+    // Build or reuse Y→bin mapping (clamped to valid FFT bin range)
     const yKey = `${h}_${this.freqMin}_${this.freqMax}_${sr}_${this.logScale}_${N}`;
     if (this._liveYBinsKey !== yKey) {
       const yBins = new Float64Array(h);
@@ -1437,7 +1446,8 @@ export class SpectrogramRenderer {
         } else {
           freq = this.freqMin + frac * (this.freqMax - this.freqMin);
         }
-        yBins[y] = freq * halfFFT / nyquist;
+        // Clamp to valid bin range [0, halfFFT-1]
+        yBins[y] = Math.max(0, Math.min(halfFFT - 1 - 1e-6, freq * halfFFT / nyquist));
       }
       this._liveYBins = yBins;
       this._liveYBinsKey = yKey;
@@ -1450,6 +1460,7 @@ export class SpectrogramRenderer {
       this._liveCanvas.width = w;
       this._liveCanvas.height = h;
       this._liveCanvasCtx = this._liveCanvas.getContext('2d');
+      this._liveCanvasCtx.imageSmoothingEnabled = false;
     }
 
     const imgData = this._liveCanvasCtx.createImageData(w, h);
@@ -1476,7 +1487,11 @@ export class SpectrogramRenderer {
         const binLow = Math.floor(bin);
         const binHigh = Math.min(binLow + 1, halfFFT - 1);
         const f = bin - binLow;
-        const db = (mag[binLow] || -100) + ((mag[binHigh] || -100) - (mag[binLow] || -100)) * f;
+        // Use nullish-safe access: mag values are always numbers from magnitudesDB,
+        // but 0 dB is valid (not falsy). Use direct access with default for out-of-bounds.
+        const lo = binLow < halfFFT ? mag[binLow] : -120;
+        const hi = binHigh < halfFFT ? mag[binHigh] : -120;
+        const db = lo + (hi - lo) * f;
         const norm = Math.max(0, Math.min(255, Math.round(((db - dbMin) / dbRange) * 255)));
         const lutIdx = norm * 4;
         pixels[pixIdx]     = lut[lutIdx];

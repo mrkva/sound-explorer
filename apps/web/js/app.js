@@ -265,7 +265,8 @@ class App {
     });
     document.getElementById('select-live-window').addEventListener('change', (e) => {
       this.spectrogram._liveViewSeconds = parseInt(e.target.value);
-      this.spectrogram._liveBuffer = null; // force full redraw
+      this.spectrogram._liveColCache = null; // force full redraw
+      this.spectrogram._liveLastCol = 0;
     });
 
     // Annotations controls
