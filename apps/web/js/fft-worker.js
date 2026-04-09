@@ -4,12 +4,12 @@
  * Receives PCM Float32Array slices, returns packed dB magnitude array.
  */
 
-import { getHann, fft, magnitudesDB } from './fft-core.js';
+import { getWindow, fft, magnitudesDB } from './fft-core.js';
 
 self.onmessage = function(e) {
-  const { samples, fftSize, hopSize, id } = e.data;
+  const { samples, fftSize, hopSize, windowType, id } = e.data;
   const pcm = new Float32Array(samples);
-  const hann = getHann(fftSize);
+  const win = getWindow(windowType || 'hann', fftSize);
   const halfFFT = fftSize / 2;
 
   const numFrames = Math.max(1, Math.floor((pcm.length - fftSize) / hopSize) + 1);
@@ -23,7 +23,7 @@ self.onmessage = function(e) {
     // Apply window
     for (let i = 0; i < fftSize; i++) {
       const idx = start + i;
-      windowed[i] = idx < pcm.length ? pcm[idx] * hann[i] : 0;
+      windowed[i] = idx < pcm.length ? pcm[idx] * win[i] : 0;
     }
 
     const spectrum = fft(windowed, fftSize);

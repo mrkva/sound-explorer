@@ -186,6 +186,11 @@ class App {
       this._renderSpectrogram();
     });
 
+    document.getElementById('select-fft-window').addEventListener('change', (e) => {
+      this.spectrogram.windowType = e.target.value;
+      this._renderSpectrogram();
+    });
+
     document.getElementById('select-colormap').addEventListener('change', (e) => {
       this.spectrogram.colormap = e.target.value;
       this._renderSpectrogram();
@@ -414,6 +419,10 @@ class App {
       this.spectrogram._updateCanvasSize();
       // Pre-initialize cursor element so Safari sets up compositing layers before playback
       this.spectrogram._ensureCursorEl();
+
+      // Auto-switch to Hann for file analysis (best frequency resolution)
+      this.spectrogram.windowType = 'hann';
+      document.getElementById('select-fft-window').value = 'hann';
 
       // Wait for spectrogram to fully render before allowing playback
       this._showComputing(true);
@@ -1583,6 +1592,10 @@ class App {
       this.spectrogram.freqMax = nyquist;
       this.spectrogram.freqMin = 0;
       document.getElementById('input-freq-min').value = 0;
+
+      // Auto-switch to Blackman-Harris for live (best sidelobe suppression)
+      this.spectrogram.windowType = 'blackman-harris';
+      document.getElementById('select-fft-window').value = 'blackman-harris';
 
       // Connect spectrogram to live source
       this.spectrogram.setLiveSource(this._liveCapture);

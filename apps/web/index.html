@@ -305,6 +305,15 @@
           </select>
         </div>
         <div class="control-group">
+          <label class="ctrl-label" title="FFT window function — affects frequency resolution vs spectral leakage tradeoff">Window</label>
+          <select id="select-fft-window" class="select select-small">
+            <option value="hann" selected>Hann</option>
+            <option value="hamming">Hamming</option>
+            <option value="blackman-harris">Blackman-H.</option>
+            <option value="flat-top">Flat Top</option>
+          </select>
+        </div>
+        <div class="control-group">
           <label class="ctrl-label" title="Color scheme for spectrogram display">Colors</label>
           <select id="select-colormap" class="select select-small">
             <option value="viridis" selected>Viridis</option>

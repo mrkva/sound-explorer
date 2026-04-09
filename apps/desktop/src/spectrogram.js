@@ -18,6 +18,7 @@ export class SpectrogramRenderer {
 
     // FFT settings
     this.fftSize = options.fftSize || 2048;
+    this.windowType = options.windowType || 'hann';
     this.hopSize = options.hopSize || null; // auto-calculated
     this.minFreq = options.minFreq || 0;
     this.maxFreq = options.maxFreq || 22050;
@@ -196,7 +197,7 @@ export class SpectrogramRenderer {
         const dataForChannels = [];
 
         for (const ch of [chA, chB]) {
-          const chCacheKey = `${startSample}-${endSample}-${this.fftSize}-${targetFrames}-ch${ch}`;
+          const chCacheKey = `${startSample}-${endSample}-${this.fftSize}-${targetFrames}-ch${ch}-${this.windowType}`;
           let chData = this.tileCache.get(chCacheKey);
 
           if (!chData) {
@@ -235,7 +236,7 @@ export class SpectrogramRenderer {
         this.draw();
       } else {
         // Single channel / mix mode
-        const cacheKey = `${startSample}-${endSample}-${this.fftSize}-${targetFrames}-ch${this.channel}`;
+        const cacheKey = `${startSample}-${endSample}-${this.fftSize}-${targetFrames}-ch${this.channel}-${this.windowType}`;
         let spectrogramData = this.tileCache.get(cacheKey);
 
         if (!spectrogramData) {
@@ -579,25 +580,50 @@ export class SpectrogramRenderer {
   }
 
   _ensureWindow(N) {
-    if (!this._window || this._window.length !== N) {
-      this._window = new Float32Array(N);
-      for (let i = 0; i < N; i++) {
-        this._window[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
-      }
+    if (!this._window || this._window.length !== N || this._windowType !== this.windowType) {
+      this._window = this._buildWindow(this.windowType, N);
+      this._windowType = this.windowType;
     }
   }
 
   _ensureLiveWindow(N) {
-    if (!this._liveWindow || this._liveWindow.length !== N) {
-      // Blackman-Harris: -92 dB sidelobes (vs Hann's -31 dB) — suppresses
-      // spectral leakage that causes bright vertical lines on transients
-      const a0 = 0.35875, a1 = 0.48829, a2 = 0.14128, a3 = 0.01168;
-      this._liveWindow = new Float32Array(N);
-      for (let i = 0; i < N; i++) {
-        const x = 2 * Math.PI * i / (N - 1);
-        this._liveWindow[i] = a0 - a1 * Math.cos(x) + a2 * Math.cos(2 * x) - a3 * Math.cos(3 * x);
-      }
+    if (!this._liveWindow || this._liveWindow.length !== N || this._liveWindowType !== this.windowType) {
+      this._liveWindow = this._buildWindow(this.windowType, N);
+      this._liveWindowType = this.windowType;
     }
+  }
+
+  _buildWindow(type, N) {
+    const w = new Float32Array(N);
+    const pi2 = 2 * Math.PI;
+    switch (type) {
+      case 'hamming':
+        for (let i = 0; i < N; i++)
+          w[i] = 0.54 - 0.46 * Math.cos(pi2 * i / (N - 1));
+        break;
+      case 'blackman-harris': {
+        const a0 = 0.35875, a1 = 0.48829, a2 = 0.14128, a3 = 0.01168;
+        for (let i = 0; i < N; i++) {
+          const x = pi2 * i / (N - 1);
+          w[i] = a0 - a1 * Math.cos(x) + a2 * Math.cos(2 * x) - a3 * Math.cos(3 * x);
+        }
+        break;
+      }
+      case 'flat-top': {
+        const a0 = 0.21557895, a1 = 0.41663158, a2 = 0.277263158;
+        const a3 = 0.083578947, a4 = 0.006947368;
+        for (let i = 0; i < N; i++) {
+          const x = pi2 * i / (N - 1);
+          w[i] = a0 - a1 * Math.cos(x) + a2 * Math.cos(2 * x)
+               - a3 * Math.cos(3 * x) + a4 * Math.cos(4 * x);
+        }
+        break;
+      }
+      default: // hann
+        for (let i = 0; i < N; i++)
+          w[i] = 0.5 * (1 - Math.cos(pi2 * i / (N - 1)));
+    }
+    return w;
   }
 
   /**
@@ -2082,8 +2108,15 @@ export class SpectrogramRenderer {
         this._liveLastCol = 0;
       }
 
-      // Compute FFT for new columns only
+      // Rebuild window if type changed during capture
       const N = this.fftSize;
+      const prevWindowType = this._liveWindowType;
+      this._ensureLiveWindow(N);
+      if (prevWindowType && prevWindowType !== this._liveWindowType) {
+        // Force recompute all visible columns with new window
+        this._liveColCache = new Array(w).fill(null);
+        this._liveLastCol = 0;
+      }
       const windowed = new Float32Array(N);
       const newStart = Math.max(this._liveLastCol, Math.max(0, totalCols - w));
 

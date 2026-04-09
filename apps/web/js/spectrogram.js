@@ -3,7 +3,7 @@
  */
 
 import { WavParser } from './wav-parser.js?v=3';
-import { getHann, getBlackmanHarris, fft, magnitudesDB } from './fft-core.js';
+import { getWindow, fft, magnitudesDB } from './fft-core.js';
 import { buildColorLUT } from './colormaps.js';
 
 const MARGIN_LEFT = 50;
@@ -35,6 +35,7 @@ export class SpectrogramRenderer {
     this.viewStart = 0;    // sample offset
     this.viewEnd = 0;      // sample offset
     this.fftSize = 2048;
+    this.windowType = 'hann';
     this.dbMin = -90;
     this.dbMax = 0;
     this.colormap = 'viridis';
@@ -546,7 +547,7 @@ export class SpectrogramRenderer {
     const targetFrames = Math.min(w * 2, 4000);
     const hopSize = Math.max(64, Math.floor(viewSamples / targetFrames));
 
-    const cacheKey = `${this.viewStart}-${this.viewEnd}-${this.fftSize}-${targetFrames}-${this.channel}`;
+    const cacheKey = `${this.viewStart}-${this.viewEnd}-${this.fftSize}-${targetFrames}-${this.channel}-${this.windowType}`;
 
     // Check tile cache
     const cached = this._tileCache.get(cacheKey);
@@ -591,6 +592,7 @@ export class SpectrogramRenderer {
         samples: samples.buffer,
         fftSize: this.fftSize,
         hopSize,
+        windowType: this.windowType,
         id: workerId,
       }, [samples.buffer]);
 
@@ -702,6 +704,7 @@ export class SpectrogramRenderer {
         samples: samples.buffer,
         fftSize: this.fftSize,
         hopSize,
+        windowType: this.windowType,
         id: workerId,
       }, [samples.buffer]);
 
@@ -1338,9 +1341,7 @@ export class SpectrogramRenderer {
 
     // Pre-build color LUT and window for main-thread rendering
     this._liveColorLUT = buildColorLUT(this.colormap);
-    // Blackman-Harris: -92 dB sidelobes (vs Hann's -31 dB) — suppresses
-    // spectral leakage that causes bright vertical lines on transients
-    this._liveHann = getBlackmanHarris(this.fftSize);
+    this._liveHann = getWindow(this.windowType, this.fftSize);
 
     this._liveRenderLoop();
   }
@@ -1380,8 +1381,15 @@ export class SpectrogramRenderer {
           this._liveLastCol = 0;
         }
 
-        // Compute FFT for new columns only
+        // Rebuild window if type changed during capture
         const N = this.fftSize;
+        if (!this._liveHann || this._liveHann.length !== N || this._liveWindowType !== this.windowType) {
+          this._liveHann = getWindow(this.windowType, N);
+          this._liveWindowType = this.windowType;
+          // Force recompute all visible columns with new window
+          this._liveColCache = new Array(w).fill(null);
+          this._liveLastCol = 0;
+        }
         const hann = this._liveHann;
         const windowed = new Float32Array(N);
 

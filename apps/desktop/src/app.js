@@ -42,6 +42,7 @@ class App {
     this.spectGainSlider = document.getElementById('spect-gain');
     this.dynamicRangeSlider = document.getElementById('dynamic-range');
     this.fftSizeSelect = document.getElementById('fft-size');
+    this.fftWindowSelect = document.getElementById('fft-window');
     this.minFreqInput = document.getElementById('min-freq');
     this.maxFreqInput = document.getElementById('max-freq');
     this.freqPresetSelect = document.getElementById('freq-preset');
@@ -319,6 +320,14 @@ class App {
       this.spectrogram.tileCache.clear();
       this.spectrogram._lastFFTData = null;
       this.spectrogram._computing = false; // Cancel any in-progress compute
+      this.spectrogram.computeVisible();
+    });
+
+    this.fftWindowSelect.addEventListener('change', (e) => {
+      this.spectrogram.windowType = e.target.value;
+      this.spectrogram.tileCache.clear();
+      this.spectrogram._lastFFTData = null;
+      this.spectrogram._computing = false;
       this.spectrogram.computeVisible();
     });
 
@@ -809,6 +818,9 @@ class App {
     this.freqPresetSelect.value = 'full';
     this.spectrogram.gainDB = parseFloat(this.spectGainSlider.value);
     this.spectrogram.logFrequency = this.logFreqCheckbox.checked;
+    // Auto-switch to Hann for file analysis (best frequency resolution)
+    this.spectrogram.windowType = 'hann';
+    this.fftWindowSelect.value = 'hann';
     this.spectrogram.setSession(session);
 
     // Start with a narrow initial view for instant display (2 minutes)
@@ -3052,6 +3064,10 @@ class App {
       this.minFreqInput.value = 0;
       this.spectrogram.minFreq = 0;
       this.spectrogram.maxFreq = nyquist;
+
+      // Auto-switch to Blackman-Harris for live (best sidelobe suppression)
+      this.spectrogram.windowType = 'blackman-harris';
+      this.fftWindowSelect.value = 'blackman-harris';
 
       // Connect spectrogram to live source
       this.spectrogram.setLiveSource(this._liveCapture);

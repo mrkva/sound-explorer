@@ -6,8 +6,7 @@
 // ── Lookup-table caches (keyed by N) ──────────────────────────────────────
 const twiddleCache = new Map();
 const bitRevCache = new Map();
-const hannCache = new Map();
-const blackmanHarrisCache = new Map();
+const windowCache = new Map();
 
 export function getTwiddle(N) {
   let t = twiddleCache.get(N);
@@ -41,31 +40,61 @@ export function getBitRev(N) {
   return table;
 }
 
-export function getHann(N) {
-  let w = hannCache.get(N);
-  if (w) return w;
-  w = new Float32Array(N);
-  for (let i = 0; i < N; i++) {
-    w[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
-  }
-  hannCache.set(N, w);
-  return w;
-}
+// ── Window functions ─────────────────────────────────────────────────────
+// Each returns a Float32Array of length N, cached by (type, N).
+
+export function getHann(N) { return getWindow('hann', N); }
+export function getBlackmanHarris(N) { return getWindow('blackman-harris', N); }
 
 /**
- * 4-term Blackman-Harris window. Sidelobe suppression: -92 dB (vs -31 dB for Hann).
- * Better for live spectrograms where transient leakage creates visible vertical lines.
+ * Get a cached window function by type and size.
+ * Supported types: hann, hamming, blackman-harris, flat-top
  */
-export function getBlackmanHarris(N) {
-  let w = blackmanHarrisCache.get(N);
+export function getWindow(type, N) {
+  const key = `${type}:${N}`;
+  let w = windowCache.get(key);
   if (w) return w;
+
   w = new Float32Array(N);
-  const a0 = 0.35875, a1 = 0.48829, a2 = 0.14128, a3 = 0.01168;
-  for (let i = 0; i < N; i++) {
-    const x = 2 * Math.PI * i / (N - 1);
-    w[i] = a0 - a1 * Math.cos(x) + a2 * Math.cos(2 * x) - a3 * Math.cos(3 * x);
+  const pi2 = 2 * Math.PI;
+
+  switch (type) {
+    case 'hann':
+      for (let i = 0; i < N; i++)
+        w[i] = 0.5 * (1 - Math.cos(pi2 * i / (N - 1)));
+      break;
+
+    case 'hamming':
+      for (let i = 0; i < N; i++)
+        w[i] = 0.54 - 0.46 * Math.cos(pi2 * i / (N - 1));
+      break;
+
+    case 'blackman-harris': {
+      const a0 = 0.35875, a1 = 0.48829, a2 = 0.14128, a3 = 0.01168;
+      for (let i = 0; i < N; i++) {
+        const x = pi2 * i / (N - 1);
+        w[i] = a0 - a1 * Math.cos(x) + a2 * Math.cos(2 * x) - a3 * Math.cos(3 * x);
+      }
+      break;
+    }
+
+    case 'flat-top': {
+      const a0 = 0.21557895, a1 = 0.41663158, a2 = 0.277263158;
+      const a3 = 0.083578947, a4 = 0.006947368;
+      for (let i = 0; i < N; i++) {
+        const x = pi2 * i / (N - 1);
+        w[i] = a0 - a1 * Math.cos(x) + a2 * Math.cos(2 * x)
+             - a3 * Math.cos(3 * x) + a4 * Math.cos(4 * x);
+      }
+      break;
+    }
+
+    default: // fallback to Hann
+      for (let i = 0; i < N; i++)
+        w[i] = 0.5 * (1 - Math.cos(pi2 * i / (N - 1)));
   }
-  blackmanHarrisCache.set(N, w);
+
+  windowCache.set(key, w);
   return w;
 }
 
