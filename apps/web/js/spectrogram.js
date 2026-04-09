@@ -1306,6 +1306,7 @@ export class SpectrogramRenderer {
   _liveColCache = null;   // circular buffer of FFT magnitude arrays (one per column)
   _liveLastCol = 0;       // last computed column index
   _liveSamplesPerCol = 0;
+  _liveNoiseFloor = null; // per-bin noise floor estimate (Float32Array)
 
   /**
    * Enter live input mode with column-cached rendering.
@@ -1340,6 +1341,7 @@ export class SpectrogramRenderer {
     this._liveIsLive = true;
     this._liveLastCol = 0;
     this._liveColCache = null;
+    this._liveNoiseFloor = null;
 
     // Pre-build color LUT and window for main-thread rendering
     this._liveColorLUT = buildColorLUT(this.colormap);
@@ -1410,7 +1412,24 @@ export class SpectrogramRenderer {
           }
 
           const spectrum = fft(windowed, N);
-          this._liveColCache[col % w] = magnitudesDB(spectrum, N);
+          const mag = magnitudesDB(spectrum, N);
+
+          // Update per-bin noise floor estimate (fast attack, slow release)
+          const halfN = N / 2;
+          if (!this._liveNoiseFloor || this._liveNoiseFloor.length !== halfN) {
+            this._liveNoiseFloor = new Float32Array(mag);
+          } else {
+            const floor = this._liveNoiseFloor;
+            for (let b = 0; b < halfN; b++) {
+              if (mag[b] <= floor[b]) {
+                floor[b] = mag[b]; // instant drop
+              } else {
+                floor[b] += 0.1; // slow rise: ~5 dB/sec at 50 cols/sec
+              }
+            }
+          }
+
+          this._liveColCache[col % w] = mag;
         }
         this._liveLastCol = totalCols;
 
@@ -1438,6 +1457,7 @@ export class SpectrogramRenderer {
     const dbMin = this.dbMin;
     const dbRange = this.dbMax - dbMin;
     const nyquist = sr / 2;
+    const floor = this._liveNoiseFloor;
 
     // Rebuild color LUT if colormap changed since last build
     if (!this._liveColorLUT || this._liveLUTColormap !== this.colormap) {
@@ -1501,12 +1521,26 @@ export class SpectrogramRenderer {
         const binLow = Math.floor(bin);
         const binHigh = Math.min(binLow + 1, halfFFT - 1);
         const f = bin - binLow;
-        // Use nullish-safe access: mag values are always numbers from magnitudesDB,
-        // but 0 dB is valid (not falsy). Use direct access with default for out-of-bounds.
         const lo = binLow < halfFFT ? mag[binLow] : -120;
         const hi = binHigh < halfFFT ? mag[binHigh] : -120;
         const db = lo + (hi - lo) * f;
-        const norm = Math.max(0, Math.min(255, Math.round(((db - dbMin) / dbRange) * 255)));
+
+        // Per-bin noise gate: suppress signals within 6 dB of the
+        // estimated noise floor to eliminate broadband transient lines
+        let norm;
+        if (floor) {
+          const fLo = binLow < halfFFT ? floor[binLow] : -120;
+          const fHi = binHigh < halfFFT ? floor[binHigh] : -120;
+          const floorDb = fLo + (fHi - fLo) * f;
+          const headroom = db - floorDb;
+          if (headroom < 6) {
+            norm = 0;
+          } else {
+            norm = Math.max(0, Math.min(255, Math.round(((db - dbMin) / dbRange) * 255)));
+          }
+        } else {
+          norm = Math.max(0, Math.min(255, Math.round(((db - dbMin) / dbRange) * 255)));
+        }
         const lutIdx = norm * 4;
         pixels[pixIdx]     = lut[lutIdx];
         pixels[pixIdx + 1] = lut[lutIdx + 1];

@@ -2054,6 +2054,7 @@ export class SpectrogramRenderer {
   _liveViewSeconds = 10;
   _liveColCache = null;
   _liveLastCol = 0;
+  _liveNoiseFloor = null;
   _liveYBins = null;
   _liveYFracs = null;
   _liveYBinsKey = '';
@@ -2075,6 +2076,7 @@ export class SpectrogramRenderer {
     this._liveScrolling = true;
     this._liveLastCol = 0;
     this._liveColCache = null;
+    this._liveNoiseFloor = null;
 
     this._ensureLiveWindow(this.fftSize);
     this._liveRenderLoop();
@@ -2133,7 +2135,24 @@ export class SpectrogramRenderer {
           }
         }
 
-        this._liveColCache[col % w] = this._fftFrame(windowed);
+        const mag = this._fftFrame(windowed);
+
+        // Update per-bin noise floor estimate (fast attack, slow release)
+        const halfN = N / 2;
+        if (!this._liveNoiseFloor || this._liveNoiseFloor.length !== halfN) {
+          this._liveNoiseFloor = new Float32Array(mag);
+        } else {
+          const nf = this._liveNoiseFloor;
+          for (let b = 0; b < halfN; b++) {
+            if (mag[b] <= nf[b]) {
+              nf[b] = mag[b];
+            } else {
+              nf[b] += 0.1;
+            }
+          }
+        }
+
+        this._liveColCache[col % w] = mag;
       }
       this._liveLastCol = totalCols;
 
@@ -2151,6 +2170,7 @@ export class SpectrogramRenderer {
     const N = this.fftSize;
     const freqBins = N / 2;
     const floor = -this.dynamicRangeDB;
+    const noiseFloor = this._liveNoiseFloor;
 
     // Build or reuse Y→bin mapping
     const binRes = sr / N;
@@ -2219,7 +2239,30 @@ export class SpectrogramRenderer {
         }
 
         const db = raw + this.gainDB;
-        const normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
+
+        // Per-bin noise gate: suppress signals within 6 dB of the
+        // estimated noise floor to eliminate broadband transient lines
+        let normalized;
+        if (noiseFloor) {
+          let nf0 = noiseFloor[bin0];
+          if (nf0 === undefined || !isFinite(nf0)) nf0 = -120;
+          let nfDb;
+          if (frac > 0 && bin0 + 1 <= maxBinCached) {
+            let nf1 = noiseFloor[bin0 + 1];
+            if (nf1 === undefined || !isFinite(nf1)) nf1 = -120;
+            nfDb = nf0 + frac * (nf1 - nf0);
+          } else {
+            nfDb = nf0;
+          }
+          if (raw - nfDb < 6) {
+            normalized = 0;
+          } else {
+            normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
+          }
+        } else {
+          normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
+        }
+
         const [r, g, b] = this._colorize(normalized);
 
         pixels[idx] = r;
