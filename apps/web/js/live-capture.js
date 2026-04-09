@@ -303,7 +303,12 @@ export class LiveCapture {
       this.stream = null;
     }
     if (this.audioCtx) {
-      await this.audioCtx.close();
+      try {
+        await this.audioCtx.close();
+      } catch (e) {
+        // iOS Safari may throw on AudioContext.close() — safe to ignore
+        console.warn('AudioContext.close() error (ignored):', e);
+      }
       this.audioCtx = null;
     }
   }

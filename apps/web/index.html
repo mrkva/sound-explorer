@@ -20,8 +20,18 @@
       <h2>Sound Explorer <span class="drop-version">v0.1</span></h2>
       <p class="drop-hint-desktop">Drag &amp; drop WAV files here</p>
       <p class="drop-sub drop-hint-desktop">or</p>
-      <button id="btn-open" class="btn btn-accent">Open Files</button>
-      <button id="btn-live-start" class="btn btn-live">Live Input</button>
+      <div class="drop-actions">
+        <button id="btn-open" class="btn btn-accent drop-btn">
+          <svg class="drop-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17v3a2 2 0 002 2h14a2 2 0 002-2v-3"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="16"/></svg>
+          <span class="drop-btn-label">Open Files</span>
+          <span class="drop-btn-sub">WAV audio files</span>
+        </button>
+        <button id="btn-live-start" class="btn btn-live drop-btn">
+          <svg class="drop-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          <span class="drop-btn-label">Live Input</span>
+          <span class="drop-btn-sub">Microphone / sound card</span>
+        </button>
+      </div>
       <input type="file" id="file-input" multiple accept=".wav" style="display:none">
       <div class="drop-shortcuts">
         <div class="shortcut-row"><kbd>Space</kbd> Play/Pause &nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> Seek &plusmn;1s &nbsp; <kbd>Shift</kbd>+<kbd>&larr;</kbd><kbd>&rarr;</kbd> &plusmn;10s</div>
@@ -97,7 +107,7 @@
       <span class="toolbar-sep"></span>
 
       <!-- Live input controls (hidden until live mode) -->
-      <div id="live-controls" style="display:none">
+      <div id="live-controls">
         <select id="select-input-device" class="select" title="Audio input device"></select>
         <label class="toolbar-label">View:</label>
         <select id="select-live-window" class="select" title="Visible time window">

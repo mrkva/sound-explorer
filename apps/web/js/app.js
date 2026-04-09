@@ -1586,7 +1586,7 @@ class App {
       this.spectrogram.setLiveSource(this._liveCapture);
 
       // Show live controls, hide file-specific controls
-      document.getElementById('live-controls').style.display = '';
+      document.getElementById('live-controls').classList.add('active');
       document.getElementById('btn-play').style.display = 'none';
       document.getElementById('btn-stop').style.display = 'none';
       document.getElementById('btn-export').style.display = 'none';
@@ -1610,12 +1610,16 @@ class App {
         }
       }
       this.spectrogram.stopLive();
-      await this._liveCapture.stop();
+      try {
+        await this._liveCapture.stop();
+      } catch (e) {
+        console.warn('Error stopping live capture (ignored):', e);
+      }
       this._liveCapture = null;
     }
 
     // Restore file-mode controls
-    document.getElementById('live-controls').style.display = 'none';
+    document.getElementById('live-controls').classList.remove('active');
     document.getElementById('btn-play').style.display = '';
     document.getElementById('btn-stop').style.display = '';
     document.getElementById('btn-export').style.display = '';

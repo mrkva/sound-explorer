@@ -3076,7 +3076,11 @@ class App {
         }
       }
       this.spectrogram.stopLive();
-      await this._liveCapture.stop();
+      try {
+        await this._liveCapture.stop();
+      } catch (e) {
+        console.warn('Error stopping live capture (ignored):', e);
+      }
       this._liveCapture = null;
     }
 

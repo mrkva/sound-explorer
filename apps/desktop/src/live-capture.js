@@ -303,7 +303,11 @@ export class LiveCapture {
       this.stream = null;
     }
     if (this.audioCtx) {
-      await this.audioCtx.close();
+      try {
+        await this.audioCtx.close();
+      } catch (e) {
+        console.warn('AudioContext.close() error (ignored):', e);
+      }
       this.audioCtx = null;
     }
   }

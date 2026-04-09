@@ -120,6 +120,43 @@ body.dark .drop-logo {
   opacity: 0.7;
 }
 
+.drop-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.drop-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px 28px;
+  min-width: 140px;
+  border-radius: 6px;
+  height: auto;
+}
+
+.drop-btn-icon {
+  width: 28px;
+  height: 28px;
+  display: none;
+}
+
+.drop-btn-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.drop-btn-sub {
+  display: none;
+  font-size: 11px;
+  opacity: 0.8;
+  font-weight: 400;
+}
+
 .drop-shortcuts {
   margin-top: 24px;
   color: var(--text-secondary);
@@ -146,7 +183,48 @@ body.dark .drop-logo {
 
 @media (max-width: 600px) {
   .drop-shortcuts { display: none; }
-  .drop-hint-desktop { display: none; }
+  .drop-hint-desktop { display: none !important; }
+  .drop-sub { display: none !important; }
+
+  .drop-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    width: 100%;
+    max-width: 280px;
+    margin: 20px auto 0;
+  }
+
+  .drop-btn {
+    padding: 20px 24px;
+    min-width: 0;
+    width: 100%;
+    min-height: 80px;
+  }
+
+  .drop-btn-icon {
+    display: block;
+    width: 32px;
+    height: 32px;
+  }
+
+  .drop-btn-label {
+    font-size: 16px;
+  }
+
+  .drop-btn-sub {
+    display: block;
+  }
+
+  .drop-logo {
+    width: 60px;
+    height: 60px;
+  }
+
+  .drop-content h2 {
+    font-size: 20px;
+    margin-bottom: 4px;
+  }
 }
 
 /* --- Main layout --- */
@@ -880,9 +958,13 @@ body.dark .toolbar-logo {
 }
 
 #live-controls {
-  display: inline-flex;
+  display: none;
   align-items: center;
   gap: 4px;
+}
+
+#live-controls.active {
+  display: inline-flex;
 }
 
 #live-status {
@@ -1158,16 +1240,6 @@ dialog h4 {
     display: none !important;
   }
 
-  .drop-content h2 {
-    font-size: 22px;
-  }
-
-  #btn-open {
-    height: 48px;
-    padding: 0 32px;
-    font-size: 16px;
-  }
-
   /* --- Toolbar: single compact row --- */
   #toolbar {
     gap: 3px;
@@ -1339,6 +1411,45 @@ dialog h4 {
 
   .btn-small {
     min-height: 26px;
+  }
+
+  /* --- Live controls: mobile layout --- */
+  #live-controls.active {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 0;
+    justify-content: center;
+    width: 100%;
+  }
+
+  #live-controls .select {
+    height: 36px;
+    font-size: 12px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  #select-input-device {
+    max-width: 50%;
+  }
+
+  #live-controls .btn {
+    height: 40px;
+    padding: 0 14px;
+    font-size: 13px;
+    min-width: 44px;
+  }
+
+  #btn-live-stop {
+    font-weight: 600;
+  }
+
+  #live-status {
+    width: 100%;
+    text-align: center;
+    font-size: 12px;
+    margin: 0;
   }
 
   /* --- Status bar --- */
