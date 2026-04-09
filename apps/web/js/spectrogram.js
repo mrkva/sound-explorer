@@ -802,6 +802,8 @@ export class SpectrogramRenderer {
 
     const result = await promise;
     if (gen !== this._renderGeneration) return;
+    // Don't overwrite live canvas with stale render worker results
+    if (this._liveIsLive) return;
 
     this._lastBitmap = result.bitmap;
     this._redraw();
@@ -1498,6 +1500,14 @@ export class SpectrogramRenderer {
         pixels[pixIdx + 1] = lut[lutIdx + 1];
         pixels[pixIdx + 2] = lut[lutIdx + 2];
         pixels[pixIdx + 3] = 255;
+      }
+    }
+
+    // DEBUG: Paint a 5px green stripe at the top to verify pixel ownership
+    for (let x = 0; x < w; x++) {
+      for (let dy = 0; dy < 5; dy++) {
+        const pi = (dy * w + x) * 4;
+        pixels[pi] = 0; pixels[pi+1] = 255; pixels[pi+2] = 0; pixels[pi+3] = 255;
       }
     }
 
