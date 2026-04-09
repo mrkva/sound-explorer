@@ -1417,15 +1417,14 @@ export class SpectrogramRenderer {
         const newStart = Math.max(this._liveLastCol, Math.max(0, totalCols - w));
         for (let col = newStart; col < totalCols; col++) {
           const centerSample = Math.floor((col + 0.5) * samplesPerCol);
-          const fftStart = centerSample - Math.floor(N / 2);
+          // Clamp FFT window to available data — prevents zero-padding at edges
+          // which causes broadband spectral leakage (visible as vertical lines)
+          let fftStart = centerSample - Math.floor(N / 2);
+          if (fftStart + N > total) fftStart = total - N;
+          if (fftStart < 0) fftStart = 0;
 
           for (let i = 0; i < N; i++) {
-            const sampleIdx = fftStart + i;
-            if (sampleIdx >= 0 && sampleIdx < total) {
-              windowed[i] = this._liveCapture.readSample(sampleIdx) * gainLin * hann[i];
-            } else {
-              windowed[i] = 0;
-            }
+            windowed[i] = this._liveCapture.readSample(fftStart + i) * gainLin * hann[i];
           }
 
           const spectrum = fft(windowed, N);
