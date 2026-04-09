@@ -1457,10 +1457,10 @@ export class SpectrogramRenderer {
     const dbMin = this.dbMin;
     const dbRange = this.dbMax - dbMin;
     const nyquist = sr / 2;
-    // Gate threshold in raw FFT dB: suppress bins below the display floor
-    // after FFT normalization. This hides window sidelobes and out-of-band
-    // noise while keeping the bright unnormalized display for real content.
-    const gateThreshold = dbMin + this._liveWindowNormDB;
+    // Normalization offset: subtract from raw FFT dB to get calibrated dBFS.
+    // This naturally suppresses window sidelobes (they fall below the display
+    // floor) while showing real signals at correct brightness levels.
+    const normDB = this._liveWindowNormDB || 0;
 
     // Rebuild color LUT if colormap changed since last build
     if (!this._liveColorLUT || this._liveLUTColormap !== this.colormap) {
@@ -1526,11 +1526,8 @@ export class SpectrogramRenderer {
         const f = bin - binLow;
         const lo = binLow < halfFFT ? mag[binLow] : -120;
         const hi = binHigh < halfFFT ? mag[binHigh] : -120;
-        const db = lo + (hi - lo) * f;
-        // Gate: suppress bins whose normalized level (≈dBFS) falls below the display floor.
-        // Keeps bright display for real content, hides sidelobes & out-of-band noise.
-        const norm = db < gateThreshold ? 0
-          : Math.max(0, Math.min(255, Math.round(((db - dbMin) / dbRange) * 255)));
+        const db = lo + (hi - lo) * f - normDB; // calibrated dBFS
+        const norm = Math.max(0, Math.min(255, Math.round(((db - dbMin) / dbRange) * 255)));
         const lutIdx = norm * 4;
         pixels[pixIdx]     = lut[lutIdx];
         pixels[pixIdx + 1] = lut[lutIdx + 1];
