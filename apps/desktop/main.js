@@ -459,6 +459,14 @@ ipcMain.handle('write-binary-file', async (event, filePath, data) => {
   return true;
 });
 
+// Save binary data to a temp file and return the path
+ipcMain.handle('save-temp-file', async (event, fileName, data) => {
+  const os = require('os');
+  const tempPath = path.join(os.tmpdir(), fileName);
+  await fs.promises.writeFile(tempPath, Buffer.from(data));
+  return tempPath;
+});
+
 // Read a text file
 ipcMain.handle('read-text-file', async (event, filePath) => {
   return await fs.promises.readFile(filePath, 'utf-8');

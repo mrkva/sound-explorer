@@ -1042,7 +1042,9 @@ export class SpectrogramRenderer {
     this.ctx.fillStyle = t.canvasBg;
     this.ctx.fillRect(0, 0, width, height);
 
-    if (this._spectBitmap) {
+    if (this._liveBuffer) {
+      this.ctx.drawImage(this._liveBuffer, 50, 0);
+    } else if (this._spectBitmap) {
       this.ctx.drawImage(this._spectBitmap, 50, 0);
     } else if (this._spectImage) {
       this.ctx.putImageData(this._spectImage, 50, 0);
@@ -1995,12 +1997,17 @@ export class SpectrogramRenderer {
     });
   }
 
-  // --- Live input mode ---
+  // --- Live input mode (incremental rendering) ---
 
   _liveCapture = null;
   _liveRAF = null;
   _liveScrolling = true;
   _liveViewSeconds = 10;
+  _liveBuffer = null;
+  _liveBufferCtx = null;
+  _liveLastSample = 0;
+  _liveYBins = null;
+  _liveYBinsKey = '';
 
   setLiveSource(liveCapture) {
     this.stopLive();
@@ -2016,7 +2023,10 @@ export class SpectrogramRenderer {
     this._lastFFTData = null;
     this._lastFFTDataSplit = null;
     this._liveScrolling = true;
+    this._liveLastSample = 0;
+    this._liveBuffer = null;
 
+    this._ensureWindow(this.fftSize);
     this._liveRenderLoop();
   }
 
@@ -2035,57 +2045,131 @@ export class SpectrogramRenderer {
       this.viewStart = Math.max(0, totalDur - viewSec);
     }
 
-    const canvasWidth = this.canvas.width - 60;
-    const canvasHeight = this.canvas.height - 40;
+    const w = this.canvas.width - 60;
+    const h = this.canvas.height - 40;
 
-    if (canvasWidth > 0 && canvasHeight > 0 && total > 0) {
-      const viewSamples = Math.floor((this.viewEnd - this.viewStart) * sr);
-      const numSamples = Math.min(viewSamples, total);
+    if (w > 0 && h > 0 && total > this.fftSize) {
+      const viewSamples = Math.floor(viewSec * sr);
+      const samplesPerPixel = viewSamples / w;
+      const newSamples = total - this._liveLastSample;
+      const scrollPixels = Math.floor(newSamples / samplesPerPixel);
 
-      if (numSamples > this.fftSize) {
-        const samples = this._liveCapture.readLast(numSamples);
-        await this._renderLiveFrame(samples, canvasWidth, canvasHeight, sr);
+      if (scrollPixels > 0) {
+        if (!this._liveBuffer || this._liveBuffer.width !== w || this._liveBuffer.height !== h) {
+          this._liveBuffer = new OffscreenCanvas(w, h);
+          this._liveBufferCtx = this._liveBuffer.getContext('2d');
+          this._renderLiveIncremental(w, h, w, samplesPerPixel, sr, total);
+        } else if (scrollPixels >= w) {
+          this._renderLiveIncremental(w, h, w, samplesPerPixel, sr, total);
+        } else {
+          this._renderLiveIncremental(w, h, scrollPixels, samplesPerPixel, sr, total);
+        }
+
+        this._liveLastSample = total;
+        this.draw();
       }
     }
 
-    // Schedule next frame after render completes
     if (this._liveCapture && this._liveCapture.isCapturing) {
       this._liveRAF = requestAnimationFrame(() => this._liveRenderLoop());
     }
   }
 
-  async _renderLiveFrame(samples, w, h, sampleRate) {
-    const targetFrames = Math.max(1, Math.min(w * 2, 4000));
-    const hopSize = Math.max(64, Math.floor(samples.length / targetFrames));
-
-    // Use main-thread FFT for live mode to avoid worker overhead
-    this._ensureWindow(this.fftSize);
+  _renderLiveIncremental(w, h, newCols, samplesPerPixel, sr, totalSamples) {
+    const ctx = this._liveBufferCtx;
     const N = this.fftSize;
     const freqBins = N / 2;
-    const numFrames = Math.floor((samples.length - N) / hopSize);
-    if (numFrames <= 0) return;
+    const floor = -this.dynamicRangeDB;
 
-    const frames = new Array(numFrames);
-    for (let i = 0; i < numFrames; i++) {
-      const offset = i * hopSize;
-      const frame = new Float32Array(N);
-      for (let j = 0; j < N; j++) {
-        frame[j] = samples[offset + j] * this._window[j];
-      }
-      frames[i] = this._fftFrame(frame);
+    // Scroll existing content left
+    if (newCols < w) {
+      ctx.drawImage(this._liveBuffer, newCols, 0, w - newCols, h, 0, 0, w - newCols, h);
     }
 
-    const data = { frames, freqBins, numFrames, hopSize };
-    this._lastFFTData = data;
-    this._lastFFTDataSplit = null;
+    // Build or reuse Y→bin mapping
+    const binRes = sr / N;
+    const minBin = Math.max(1, Math.floor(this.minFreq / binRes));
+    const maxBin = Math.min(Math.ceil(this.maxFreq / binRes), freqBins - 1);
+    const visibleBins = maxBin - minBin;
+    const yKey = `${h}_${this.minFreq}_${this.maxFreq}_${sr}_${this.logFrequency}_${N}`;
 
-    // Temporarily set session-like properties for rendering
-    const fakeSR = sampleRate;
-    const savedSession = this.session;
-    this.session = { sampleRate: fakeSR };
-    await this._renderSpectrogram(data);
-    this.session = savedSession;
-    this.draw();
+    if (this._liveYBinsKey !== yKey) {
+      const logMinFreq = Math.log(Math.max(this.minFreq, 20));
+      const logMaxFreq = Math.log(Math.max(this.maxFreq, 21));
+      const yBins = new Float64Array(h);
+      const yFracs = new Float32Array(h);
+      for (let y = 0; y < h; y++) {
+        const ratio = (h - 1 - y) / h;
+        let binF;
+        if (this.logFrequency) {
+          const logFreq = logMinFreq + ratio * (logMaxFreq - logMinFreq);
+          binF = Math.exp(logFreq) / binRes;
+        } else {
+          binF = minBin + ratio * visibleBins;
+        }
+        binF = Math.max(minBin, Math.min(binF, maxBin));
+        yBins[y] = Math.floor(binF);
+        yFracs[y] = binF - Math.floor(binF);
+      }
+      this._liveYBins = yBins;
+      this._liveYFracs = yFracs;
+      this._liveYBinsKey = yKey;
+      this._liveMaxBin = maxBin;
+    }
+    const yBins = this._liveYBins;
+    const yFracs = this._liveYFracs;
+    const maxBinCached = this._liveMaxBin;
+
+    // Render new columns
+    const imgData = ctx.createImageData(newCols, h);
+    const pixels = imgData.data;
+    const windowed = new Float32Array(N);
+    const viewSamples = Math.floor(this._liveViewSeconds * sr);
+    const viewStart = Math.max(0, totalSamples - viewSamples);
+
+    for (let col = 0; col < newCols; col++) {
+      const canvasCol = w - newCols + col;
+      const centerSample = viewStart + Math.floor((canvasCol + 0.5) * samplesPerPixel);
+      const fftStart = centerSample - Math.floor(N / 2);
+
+      for (let i = 0; i < N; i++) {
+        const sampleIdx = fftStart + i;
+        if (sampleIdx >= 0 && sampleIdx < totalSamples) {
+          windowed[i] = this._liveCapture.readSample(sampleIdx) * this._window[i];
+        } else {
+          windowed[i] = 0;
+        }
+      }
+
+      const mag = this._fftFrame(windowed);
+
+      for (let y = 0; y < h; y++) {
+        const bin0 = yBins[y];
+        const frac = yFracs[y];
+        let raw0 = mag[bin0];
+        if (raw0 === undefined || !isFinite(raw0)) raw0 = -120;
+        let raw;
+        if (frac > 0 && bin0 + 1 <= maxBinCached) {
+          let raw1 = mag[bin0 + 1];
+          if (raw1 === undefined || !isFinite(raw1)) raw1 = -120;
+          raw = raw0 + frac * (raw1 - raw0);
+        } else {
+          raw = raw0;
+        }
+
+        const db = raw + this.gainDB;
+        const normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
+        const [r, g, b] = this._colorize(normalized);
+
+        const idx = (y * newCols + col) * 4;
+        pixels[idx] = r;
+        pixels[idx + 1] = g;
+        pixels[idx + 2] = b;
+        pixels[idx + 3] = 255;
+      }
+    }
+
+    ctx.putImageData(imgData, w - newCols, 0);
   }
 
   stopLive() {
@@ -2094,6 +2178,8 @@ export class SpectrogramRenderer {
       this._liveRAF = null;
     }
     this._liveCapture = null;
+    this._liveBuffer = null;
+    this._liveBufferCtx = null;
   }
 
   get isLive() {

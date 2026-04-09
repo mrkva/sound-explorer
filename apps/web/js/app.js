@@ -265,6 +265,7 @@ class App {
     });
     document.getElementById('select-live-window').addEventListener('change', (e) => {
       this.spectrogram._liveViewSeconds = parseInt(e.target.value);
+      this.spectrogram._liveBuffer = null; // force full redraw
     });
 
     // Annotations controls
@@ -1601,14 +1602,15 @@ class App {
   }
 
   async _stopLive() {
+    let recordingBlob = null;
     if (this._liveCapture) {
       // Stop recording if active
       if (this._liveCapture.isRecording) {
-        this._liveRecordingBlob = this._liveCapture.stopRecording();
-        if (this._liveRecordingBlob) {
-          document.getElementById('btn-live-save').style.display = '';
-        }
+        recordingBlob = this._liveCapture.stopRecording();
       }
+      // Also grab any previously stopped recording
+      if (!recordingBlob) recordingBlob = this._liveRecordingBlob;
+
       this.spectrogram.stopLive();
       try {
         await this._liveCapture.stop();
@@ -1623,6 +1625,16 @@ class App {
     document.getElementById('btn-play').style.display = '';
     document.getElementById('btn-stop').style.display = '';
     document.getElementById('btn-export').style.display = '';
+    document.getElementById('btn-live-save').style.display = 'none';
+
+    // If we have a recording, load it into file analysis mode
+    if (recordingBlob) {
+      this._liveRecordingBlob = null;
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const file = new File([recordingBlob], `live-recording-${ts}.wav`, { type: 'audio/wav' });
+      await this._loadFiles([file]);
+      return;
+    }
 
     // If no files loaded, show drop zone
     if (!this.wavInfos || this.wavInfos.length === 0) {

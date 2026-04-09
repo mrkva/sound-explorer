@@ -3,6 +3,8 @@
  */
 
 import { WavParser } from './wav-parser.js?v=3';
+import { getHann, fft, magnitudesDB } from './fft-core.js';
+import { buildColorLUT } from './colormaps.js';
 
 const MARGIN_LEFT = 50;
 const MARGIN_BOTTOM = 40;
@@ -1278,10 +1280,18 @@ export class SpectrogramRenderer {
   _liveRAF = null;
   _liveScrolling = true;
   _liveViewSeconds = 10;
+  _liveBuffer = null;       // OffscreenCanvas for incremental rendering
+  _liveBufferCtx = null;
+  _liveLastSample = 0;      // last sample index we rendered up to
+  _liveColorLUT = null;
+  _liveHann = null;
+  _liveYBins = null;        // cached frequency→bin mapping
+  _liveYBinsKey = '';        // cache key for _liveYBins
 
   /**
-   * Enter live input mode. The spectrogram continuously renders from the
-   * LiveCapture ring buffer instead of files.
+   * Enter live input mode with incremental rendering.
+   * Instead of recomputing the entire visible FFT each frame, we scroll
+   * the existing bitmap and only compute FFT for newly arrived samples.
    */
   setLiveSource(liveCapture) {
     this.stopLive();
@@ -1308,6 +1318,12 @@ export class SpectrogramRenderer {
     this._lastPlaybackTime = null;
     this._tileCache.clear();
     this._liveScrolling = true;
+    this._liveLastSample = 0;
+    this._liveBuffer = null;
+
+    // Pre-build color LUT and Hann window for main-thread rendering
+    this._liveColorLUT = buildColorLUT(this.colormap);
+    this._liveHann = getHann(this.fftSize);
 
     // Start the live render loop
     this._liveRenderLoop();
@@ -1329,72 +1345,132 @@ export class SpectrogramRenderer {
       this.viewStart = Math.max(0, total - viewSamples);
     }
 
-    // Read samples from ring buffer for the visible range
     const w = this.canvas.width - MARGIN_LEFT;
     const h = this.canvas.height - MARGIN_BOTTOM;
-    if (w > 0 && h > 0 && total > 0) {
-      const numSamples = Math.min(this.viewEnd - this.viewStart, total);
-      if (numSamples > this.fftSize) {
-        const samples = this._liveCapture.readLast(numSamples);
-        // Await render to completion before scheduling next frame
-        await this._renderLiveFrame(samples, w, h);
+
+    if (w > 0 && h > 0 && total > this.fftSize) {
+      const samplesPerPixel = viewSamples / w;
+      const newSamples = total - this._liveLastSample;
+      const scrollPixels = Math.floor(newSamples / samplesPerPixel);
+
+      if (scrollPixels > 0) {
+        // Ensure buffer exists and matches canvas size
+        if (!this._liveBuffer || this._liveBuffer.width !== w || this._liveBuffer.height !== h) {
+          this._liveBuffer = new OffscreenCanvas(w, h);
+          this._liveBufferCtx = this._liveBuffer.getContext('2d');
+          // Full redraw needed
+          this._renderLiveIncremental(w, h, w, samplesPerPixel, sr, total);
+        } else if (scrollPixels >= w) {
+          // Scrolled more than a full screen — full redraw
+          this._renderLiveIncremental(w, h, w, samplesPerPixel, sr, total);
+        } else {
+          // Incremental: scroll existing content left, render new columns
+          this._renderLiveIncremental(w, h, scrollPixels, samplesPerPixel, sr, total);
+        }
+
+        this._liveLastSample = total;
+
+        // Convert buffer to bitmap for _redraw()
+        this._lastBitmap = await createImageBitmap(this._liveBuffer);
+        this._redraw();
       }
     }
 
-    // Schedule next frame after current render completes
+    // Schedule next frame
     if (this._liveCapture && this._liveCapture.isCapturing) {
       this._liveRAF = requestAnimationFrame(() => this._liveRenderLoop());
     }
   }
 
-  async _renderLiveFrame(samples, w, h) {
-    // Don't increment _renderGeneration — live mode owns the render loop
-    const hopSize = Math.max(64, Math.floor(samples.length / Math.min(w * 2, 4000)));
+  /**
+   * Render new columns into the live buffer.
+   * For incremental updates, scrolls existing content left and only computes
+   * FFT for the newly visible columns — typically 2-10 columns per frame
+   * instead of the full canvas width.
+   */
+  _renderLiveIncremental(w, h, newCols, samplesPerPixel, sr, totalSamples) {
+    const ctx = this._liveBufferCtx;
+    const N = this.fftSize;
+    const halfFFT = N / 2;
+    const hann = this._liveHann;
+    const lut = this._liveColorLUT;
+    const dbMin = this.dbMin;
+    const dbRange = this.dbMax - dbMin;
+    const nyquist = sr / 2;
 
-    const workerId = this._workerIdCounter++;
-    const worker = this._fftWorkers[this._nextWorker % this._fftWorkers.length];
-    this._nextWorker++;
+    // Scroll existing content left
+    if (newCols < w) {
+      ctx.drawImage(this._liveBuffer, newCols, 0, w - newCols, h, 0, 0, w - newCols, h);
+    }
 
-    const promise = new Promise((resolve) => {
-      this._pendingFFT.set(workerId, resolve);
-    });
+    // Build or reuse Y→bin mapping
+    const yKey = `${h}_${this.freqMin}_${this.freqMax}_${sr}_${this.logScale}_${N}`;
+    if (this._liveYBinsKey !== yKey) {
+      const yBins = new Float64Array(h);
+      for (let y = 0; y < h; y++) {
+        const frac = 1 - y / h;
+        let freq;
+        if (this.logScale && this.freqMin > 0) {
+          const logMin = Math.log10(this.freqMin);
+          const logMax = Math.log10(this.freqMax);
+          freq = Math.pow(10, logMin + frac * (logMax - logMin));
+        } else {
+          freq = this.freqMin + frac * (this.freqMax - this.freqMin);
+        }
+        yBins[y] = freq * halfFFT / nyquist;
+      }
+      this._liveYBins = yBins;
+      this._liveYBinsKey = yKey;
+    }
+    const yBins = this._liveYBins;
 
-    const buf = samples.buffer.slice(0);
-    worker.postMessage({
-      samples: buf,
-      fftSize: this.fftSize,
-      hopSize,
-      id: workerId,
-    }, [buf]);
+    // Render new columns
+    const imgData = ctx.createImageData(newCols, h);
+    const pixels = imgData.data;
+    const windowed = new Float32Array(N);
 
-    const fftResult = await promise;
+    // For each new column, compute one FFT at the corresponding sample position
+    const viewSamples = Math.floor(this._liveViewSeconds * sr);
+    const viewStart = Math.max(0, totalSamples - viewSamples);
 
-    // Render directly — no stale check needed in live mode
-    const renderId = this._workerIdCounter++;
-    const renderPromise = new Promise((resolve) => {
-      this._pendingRender.set(renderId, resolve);
-    });
+    for (let col = 0; col < newCols; col++) {
+      // Which pixel column in the full canvas is this?
+      const canvasCol = w - newCols + col;
+      // Center sample for this column
+      const centerSample = viewStart + Math.floor((canvasCol + 0.5) * samplesPerPixel);
+      const fftStart = centerSample - Math.floor(N / 2);
 
-    const magCopy = new Float32Array(fftResult.magnitudes).buffer.slice(0);
-    this._renderWorker.postMessage({
-      magnitudes: magCopy,
-      numFrames: fftResult.numFrames,
-      halfFFT: fftResult.halfFFT,
-      width: w,
-      height: h,
-      dbMin: this.dbMin,
-      dbMax: this.dbMax,
-      colormap: this.colormap,
-      freqMin: this.freqMin,
-      freqMax: this.wavInfo.sampleRate / 2,
-      sampleRate: this.wavInfo.sampleRate,
-      logScale: this.logScale,
-      id: renderId,
-    }, [magCopy]);
+      // Read samples from ring buffer and apply window
+      for (let i = 0; i < N; i++) {
+        const sampleIdx = fftStart + i;
+        if (sampleIdx >= 0 && sampleIdx < totalSamples) {
+          windowed[i] = this._liveCapture.readSample(sampleIdx) * hann[i];
+        } else {
+          windowed[i] = 0;
+        }
+      }
 
-    const result = await renderPromise;
-    this._lastBitmap = result.bitmap;
-    this._redraw();
+      const spectrum = fft(windowed, N);
+      const mag = magnitudesDB(spectrum, N);
+
+      // Render this column
+      for (let y = 0; y < h; y++) {
+        const bin = yBins[y];
+        const binLow = Math.floor(bin);
+        const binHigh = Math.min(binLow + 1, halfFFT - 1);
+        const f = bin - binLow;
+        const db = (mag[binLow] || -100) + ((mag[binHigh] || -100) - (mag[binLow] || -100)) * f;
+        const norm = Math.max(0, Math.min(255, Math.round(((db - dbMin) / dbRange) * 255)));
+        const lutIdx = norm * 4;
+        const pixIdx = (y * newCols + col) * 4;
+        pixels[pixIdx]     = lut[lutIdx];
+        pixels[pixIdx + 1] = lut[lutIdx + 1];
+        pixels[pixIdx + 2] = lut[lutIdx + 2];
+        pixels[pixIdx + 3] = 255;
+      }
+    }
+
+    ctx.putImageData(imgData, w - newCols, 0);
   }
 
   stopLive() {
@@ -1403,6 +1479,8 @@ export class SpectrogramRenderer {
       this._liveRAF = null;
     }
     this._liveCapture = null;
+    this._liveBuffer = null;
+    this._liveBufferCtx = null;
   }
 
   get isLive() {

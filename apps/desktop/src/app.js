@@ -238,6 +238,7 @@ class App {
     });
     document.getElementById('select-live-window').addEventListener('change', (e) => {
       this.spectrogram._liveViewSeconds = parseInt(e.target.value);
+      this.spectrogram._liveBuffer = null; // force full redraw
     });
 
     // Play/Pause
@@ -3068,13 +3069,13 @@ class App {
   }
 
   async _stopLive() {
+    let recordingBlob = null;
     if (this._liveCapture) {
       if (this._liveCapture.isRecording) {
-        this._liveRecordingBlob = this._liveCapture.stopRecording();
-        if (this._liveRecordingBlob) {
-          document.getElementById('btn-live-save').style.display = '';
-        }
+        recordingBlob = this._liveCapture.stopRecording();
       }
+      if (!recordingBlob) recordingBlob = this._liveRecordingBlob;
+
       this.spectrogram.stopLive();
       try {
         await this._liveCapture.stop();
@@ -3085,8 +3086,29 @@ class App {
     }
 
     document.getElementById('live-controls').style.display = 'none';
+    document.getElementById('btn-live-save').style.display = 'none';
     this.btnPlay.style.display = '';
     this.btnStop.style.display = '';
+
+    // If we have a recording, save to temp and load into analysis mode
+    if (recordingBlob) {
+      this._liveRecordingBlob = null;
+      try {
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const fileName = `live-recording-${ts}.wav`;
+        const arrayBuffer = await recordingBlob.arrayBuffer();
+        const tempPath = await window.electronAPI.saveTempFile(fileName, new Uint8Array(arrayBuffer));
+        this._setStatus('Loading recording...');
+        this.session = new Session();
+        await this.session.loadFile(tempPath);
+        this._openedAsFolder = false;
+        await this._initSession();
+        return;
+      } catch (e) {
+        console.error('Failed to load recording:', e);
+        this._setStatus('Error loading recording: ' + e.message);
+      }
+    }
 
     // Show welcome if no session
     if (!this.session) {

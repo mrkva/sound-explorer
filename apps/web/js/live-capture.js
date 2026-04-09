@@ -202,6 +202,21 @@ export class LiveCapture {
   }
 
   /**
+   * Read a single sample by its absolute (global) index.
+   * Returns 0 if the sample has been overwritten or is out of range.
+   */
+  readSample(globalIndex) {
+    const ring = this._ringBuffer;
+    if (!ring) return 0;
+    const len = ring.length;
+    const total = this._totalSamplesWritten;
+    // Check if sample is still in the ring buffer
+    const oldest = total - len;
+    if (globalIndex < oldest || globalIndex >= total) return 0;
+    return ring[globalIndex % len];
+  }
+
+  /**
    * Get the total number of samples captured so far.
    */
   get totalSamples() {
