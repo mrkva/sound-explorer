@@ -772,7 +772,6 @@ body.dark .toolbar-logo {
   flex: 1;
   height: 16px;
   background: linear-gradient(to right, #2d8a4e, #4fc353 60%, #e8c840 85%, #f15656 95%);
-  border-radius: 2px;
   position: relative;
   overflow: hidden;
 }
@@ -781,7 +780,7 @@ body.dark .toolbar-logo {
   position: absolute;
   top: 0;
   right: 0;
-  height: 100%;
+  bottom: 0;
   background: var(--vu-bg);
   width: 100%;
 }
