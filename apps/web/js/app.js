@@ -80,7 +80,7 @@ class App {
 
       // Live controls (inside #live-controls container)
       'btn-live-record': isLive,
-      'btn-live-stop': isLive,
+      'btn-live-stop': false, // stop handled by btn-live toggle
       'btn-live-save': hasRecording && !isLive,
       'live-status': isLive && !isMobile,
     };
@@ -111,10 +111,10 @@ class App {
       el.style.display = (showSeps && !isMobile) ? '' : 'none';
     });
 
-    // Live button label
+    // Live button: toggle between Live / Stop
     const btnLive = document.getElementById('btn-live');
     if (btnLive) {
-      btnLive.textContent = isLive ? 'Restart' : 'Live';
+      btnLive.textContent = isLive ? 'Stop' : 'Live';
       btnLive.classList.toggle('btn-live-active', isLive);
     }
   }
@@ -366,7 +366,13 @@ class App {
 
     // Live input
     document.getElementById('btn-live-start').addEventListener('click', () => this._startLive());
-    document.getElementById('btn-live').addEventListener('click', () => this._startLive());
+    document.getElementById('btn-live').addEventListener('click', () => {
+      if (this._liveCapture && this._liveCapture.isCapturing) {
+        this._stopLive();
+      } else {
+        this._startLive();
+      }
+    });
     document.getElementById('btn-live-stop').addEventListener('click', () => this._stopLive());
     document.getElementById('btn-live-record').addEventListener('click', () => this._toggleLiveRecord());
     document.getElementById('btn-live-save').addEventListener('click', () => this._saveLiveRecording());
