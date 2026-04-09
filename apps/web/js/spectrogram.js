@@ -838,7 +838,15 @@ export class SpectrogramRenderer {
       ctx.moveTo(x, plotH);
       ctx.lineTo(x, plotH + 5);
       ctx.stroke();
-      ctx.fillText(this._formatTime(t), x, plotH + 20);
+
+      // In live mode, show negative seconds (right edge = "now")
+      if (this._liveIsLive) {
+        const secsFromNow = t - this.totalDuration;
+        const label = secsFromNow >= -0.05 ? '0s' : secsFromNow.toFixed(1) + 's';
+        ctx.fillText(label, x, plotH + 20);
+      } else {
+        ctx.fillText(this._formatTime(t), x, plotH + 20);
+      }
     }
 
     // Frequency axis
@@ -1320,6 +1328,7 @@ export class SpectrogramRenderer {
     this._liveScrolling = true;
     this._liveLastSample = 0;
     this._liveBuffer = null;
+    this._liveIsLive = true;
 
     // Pre-build color LUT and Hann window for main-thread rendering
     this._liveColorLUT = buildColorLUT(this.colormap);
@@ -1329,51 +1338,68 @@ export class SpectrogramRenderer {
     this._liveRenderLoop();
   }
 
+  _liveIsLive = false; // true while live mode is active (for time axis)
+
+  _createLiveBuffer(w, h) {
+    // Use OffscreenCanvas if available, fallback to hidden <canvas> for iOS
+    try {
+      const buf = new OffscreenCanvas(w, h);
+      buf.getContext('2d'); // test it works
+      return buf;
+    } catch (e) {
+      const buf = document.createElement('canvas');
+      buf.width = w;
+      buf.height = h;
+      return buf;
+    }
+  }
+
   async _liveRenderLoop() {
     if (!this._liveCapture || !this._liveCapture.isCapturing) return;
 
-    const sr = this._liveCapture.sampleRate;
-    const total = this._liveCapture.totalSamples;
-    this.totalSamples = total;
-    this.totalDuration = total / sr;
+    try {
+      const sr = this._liveCapture.sampleRate;
+      const total = this._liveCapture.totalSamples;
+      this.totalSamples = total;
+      this.totalDuration = total / sr;
 
-    const viewSec = this._liveViewSeconds;
-    const viewSamples = Math.floor(viewSec * sr);
+      const viewSec = this._liveViewSeconds;
+      const viewSamples = Math.floor(viewSec * sr);
 
-    if (this._liveScrolling) {
-      this.viewEnd = total;
-      this.viewStart = Math.max(0, total - viewSamples);
-    }
-
-    const w = this.canvas.width - MARGIN_LEFT;
-    const h = this.canvas.height - MARGIN_BOTTOM;
-
-    if (w > 0 && h > 0 && total > this.fftSize) {
-      const samplesPerPixel = viewSamples / w;
-      const newSamples = total - this._liveLastSample;
-      const scrollPixels = Math.floor(newSamples / samplesPerPixel);
-
-      if (scrollPixels > 0) {
-        // Ensure buffer exists and matches canvas size
-        if (!this._liveBuffer || this._liveBuffer.width !== w || this._liveBuffer.height !== h) {
-          this._liveBuffer = new OffscreenCanvas(w, h);
-          this._liveBufferCtx = this._liveBuffer.getContext('2d');
-          // Full redraw needed
-          this._renderLiveIncremental(w, h, w, samplesPerPixel, sr, total);
-        } else if (scrollPixels >= w) {
-          // Scrolled more than a full screen — full redraw
-          this._renderLiveIncremental(w, h, w, samplesPerPixel, sr, total);
-        } else {
-          // Incremental: scroll existing content left, render new columns
-          this._renderLiveIncremental(w, h, scrollPixels, samplesPerPixel, sr, total);
-        }
-
-        this._liveLastSample = total;
-
-        // Convert buffer to bitmap for _redraw()
-        this._lastBitmap = await createImageBitmap(this._liveBuffer);
-        this._redraw();
+      if (this._liveScrolling) {
+        this.viewEnd = total;
+        this.viewStart = Math.max(0, total - viewSamples);
       }
+
+      const w = this.canvas.width - MARGIN_LEFT;
+      const h = this.canvas.height - MARGIN_BOTTOM;
+
+      if (w > 0 && h > 0 && total > this.fftSize) {
+        const samplesPerPixel = viewSamples / w;
+        const newSamples = total - this._liveLastSample;
+        const scrollPixels = Math.floor(newSamples / samplesPerPixel);
+
+        if (scrollPixels > 0) {
+          // Ensure buffer exists and matches canvas size
+          if (!this._liveBuffer || this._liveBuffer.width !== w || this._liveBuffer.height !== h) {
+            this._liveBuffer = this._createLiveBuffer(w, h);
+            this._liveBufferCtx = this._liveBuffer.getContext('2d');
+            this._renderLiveIncremental(w, h, w, samplesPerPixel, sr, total);
+          } else if (scrollPixels >= w) {
+            this._renderLiveIncremental(w, h, w, samplesPerPixel, sr, total);
+          } else {
+            this._renderLiveIncremental(w, h, scrollPixels, samplesPerPixel, sr, total);
+          }
+
+          this._liveLastSample = total;
+
+          // Draw buffer directly — works with both OffscreenCanvas and <canvas>
+          this._lastBitmap = this._liveBuffer;
+          this._redraw();
+        }
+      }
+    } catch (e) {
+      console.error('Live render error:', e);
     }
 
     // Schedule next frame
@@ -1481,6 +1507,7 @@ export class SpectrogramRenderer {
     this._liveCapture = null;
     this._liveBuffer = null;
     this._liveBufferCtx = null;
+    this._liveIsLive = false;
   }
 
   get isLive() {

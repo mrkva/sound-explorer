@@ -1479,7 +1479,13 @@ export class SpectrogramRenderer {
       this.ctx.lineTo(x, axisY + 5);
       this.ctx.stroke();
 
-      if (hasWallClock) {
+      if (this._liveCapture) {
+        // Live mode: show negative seconds from "now"
+        const secsFromNow = t - this.totalDuration;
+        const label = secsFromNow >= -0.05 ? '0s' : secsFromNow.toFixed(1) + 's';
+        this.ctx.fillStyle = th.axisText;
+        this.ctx.fillText(label, x, axisY + 20);
+      } else if (hasWallClock) {
         const wallSec = this.session.toWallClock(t);
         if (wallSec !== null) {
           this.ctx.fillStyle = th.wallTime;
