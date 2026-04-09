@@ -21,6 +21,8 @@ class App {
     this._spectGain = 0;
     this._spectRange = 90;
     this._liveCapture = null;
+    this._livePeakDb = -Infinity;
+    this._liveRmsDb = -Infinity;
 
     this._initUI();
     this._initDragDrop();
@@ -1077,19 +1079,22 @@ class App {
     localStorage.setItem('bigVU', this._bigVUVisible ? 'visible' : 'hidden');
   }
 
-  _startVUMeter() {
+  _startVUMeter(live = false) {
     const bigRows = this._bigVURows;
     let lastTime = performance.now();
     let lastTextUpdate = 0;
 
     const update = (now) => {
-      if (!this.audio.isPlaying) return;
+      if (!live && !this.audio.isPlaying) return;
+      if (live && (!this._liveCapture || !this._liveCapture.isCapturing)) return;
       const dt = (now - lastTime) / 1000;
       lastTime = now;
 
       // Big per-channel VU — skip if hidden
       if (bigRows.length > 0 && this._bigVUVisible) {
-        const channels = this.audio.getChannelVUMeters();
+        const channels = live
+          ? [{ peak: this._livePeakDb, rms: this._liveRmsDb }]
+          : this.audio.getChannelVUMeters();
         const updateText = (now - lastTextUpdate) > 150;
         if (updateText) lastTextUpdate = now;
 
@@ -1608,6 +1613,14 @@ class App {
       document.getElementById('btn-export').style.display = 'none';
       document.getElementById('btn-export-speed').style.display = 'none';
 
+      // Build and start VU meter for live input (mono)
+      this._buildBigVUMeter(1);
+      this._liveCapture.onLevelUpdate = (peak, rms) => {
+        this._livePeakDb = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
+        this._liveRmsDb = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
+      };
+      this._startVUMeter(true);
+
       this._setStatus(`Live input: ${this._liveCapture.sampleRate} Hz`);
       this._updateLiveStatus();
     } catch (e) {
@@ -1634,6 +1647,11 @@ class App {
       }
       this._liveCapture = null;
     }
+
+    // Stop VU meter
+    this._stopVUMeter();
+    this._livePeakDb = -Infinity;
+    this._liveRmsDb = -Infinity;
 
     // Restore file-mode controls
     document.getElementById('live-controls').classList.remove('active');

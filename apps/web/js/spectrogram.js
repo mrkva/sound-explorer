@@ -1346,6 +1346,12 @@ export class SpectrogramRenderer {
     // Pre-build color LUT and window for main-thread rendering
     this._liveColorLUT = buildColorLUT(this.colormap);
     this._liveHann = getWindow(this.windowType, this.fftSize);
+    this._liveWindowType = this.windowType;
+    // Compute normalization for gate threshold
+    let wSum = 0;
+    const N = this.fftSize;
+    for (let i = 0; i < N; i++) wSum += this._liveHann[i];
+    this._liveWindowNormDB = 20 * Math.log10(wSum / 2);
 
     this._liveRenderLoop();
   }
