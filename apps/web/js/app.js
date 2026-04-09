@@ -263,6 +263,9 @@ class App {
         this._startLive(e.target.value);
       }
     });
+    document.getElementById('select-live-window').addEventListener('change', (e) => {
+      this.spectrogram._liveViewSeconds = parseInt(e.target.value);
+    });
 
     // Annotations controls
     document.getElementById('btn-add-annotation').addEventListener('click', () => this._addAnnotation());

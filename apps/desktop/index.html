@@ -93,6 +93,16 @@
 
     <div class="toolbar-group live-controls" id="live-controls" style="display: none;">
       <select id="select-input-device" title="Audio input device"></select>
+      <div class="control-item">
+        <label for="select-live-window">View</label>
+        <select id="select-live-window" title="Visible time window">
+          <option value="2">2s</option>
+          <option value="5">5s</option>
+          <option value="10" selected>10s</option>
+          <option value="20">20s</option>
+          <option value="30">30s</option>
+        </select>
+      </div>
       <button id="btn-live-record" title="Record live input">&#x23FA; Rec</button>
       <button id="btn-live-save" title="Save recording as WAV" style="display:none;">Save WAV</button>
       <button id="btn-live-stop" class="danger" title="Stop live input">Stop Live</button>

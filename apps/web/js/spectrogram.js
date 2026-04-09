@@ -1276,7 +1276,8 @@ export class SpectrogramRenderer {
 
   _liveCapture = null;
   _liveRAF = null;
-  _liveScrolling = true; // auto-scroll to follow live input
+  _liveScrolling = true;
+  _liveViewSeconds = 10;
 
   /**
    * Enter live input mode. The spectrogram continuously renders from the
@@ -1312,7 +1313,7 @@ export class SpectrogramRenderer {
     this._liveRenderLoop();
   }
 
-  _liveRenderLoop() {
+  async _liveRenderLoop() {
     if (!this._liveCapture || !this._liveCapture.isCapturing) return;
 
     const sr = this._liveCapture.sampleRate;
@@ -1320,8 +1321,7 @@ export class SpectrogramRenderer {
     this.totalSamples = total;
     this.totalDuration = total / sr;
 
-    // Default view: last 10 seconds
-    const viewSec = 10;
+    const viewSec = this._liveViewSeconds;
     const viewSamples = Math.floor(viewSec * sr);
 
     if (this._liveScrolling) {
@@ -1334,17 +1334,21 @@ export class SpectrogramRenderer {
     const h = this.canvas.height - MARGIN_BOTTOM;
     if (w > 0 && h > 0 && total > 0) {
       const numSamples = Math.min(this.viewEnd - this.viewStart, total);
-      if (numSamples > 0) {
+      if (numSamples > this.fftSize) {
         const samples = this._liveCapture.readLast(numSamples);
-        this._renderLiveFrame(samples, w, h);
+        // Await render to completion before scheduling next frame
+        await this._renderLiveFrame(samples, w, h);
       }
     }
 
-    this._liveRAF = requestAnimationFrame(() => this._liveRenderLoop());
+    // Schedule next frame after current render completes
+    if (this._liveCapture && this._liveCapture.isCapturing) {
+      this._liveRAF = requestAnimationFrame(() => this._liveRenderLoop());
+    }
   }
 
   async _renderLiveFrame(samples, w, h) {
-    const gen = ++this._renderGeneration;
+    // Don't increment _renderGeneration — live mode owns the render loop
     const hopSize = Math.max(64, Math.floor(samples.length / Math.min(w * 2, 4000)));
 
     const workerId = this._workerIdCounter++;
@@ -1364,9 +1368,33 @@ export class SpectrogramRenderer {
     }, [buf]);
 
     const fftResult = await promise;
-    if (gen !== this._renderGeneration) return;
 
-    this._renderFromMagnitudes(fftResult.magnitudes, fftResult.numFrames, fftResult.halfFFT, w, h, gen);
+    // Render directly — no stale check needed in live mode
+    const renderId = this._workerIdCounter++;
+    const renderPromise = new Promise((resolve) => {
+      this._pendingRender.set(renderId, resolve);
+    });
+
+    const magCopy = new Float32Array(fftResult.magnitudes).buffer.slice(0);
+    this._renderWorker.postMessage({
+      magnitudes: magCopy,
+      numFrames: fftResult.numFrames,
+      halfFFT: fftResult.halfFFT,
+      width: w,
+      height: h,
+      dbMin: this.dbMin,
+      dbMax: this.dbMax,
+      colormap: this.colormap,
+      freqMin: this.freqMin,
+      freqMax: this.wavInfo.sampleRate / 2,
+      sampleRate: this.wavInfo.sampleRate,
+      logScale: this.logScale,
+      id: renderId,
+    }, [magCopy]);
+
+    const result = await renderPromise;
+    this._lastBitmap = result.bitmap;
+    this._redraw();
   }
 
   stopLive() {

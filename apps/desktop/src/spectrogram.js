@@ -2000,6 +2000,7 @@ export class SpectrogramRenderer {
   _liveCapture = null;
   _liveRAF = null;
   _liveScrolling = true;
+  _liveViewSeconds = 10;
 
   setLiveSource(liveCapture) {
     this.stopLive();
@@ -2027,8 +2028,7 @@ export class SpectrogramRenderer {
     const totalDur = total / sr;
     this.totalDuration = totalDur;
 
-    // Default view: last 10 seconds
-    const viewSec = 10;
+    const viewSec = this._liveViewSeconds;
 
     if (this._liveScrolling) {
       this.viewEnd = totalDur;
@@ -2048,7 +2048,10 @@ export class SpectrogramRenderer {
       }
     }
 
-    this._liveRAF = requestAnimationFrame(() => this._liveRenderLoop());
+    // Schedule next frame after render completes
+    if (this._liveCapture && this._liveCapture.isCapturing) {
+      this._liveRAF = requestAnimationFrame(() => this._liveRenderLoop());
+    }
   }
 
   async _renderLiveFrame(samples, w, h, sampleRate) {
