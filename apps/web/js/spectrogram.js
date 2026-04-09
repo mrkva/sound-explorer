@@ -1431,6 +1431,12 @@ export class SpectrogramRenderer {
     if (!this._liveColorLUT || this._liveLUTColormap !== this.colormap) {
       this._liveColorLUT = buildColorLUT(this.colormap);
       this._liveLUTColormap = this.colormap;
+      // DEBUG: dump LUT to verify colormaps.js is up-to-date
+      const l = this._liveColorLUT;
+      console.log(`Live LUT for "${this.colormap}" — first 10 entries:`);
+      for (let i = 0; i < 10; i++) {
+        console.log(`  LUT[${i}]: (${l[i*4]}, ${l[i*4+1]}, ${l[i*4+2]})`);
+      }
     }
     const lut = this._liveColorLUT;
 
@@ -1500,6 +1506,12 @@ export class SpectrogramRenderer {
         pixels[pixIdx + 1] = lut[lutIdx + 1];
         pixels[pixIdx + 2] = lut[lutIdx + 2];
         pixels[pixIdx + 3] = 255;
+
+        // DEBUG: detect magenta pixels (high R, low G, high B)
+        if (!this._dbgMagentaLogged && y < 50 && lut[lutIdx] > 50 && lut[lutIdx+2] > 50 && lut[lutIdx+1] < 20) {
+          console.log(`MAGENTA at (${x},${y}): RGB(${lut[lutIdx]},${lut[lutIdx+1]},${lut[lutIdx+2]}) norm=${norm} db=${db.toFixed(1)} bin=${yBins[y].toFixed(1)}`);
+          this._dbgMagentaLogged = true;
+        }
       }
     }
 
