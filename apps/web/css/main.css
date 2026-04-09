@@ -703,6 +703,11 @@ body.dark .toolbar-logo {
   gap: 8px;
 }
 
+.control-section + .control-section {
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+
 .section-label {
   font-size: 9px;
   text-transform: uppercase;
@@ -1321,6 +1326,13 @@ dialog h4 {
     flex-shrink: 0;
     flex-wrap: wrap;
     gap: 6px 12px;
+  }
+
+  .control-section + .control-section {
+    padding-left: 0;
+    border-left: none;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
   }
 
   .section-label {

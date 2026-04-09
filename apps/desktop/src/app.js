@@ -3080,6 +3080,18 @@ class App {
       document.getElementById('live-controls').style.display = '';
       this.btnPlay.style.display = 'none';
       this.btnStop.style.display = 'none';
+      // Hide file-only toolbar controls
+      for (const id of ['btn-open-folder', 'btn-open-file', 'output-samplerate',
+          'btn-zoom-in', 'btn-zoom-out', 'btn-zoom-fit', 'btn-zoom-sel',
+          'btn-untrim', 'btn-annotations', 'btn-session-meta',
+          'goto-mode', 'time-input', 'btn-goto', 'date-input', 'date-label']) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      }
+      // Hide toolbar groups that are file-only (separators, labels)
+      document.querySelectorAll('.toolbar-primary .toolbar-separator, .toolbar-primary .time-nav, .toolbar-primary label[for="output-samplerate"]').forEach(
+        el => el.style.display = 'none'
+      );
 
       this._setStatus(`Live input: ${this._liveCapture.sampleRate} Hz`);
       this._updateLiveStatus();
@@ -3110,6 +3122,18 @@ class App {
     document.getElementById('btn-live-save').style.display = 'none';
     this.btnPlay.style.display = '';
     this.btnStop.style.display = '';
+    // Restore file-only toolbar controls
+    for (const id of ['btn-open-folder', 'btn-open-file', 'output-samplerate',
+        'btn-zoom-in', 'btn-zoom-out', 'btn-zoom-fit', 'btn-zoom-sel',
+        'btn-annotations', 'btn-session-meta',
+        'goto-mode', 'time-input', 'btn-goto']) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = '';
+    }
+    // Restore toolbar groups
+    document.querySelectorAll('.toolbar-primary .toolbar-separator, .toolbar-primary .time-nav, .toolbar-primary label[for="output-samplerate"]').forEach(
+      el => el.style.display = ''
+    );
 
     // If we have a recording, save to temp and load into analysis mode
     if (recordingBlob) {

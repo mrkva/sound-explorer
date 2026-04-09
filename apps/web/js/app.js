@@ -1612,6 +1612,20 @@ class App {
       document.getElementById('btn-stop').style.display = 'none';
       document.getElementById('btn-export').style.display = 'none';
       document.getElementById('btn-export-speed').style.display = 'none';
+      // Hide file-only toolbar controls
+      for (const id of ['select-speed', 'btn-zoom-in', 'btn-zoom-out', 'btn-fit',
+          'btn-sel', 'btn-trim', 'btn-untrim', 'btn-goto-mode', 'input-goto',
+          'btn-goto', 'btn-open-file', 'btn-annotations', 'btn-metadata']) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      }
+      // Hide toolbar labels and separators in live mode
+      document.querySelectorAll('#toolbar .toolbar-label, #toolbar .toolbar-sep').forEach(
+        el => el.style.display = 'none'
+      );
+      // Hide playback volume in bottom bar (not used in live mode)
+      const volGroup = document.getElementById('input-volume')?.closest('.control-group');
+      if (volGroup) volGroup.style.display = 'none';
 
       // Build and start VU meter for live input (mono)
       this._buildBigVUMeter(1);
@@ -1659,6 +1673,19 @@ class App {
     document.getElementById('btn-stop').style.display = '';
     document.getElementById('btn-export').style.display = '';
     document.getElementById('btn-live-save').style.display = 'none';
+    // Restore file-only toolbar controls
+    for (const id of ['select-speed', 'btn-zoom-in', 'btn-zoom-out', 'btn-fit',
+        'btn-sel', 'btn-trim', 'btn-open-file', 'btn-annotations', 'btn-metadata']) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = '';
+    }
+    // Restore toolbar labels and separators
+    document.querySelectorAll('#toolbar .toolbar-label, #toolbar .toolbar-sep').forEach(
+      el => el.style.display = ''
+    );
+    // Restore playback volume
+    const volGroup = document.getElementById('input-volume')?.closest('.control-group');
+    if (volGroup) volGroup.style.display = '';
 
     // If we have a recording, load it into file analysis mode
     if (recordingBlob) {
