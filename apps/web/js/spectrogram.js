@@ -1424,9 +1424,10 @@ export class SpectrogramRenderer {
     const dbRange = this.dbMax - dbMin;
     const nyquist = sr / 2;
 
-    // Scroll existing content left
+    // Scroll existing content left (use getImageData to avoid self-copy artifacts)
     if (newCols < w) {
-      ctx.drawImage(this._liveBuffer, newCols, 0, w - newCols, h, 0, 0, w - newCols, h);
+      const scrolled = ctx.getImageData(newCols, 0, w - newCols, h);
+      ctx.putImageData(scrolled, 0, 0);
     }
 
     // Build or reuse Y→bin mapping
