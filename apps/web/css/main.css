@@ -1305,39 +1305,70 @@ dialog h4 {
     display: none;
   }
 
-  /* --- Bottom bar: wrap on mobile --- */
+  /* --- Bottom bar: vertical stack on mobile --- */
   #bottom-bar {
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
     overflow-x: visible;
-    padding: 6px;
-    gap: 4px 6px;
+    padding: 8px 10px;
+    gap: 8px;
     min-height: auto;
+    max-height: 60vh;
+    overflow-y: auto;
   }
 
   .control-section {
     flex-shrink: 0;
+    flex-wrap: wrap;
+    gap: 6px 12px;
   }
 
   .section-label {
-    font-size: 8px;
+    font-size: 9px;
+    width: 100%;
   }
 
   .ctrl-label {
-    font-size: 10px;
+    font-size: 11px;
   }
 
+  /* Sliders: much larger for touch */
   .slider {
-    width: 60px;
+    width: 120px;
+    height: 6px;
+  }
+
+  .slider::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+  }
+
+  .slider::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
   }
 
   .ctrl-value {
-    min-width: 32px;
-    font-size: 10px;
+    min-width: 36px;
+    font-size: 11px;
   }
 
   .select-small {
-    font-size: 10px;
-    height: 28px;
+    font-size: 12px;
+    height: 34px;
+    padding: 4px 6px;
+  }
+
+  .control-group {
+    gap: 6px;
+  }
+
+  /* Number inputs: larger for touch */
+  .input-freq {
+    width: 65px;
+    height: 34px;
+    font-size: 14px;
+    padding: 4px 6px;
   }
 
   /* VU meter button */
@@ -1345,6 +1376,7 @@ dialog h4 {
     height: 34px;
     font-size: 12px;
     flex-shrink: 0;
+    align-self: flex-start;
   }
 
   /* --- VU meter: taller bars for touch --- */

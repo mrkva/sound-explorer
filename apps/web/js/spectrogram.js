@@ -1456,10 +1456,9 @@ export class SpectrogramRenderer {
     const dbMin = this.dbMin;
     const dbRange = this.dbMax - dbMin;
     const nyquist = sr / 2;
-    // Normalization offset: subtract from raw FFT dB to get calibrated dBFS.
-    // This naturally suppresses window sidelobes (they fall below the display
-    // floor) while showing real signals at correct brightness levels.
-    const normDB = this._liveWindowNormDB || 0;
+    // No normalization offset in display: raw FFT dB values are used for
+    // brightness mapping, consistent with file-mode rendering. The vertical
+    // line artifacts are prevented by clamping FFT windows to available data.
 
     // Rebuild color LUT if colormap changed since last build
     if (!this._liveColorLUT || this._liveLUTColormap !== this.colormap) {
@@ -1525,7 +1524,7 @@ export class SpectrogramRenderer {
         const f = bin - binLow;
         const lo = binLow < halfFFT ? mag[binLow] : -120;
         const hi = binHigh < halfFFT ? mag[binHigh] : -120;
-        const db = lo + (hi - lo) * f - normDB; // calibrated dBFS
+        const db = lo + (hi - lo) * f;
         const norm = Math.max(0, Math.min(255, Math.round(((db - dbMin) / dbRange) * 255)));
         const lutIdx = norm * 4;
         pixels[pixIdx]     = lut[lutIdx];

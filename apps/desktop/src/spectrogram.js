@@ -2163,8 +2163,6 @@ export class SpectrogramRenderer {
     const N = this.fftSize;
     const freqBins = N / 2;
     const floor = -this.dynamicRangeDB;
-    // Normalization offset: subtract from raw FFT dB to get calibrated dBFS.
-    const normDB = this._liveWindowNormDB || 0;
 
     // Build or reuse Y→bin mapping
     const binRes = sr / N;
@@ -2232,7 +2230,7 @@ export class SpectrogramRenderer {
           raw = raw0;
         }
 
-        const db = raw - normDB + this.gainDB;
+        const db = raw + this.gainDB;
         const normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
 
         const [r, g, b] = this._colorize(normalized);
