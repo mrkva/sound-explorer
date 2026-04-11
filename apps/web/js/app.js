@@ -21,10 +21,10 @@ class App {
     this._spectGain = 0;
     this._spectRange = 90;
     this._liveCapture = null;
+    this._liveRecordingBlob = null;
+    this._liveRecordingStartTime = null;
     this._livePeakDb = -100;
     this._liveRmsDb = -100;
-    this._liveRecordingStartTime = null;
-    this._liveRecordingStartWall = null;
 
     this._initUI();
     this._initDragDrop();
@@ -1790,11 +1790,13 @@ class App {
       this._liveRmsDb = -100;
       this._liveRecordingStartTime = null;
 
-      // Clear live info strip fields
-      document.getElementById('info-wallclock').textContent = '';
-      document.getElementById('info-position').textContent = '';
-      document.getElementById('info-duration').textContent = '';
-      document.getElementById('info-file').textContent = '';
+      if (this._liveInfoEls) {
+        this._liveInfoEls.wall.textContent = '';
+        this._liveInfoEls.pos.textContent = '';
+        this._liveInfoEls.dur.textContent = '';
+        this._liveInfoEls.file.textContent = '';
+        this._liveInfoEls = null;
+      }
 
       // If we have a recording, load it into file analysis mode
       if (recordingBlob) {
@@ -1840,7 +1842,6 @@ class App {
     } else {
       this._liveCapture.startRecording();
       this._liveRecordingStartTime = performance.now();
-      this._liveRecordingStartWall = new Date();
       btn.classList.add('recording');
       btn.firstChild.textContent = '\u25A0';
       btn.querySelector('.btn-label').textContent = ' Stop';
@@ -1865,23 +1866,33 @@ class App {
   _updateLiveStatus() {
     if (!this._liveCapture || !this._liveCapture.isCapturing) return;
 
-    // Wall clock from system time
+    // Cache DOM refs on first call
+    if (!this._liveInfoEls) {
+      this._liveInfoEls = {
+        wall: document.getElementById('info-wallclock'),
+        file: document.getElementById('info-file'),
+        pos: document.getElementById('info-position'),
+        dur: document.getElementById('info-duration'),
+      };
+      this._liveInfoEls.pos.textContent = '';
+      this._liveInfoEls.file.textContent = `Live ${this._liveCapture.sampleRate} Hz`;
+      this._lastWallSec = -1;
+    }
+
+    // Wall clock — only update when seconds change
     const now = new Date();
-    const wall = `WALL ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-    document.getElementById('info-wallclock').textContent = wall;
+    const sec = now.getSeconds();
+    if (sec !== this._lastWallSec) {
+      const totalSec = now.getHours() * 3600 + now.getMinutes() * 60 + sec;
+      this._liveInfoEls.wall.textContent = `WALL ${this._formatHMS(totalSec)}`;
+      this._lastWallSec = sec;
+    }
 
-    // File info
-    document.getElementById('info-file').textContent = `Live ${this._liveCapture.sampleRate} Hz`;
-
-    // Position: blank during live
-    document.getElementById('info-position').textContent = '';
-
-    // Duration: only when recording
     if (this._liveCapture.isRecording && this._liveRecordingStartTime) {
       const elapsed = (performance.now() - this._liveRecordingStartTime) / 1000;
-      document.getElementById('info-duration').textContent = `REC ${this._formatTime(elapsed)}`;
+      this._liveInfoEls.dur.textContent = `REC ${this._formatTime(elapsed)}`;
     } else {
-      document.getElementById('info-duration').textContent = '';
+      this._liveInfoEls.dur.textContent = '';
     }
 
     requestAnimationFrame(() => this._updateLiveStatus());
