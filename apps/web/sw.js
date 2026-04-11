@@ -4,7 +4,7 @@
  */
 
 // Keep in sync with js/version.js
-const CACHE_VERSION = '0.5.3';
+const CACHE_VERSION = '0.5.4';
 const CACHE_NAME = 'sound-explorer-v' + CACHE_VERSION;
 
 const APP_SHELL = [
@@ -40,7 +40,10 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME).then((cache) => {
       return Promise.all(
         APP_SHELL.map((url) =>
-          fetch(url, { cache: 'reload' }).then((res) => cache.put(url, res))
+          fetch(url, { cache: 'reload' }).then((res) => {
+            if (!res.ok) throw new Error(`Failed to cache ${url}: ${res.status}`);
+            return cache.put(url, res);
+          })
         )
       );
     })

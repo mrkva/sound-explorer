@@ -1916,9 +1916,16 @@ document.addEventListener('DOMContentLoaded', () => {
 // --- Service Worker registration ---
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').then((reg) => {
+    // updateViaCache: 'none' forces the browser to always fetch sw.js
+    // from the network, bypassing HTTP cache for update checks.
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
       // Check for updates every 5 minutes
       setInterval(() => reg.update(), 5 * 60 * 1000);
+
+      // Also check when the user comes back to the tab
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') reg.update();
+      });
 
       // A new SW is waiting — show update banner
       const showUpdateBanner = () => {
