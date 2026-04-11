@@ -1,6 +1,6 @@
 # Rebuild Specification
 
-This document provides enough detail for an LLM (or human) to recreate Field Recording Explorer from scratch.
+This document provides enough detail for an LLM (or human) to recreate the Sound Explorer desktop app from scratch. For the web app, see [WEB_APP.md](WEB_APP.md).
 
 ## Tech stack — exact versions
 
@@ -20,7 +20,7 @@ This document provides enough detail for an LLM (or human) to recreate Field Rec
 ## Complete file tree
 
 ```
-field-recording-explorer/
+sound-explorer/apps/desktop/
 ├── package.json              App metadata, scripts, electron-builder config, .wav file association
 ├── main.js                   Electron main process: BrowserWindow, 13 IPC handlers, HTTP audio
 │                             server (Range requests, 16-bit conversion, decimation), WAV export,
@@ -32,34 +32,42 @@ field-recording-explorer/
 ├── src/
 │   ├── app.js                App controller: instantiates Session + SpectrogramRenderer +
 │   │                         AudioEngine; wires all DOM events, keyboard shortcuts, drag-drop,
-│   │                         VU meter (rAF), annotations CRUD, theme toggle, playback-rate UI
+│   │                         VU meter (rAF), annotations CRUD, theme toggle, live capture,
+│   │                         metadata forms, playback-rate UI, context-aware _updateUI()
 │   ├── session.js            Multi-file session manager: sorts WAV/BWF files by timecode,
 │   │                         stitches into unified timeline, wall-clock ↔ session-time conversion
 │   ├── spectrogram.js        On-demand spectrogram: two computation modes (full / subsampled),
 │   │                         Web Worker FFT pool (up to 8), tile cache (max 200), canvas drawing
 │   │                         (axes, cursor, selection, annotations, file boundaries), interaction
-│   │                         (zoom, pan, click-seek, drag-select, scrollbar)
+│   │                         (zoom, pan, click-seek, drag-select, scrollbar), live spectrogram
+│   │                         rendering with color LUT
 │   ├── audio-engine.js       Audio playback via <audio> + Web Audio API; gain amplification
 │   │                         (0–60 dB), tape-speed playback (preservesPitch=false), loop regions,
 │   │                         VU meter data (peak/RMS from AnalyserNode), output device selection
 │   ├── bwf-parser.js         Renderer-side RIFF/WAVE parser: fmt (incl. WAVE_FORMAT_EXTENSIBLE),
 │   │                         data, bext (origination time/date, timecode reference), iXML chunks;
 │   │                         time string utilities
-│   ├── fft-worker.js         Web Worker: Cooley-Tukey radix-2 FFT with pre-computed twiddle
-│   │                         factors + bit-reversal tables; two protocols (per-task and bulk);
-│   │                         Hann windowing; magnitude output in dB
-│   └── render-worker.js      Web Worker: maps FFT magnitudes to pixels using 256-entry colormap
-│                             LUTs (viridis, magma, inferno, grayscale, green, hot); returns
-│                             ImageBitmap via zero-copy transfer
+│   ├── fft-core.js           Shared FFT primitives: window functions (Hann, Hamming,
+│   │                         Blackman-Harris, Flat-top), Cooley-Tukey FFT, magnitude computation
+│   ├── fft-worker.js         Web Worker: parallel FFT with pre-computed twiddle factors +
+│   │                         bit-reversal tables; two protocols (per-task and bulk); configurable
+│   │                         window function; magnitude output in dB
+│   ├── render-worker.js      Web Worker: maps FFT magnitudes to pixels using 256-entry colormap
+│   │                         LUTs (viridis, magma, inferno, grayscale, green, hot); returns
+│   │                         ImageBitmap via zero-copy transfer
+│   ├── colormaps.js          Six colormap definitions and buildColorLUT() for 256-entry RGBA tables
+│   ├── ixml.js               iXML metadata parsing and serialization
+│   ├── frm.js                Field Recording Metadata (FRM) sidecar parsing and serialization
+│   └── live-capture.js       Live audio capture via getUserMedia + AudioWorklet; ring buffer
+│                             for spectrogram display, optional recording for WAV export
 ├── styles/
 │   └── main.css              Dark/light themes via CSS custom properties on :root and
 │                             [data-theme="light"]; --canvas-* vars read by JS for canvas
 │                             drawing; VU meter, toolbar, sidebar, modal styles
-└── docs/
-    ├── ARCHITECTURE.md       Module-level architecture, IPC channel reference, data flow diagrams
-    ├── QUICKSTART.md         5-step beginner guide
-    └── REBUILD_SPEC.md       This file
+└── README.md                 Desktop-specific documentation
 ```
+
+Shared documentation lives at the repository root in `docs/` (ARCHITECTURE.md, QUICKSTART.md, REBUILD_SPEC.md, WEB_APP.md).
 
 ## Environment variables and configuration
 
@@ -75,6 +83,7 @@ All settings are controlled via the GUI and take effect immediately. None are pe
 |---------|---------|-------------|
 | Theme (dark/light) | `dark` | `localStorage('theme')` |
 | FFT size | `2048` | In-memory only |
+| FFT window function | `hann` | In-memory only |
 | Spectrogram gain | `0 dB` | In-memory only |
 | Dynamic range | `90 dB` | In-memory only |
 | Frequency range | `0 – Nyquist` | In-memory only |
@@ -86,14 +95,16 @@ All settings are controlled via the GUI and take effect immediately. None are pe
 | Audio output device | System default | In-memory only |
 | TC offset | `0 h` | In-memory only |
 | Channel | Mix (all) | In-memory only |
+| Input gain (live) | `0 dB` | In-memory only |
+| Live view window | `10 s` | In-memory only |
 
 ### Build configuration (`package.json`)
 
 ```jsonc
 {
   "build": {
-    "appId": "com.fieldrecording.explorer",
-    "productName": "Field Recording Explorer",
+    "appId": "com.lom.sound-explorer",
+    "productName": "Sound Explorer",
     "files": ["main.js", "preload.js", "index.html", "src/**/*", "styles/**/*"],
     "fileAssociations": [{ "ext": "wav", "mimeType": "audio/wav" }],
     "mac":   { "category": "public.app-category.music" },
@@ -161,8 +172,9 @@ Annotations are saved as JSON arrays. The app autoloads from `<basename>.annotat
 | `Web Workers` | Parallel FFT computation (pool of up to 8) + offscreen spectrogram pixel rendering |
 | `ImageBitmap` | Zero-copy transfer of rendered spectrogram from render worker to main thread |
 | `localStorage` | Persist theme preference (dark/light) |
-| `navigator.mediaDevices` | Enumerate audio output devices for device selection dropdown |
-| `requestAnimationFrame` | Playback cursor updates, VU meter animation loop |
+| `navigator.mediaDevices` | Enumerate audio output devices; `getUserMedia()` for live audio capture |
+| `AudioWorklet` | Low-latency audio capture processing (ScriptProcessor fallback) |
+| `requestAnimationFrame` | Playback cursor updates, VU meter animation loop, live spectrogram rendering |
 
 ## Data models / schemas
 
@@ -318,14 +330,18 @@ FOR each file overlapping the view:
 Fill gaps between files with -120 dB silence
 ```
 
-### 4. FFT (Cooley-Tukey radix-2, in fft-worker.js)
+### 4. FFT (Cooley-Tukey radix-2, in fft-core.js / fft-worker.js)
 
 ```
 PRE-COMPUTE (cached per fftSize N):
   twiddle[i] = { cos(-2πi/N), sin(-2πi/N) }  for i in [0, N/2)
   bitrev[i] = bit-reversed index              for i in [0, N)
 
-WINDOW: Hann  w[i] = 0.5 × (1 - cos(2πi/(N-1)))
+WINDOW (user-selectable via fft-core.js getWindow()):
+  Hann:            w[i] = 0.5 × (1 - cos(2πi/(N-1)))
+  Hamming:         w[i] = 0.54 - 0.46 × cos(2πi/(N-1))
+  Blackman-Harris: w[i] = 0.35875 - 0.48829×cos(2πi/(N-1)) + 0.14128×cos(4πi/(N-1)) - 0.01168×cos(6πi/(N-1))
+  Flat-top:        w[i] = 1 - 1.93×cos(2πi/(N-1)) + 1.29×cos(4πi/(N-1)) - 0.388×cos(6πi/(N-1)) + 0.0322×cos(8πi/(N-1))
 
 FFT(input, N):
   Apply bit-reversal permutation → out[2×N] (interleaved re,im)
@@ -416,6 +432,44 @@ fromWallClock(wallSeconds):
     add 86400 to target
   Find file where target falls within [fileWallStart, fileWallStart + duration)
   return file.timeStart + (target - fileWallStart)
+```
+
+### 10. Live spectrogram rendering (spectrogram.js _renderLiveFrame)
+
+```
+Build/reuse 256-entry color LUT from current colormap preset
+Build/reuse Y→bin mapping table (invalidated on frequency range/scale/size change)
+
+FOR each pixel column x:
+  colIdx = totalCols - w + x  (circular buffer index)
+  mag = liveColCache[colIdx % w]   (cached FFT magnitude array)
+
+  FOR each pixel row y:
+    Interpolate between adjacent frequency bins using Y mapping
+    db = raw + gainDB
+    norm = clamp(round((db - floor) / dynamicRange × 255), 0, 255)
+    pixel = colorLUT[norm × 4 .. norm × 4 + 3]   (direct array lookup, no function call)
+
+ImageData buffer is reused across frames (allocated once per canvas size)
+```
+
+### 11. Live audio capture (live-capture.js)
+
+```
+getUserMedia(deviceId) → AudioContext → AudioWorklet (or ScriptProcessor fallback)
+
+Ring buffer: Float32Array of bufferDuration × sampleRate samples
+  Write pointer wraps around; totalSamplesWritten tracks absolute position
+  readSample(index) reads from ring buffer at index % bufferSize
+
+Recording (optional):
+  Chunks pushed to array while isRecording=true
+  On stop: concatenate chunks → WAV blob for export
+
+Per audio block callback:
+  Write samples to ring buffer
+  Compute peak and RMS for VU metering
+  Call onData/onLevelUpdate callbacks
 ```
 
 ## API endpoints and CLI commands

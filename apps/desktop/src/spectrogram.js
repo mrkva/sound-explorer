@@ -1510,42 +1510,58 @@ export class SpectrogramRenderer {
     const viewDuration = this.viewEnd - this.viewStart;
     const spectWidth = canvasWidth - 60;
 
-    const targetTicks = 10;
-    const rawInterval = viewDuration / targetTicks;
-    const niceIntervals = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
-    const interval = niceIntervals.find(i => i >= rawInterval) || 3600;
+    if (this._liveCapture) {
+      // Live mode: fixed pixel-position ticks (no drift).
+      // Labels show negative seconds from "now" (right edge).
+      const numTicks = Math.max(2, Math.floor(spectWidth / 100));
+      for (let i = 0; i <= numTicks; i++) {
+        const frac = i / numTicks;
+        const t = this.viewStart + frac * viewDuration;
+        const x = 50 + frac * spectWidth;
 
-    const startTick = Math.ceil(this.viewStart / interval) * interval;
-    const hasWallClock = this.session && this.session.sessionStartTime !== null;
+        this.ctx.strokeStyle = th.tick;
+        this.ctx.beginPath();
+        this.ctx.moveTo(x, axisY);
+        this.ctx.lineTo(x, axisY + 5);
+        this.ctx.stroke();
 
-    for (let t = startTick; t <= this.viewEnd; t += interval) {
-      const x = 50 + ((t - this.viewStart) / viewDuration) * spectWidth;
-
-      this.ctx.strokeStyle = th.tick;
-      this.ctx.beginPath();
-      this.ctx.moveTo(x, axisY);
-      this.ctx.lineTo(x, axisY + 5);
-      this.ctx.stroke();
-
-      if (this._liveCapture) {
-        // Live mode: show negative seconds from "now"
         const secsFromNow = t - this.totalDuration;
         const label = secsFromNow >= -0.05 ? '0s' : secsFromNow.toFixed(1) + 's';
         this.ctx.fillStyle = th.axisText;
         this.ctx.fillText(label, x, axisY + 20);
-      } else if (hasWallClock) {
-        const wallSec = this.session.toWallClock(t);
-        if (wallSec !== null) {
-          this.ctx.fillStyle = th.wallTime;
-          this.ctx.fillText(this._formatWallTime(wallSec), x, axisY + 18);
+      }
+    } else {
+      const targetTicks = 10;
+      const rawInterval = viewDuration / targetTicks;
+      const niceIntervals = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
+      const interval = niceIntervals.find(i => i >= rawInterval) || 3600;
+
+      const startTick = Math.ceil(this.viewStart / interval) * interval;
+      const hasWallClock = this.session && this.session.sessionStartTime !== null;
+
+      for (let t = startTick; t <= this.viewEnd; t += interval) {
+        const x = 50 + ((t - this.viewStart) / viewDuration) * spectWidth;
+
+        this.ctx.strokeStyle = th.tick;
+        this.ctx.beginPath();
+        this.ctx.moveTo(x, axisY);
+        this.ctx.lineTo(x, axisY + 5);
+        this.ctx.stroke();
+
+        if (hasWallClock) {
+          const wallSec = this.session.toWallClock(t);
+          if (wallSec !== null) {
+            this.ctx.fillStyle = th.wallTime;
+            this.ctx.fillText(this._formatWallTime(wallSec), x, axisY + 18);
+          }
+          this.ctx.fillStyle = th.dimText;
+          this.ctx.font = '9px monospace';
+          this.ctx.fillText(this._formatDuration(t), x, axisY + 32);
+          this.ctx.font = '11px monospace';
+        } else {
+          this.ctx.fillStyle = th.axisText;
+          this.ctx.fillText(this._formatDuration(t), x, axisY + 20);
         }
-        this.ctx.fillStyle = th.dimText;
-        this.ctx.font = '9px monospace';
-        this.ctx.fillText(this._formatDuration(t), x, axisY + 32);
-        this.ctx.font = '11px monospace';
-      } else {
-        this.ctx.fillStyle = th.axisText;
-        this.ctx.fillText(this._formatDuration(t), x, axisY + 20);
       }
     }
   }
@@ -2064,6 +2080,11 @@ export class SpectrogramRenderer {
   _liveYFracs = null;
   _liveYBinsKey = '';
   _liveMaxBin = 0;
+  _liveColorLUT = null;
+  _liveLUTPreset = null;
+  _liveImageData = null;
+  _liveImageW = 0;
+  _liveImageH = 0;
 
   setLiveSource(liveCapture) {
     this.stopLive();
@@ -2159,6 +2180,66 @@ export class SpectrogramRenderer {
     }
   }
 
+  _buildLiveColorLUT() {
+    const presets = {
+      viridis: [
+        [0.0, 0, 0, 0], [0.10, 8, 8, 30], [0.20, 50, 55, 125], [0.25, 65, 68, 135],
+        [0.38, 53, 95, 141], [0.50, 42, 120, 142], [0.63, 33, 145, 140],
+        [0.75, 34, 168, 132], [0.82, 68, 191, 112], [0.88, 122, 209, 81],
+        [0.94, 189, 223, 38], [1.0, 253, 231, 37]
+      ],
+      magma: [
+        [0.0, 0, 0, 0], [0.08, 5, 3, 20], [0.15, 28, 16, 68], [0.25, 79, 18, 123],
+        [0.38, 129, 37, 129], [0.50, 181, 54, 122], [0.63, 229, 89, 100],
+        [0.75, 251, 136, 97], [0.85, 254, 188, 118], [0.94, 254, 228, 152],
+        [1.0, 252, 253, 191]
+      ],
+      inferno: [
+        [0.0, 0, 0, 0], [0.08, 5, 3, 20], [0.15, 31, 12, 72], [0.25, 85, 15, 109],
+        [0.38, 136, 34, 106], [0.50, 186, 54, 85], [0.63, 227, 89, 51],
+        [0.75, 249, 140, 10], [0.85, 249, 201, 50], [0.94, 240, 249, 33],
+        [1.0, 252, 255, 164]
+      ],
+      grayscale: [
+        [0.0, 0, 0, 0], [1.0, 255, 255, 255]
+      ],
+      green: [
+        [0.0, 0, 0, 0], [0.25, 0, 30, 0], [0.5, 0, 100, 10],
+        [0.75, 30, 200, 30], [1.0, 180, 255, 100]
+      ],
+      hot: [
+        [0.0, 0, 0, 0], [0.33, 180, 0, 0], [0.66, 255, 200, 0],
+        [1.0, 255, 255, 255]
+      ]
+    };
+    const stops = presets[this.colorPreset] || presets.viridis;
+    const lut = new Uint8Array(256 * 4);
+    for (let i = 0; i < 256; i++) {
+      const value = i / 255;
+      let r = 0, g = 0, b = 0;
+      for (let s = 0; s < stops.length - 1; s++) {
+        if (value <= stops[s + 1][0]) {
+          const t = (value - stops[s][0]) / (stops[s + 1][0] - stops[s][0]);
+          r = Math.round(stops[s][1] + t * (stops[s + 1][1] - stops[s][1]));
+          g = Math.round(stops[s][2] + t * (stops[s + 1][2] - stops[s][2]));
+          b = Math.round(stops[s][3] + t * (stops[s + 1][3] - stops[s][3]));
+          break;
+        }
+        if (s === stops.length - 2) {
+          const last = stops[stops.length - 1];
+          r = last[1]; g = last[2]; b = last[3];
+        }
+      }
+      const off = i * 4;
+      lut[off] = r;
+      lut[off + 1] = g;
+      lut[off + 2] = b;
+      lut[off + 3] = 255;
+    }
+    this._liveColorLUT = lut;
+    this._liveLUTPreset = this.colorPreset;
+  }
+
   _renderLiveFrame(w, h, totalCols, sr) {
     const N = this.fftSize;
     const freqBins = N / 2;
@@ -2198,9 +2279,21 @@ export class SpectrogramRenderer {
     const yFracs = this._liveYFracs;
     const maxBinCached = this._liveMaxBin;
 
-    // Render into ImageData (stored as _spectImage for draw())
-    const imgData = this.ctx.createImageData(w, h);
+    // Build or refresh color LUT (256-entry table replaces per-pixel _colorize calls)
+    if (!this._liveColorLUT || this._liveLUTPreset !== this.colorPreset) {
+      this._buildLiveColorLUT();
+    }
+    const lut = this._liveColorLUT;
+
+    // Reuse ImageData buffer to avoid GC pressure (allocated once per size)
+    if (!this._liveImageData || this._liveImageW !== w || this._liveImageH !== h) {
+      this._liveImageData = this.ctx.createImageData(w, h);
+      this._liveImageW = w;
+      this._liveImageH = h;
+    }
+    const imgData = this._liveImageData;
     const pixels = imgData.data;
+    const dbRange = this.dynamicRangeDB;
 
     for (let x = 0; x < w; x++) {
       const colIdx = totalCols - w + x;
@@ -2231,13 +2324,12 @@ export class SpectrogramRenderer {
         }
 
         const db = raw + this.gainDB;
-        const normalized = Math.max(0, Math.min(1, (db - floor) / this.dynamicRangeDB));
+        const norm = Math.max(0, Math.min(255, Math.round(((db - floor) / dbRange) * 255)));
+        const lutIdx = norm * 4;
 
-        const [r, g, b] = this._colorize(normalized);
-
-        pixels[idx] = r;
-        pixels[idx + 1] = g;
-        pixels[idx + 2] = b;
+        pixels[idx]     = lut[lutIdx];
+        pixels[idx + 1] = lut[lutIdx + 1];
+        pixels[idx + 2] = lut[lutIdx + 2];
         pixels[idx + 3] = 255;
       }
     }
@@ -2254,6 +2346,8 @@ export class SpectrogramRenderer {
     this._liveCapture = null;
     this._liveColCache = null;
     this._liveImage = null;
+    this._liveImageData = null;
+    this._liveColorLUT = null;
   }
 
   get isLive() {

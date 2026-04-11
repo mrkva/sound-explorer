@@ -1,4 +1,4 @@
-# Field Recording Explorer
+# Sound Explorer -- Desktop
 
 A desktop application for reviewing, navigating, and annotating long-duration field recordings with a high-resolution spectrogram. Built for wildlife researchers, sound ecologists, and anyone who works with hours of unattended audio captured in the wild.
 
@@ -85,8 +85,8 @@ Multi-channel files are downmixed to mono for spectrogram computation. Playback 
 ## Installation
 
 ```bash
-git clone https://github.com/mrkva/field-recording-explorer.git
-cd field-recording-explorer
+git clone https://github.com/mrkva/sound-explorer.git
+cd sound-explorer/apps/desktop
 npm install
 npm start
 ```
@@ -187,7 +187,7 @@ Trackpad and mouse:
 ## Project structure
 
 ```
-field-recording-explorer/
+sound-explorer/apps/desktop/
 ├── main.js              Electron main process: IPC handlers, HTTP audio server, WAV export
 ├── preload.js           Context bridge: exposes IPC methods to renderer
 ├── index.html           Application layout: toolbar, info strip, canvas, bottom bar, modals
@@ -198,15 +198,19 @@ field-recording-explorer/
 │   ├── spectrogram.js   Spectrogram renderer: on-demand FFT, worker pool, tile cache, canvas
 │   ├── audio-engine.js  Audio playback: Web Audio API, gain, looping, level metering
 │   ├── bwf-parser.js    WAV/BWF header parser: fmt, bext, iXML chunk extraction
+│   ├── fft-core.js      Shared FFT primitives: window functions, FFT, magnitudes
 │   ├── fft-worker.js    Web Worker: parallel FFT computation (Cooley-Tukey radix-2)
-│   └── render-worker.js Web Worker: spectrogram pixel rendering with colormap LUTs
+│   ├── render-worker.js Web Worker: spectrogram pixel rendering with colormap LUTs
+│   ├── colormaps.js     Colormap definitions and LUT builder
+│   ├── ixml.js          iXML metadata parsing and serialization
+│   ├── frm.js           Field Recording Metadata sidecar parsing
+│   └── live-capture.js  Live audio capture via getUserMedia + AudioWorklet
 ├── styles/
 │   └── main.css         Dark/light theme via CSS custom properties
-└── docs/
-    └── ARCHITECTURE.md  Detailed architecture: module APIs, IPC channels, data flow diagrams
+└── README.md            This file
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed module documentation, all IPC channels, and data flow diagrams.
+See [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md) for detailed module documentation, data flow diagrams, and shared code overview.
 
 ## License
 

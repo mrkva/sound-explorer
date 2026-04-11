@@ -933,6 +933,28 @@ body.dark .toolbar-logo {
   border-color: #238f23;
 }
 
+.btn-live-toggle {
+  background: #2d8a4e;
+  border-color: #2d8a4e;
+  color: #fff;
+}
+
+.btn-live-toggle:hover {
+  background: #238f23;
+  border-color: #238f23;
+}
+
+.btn-live-active {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.btn-live-active:hover {
+  background: #b53030;
+  border-color: #b53030;
+}
+
 .btn-record {
   color: var(--danger);
 }
@@ -1268,14 +1290,25 @@ dialog h4 {
   .toolbar-btn {
     height: 36px;
     padding: 0 8px;
-    font-size: 12px;
+    font-size: 14px;
     line-height: 1;
     min-width: 36px;
     box-sizing: border-box;
   }
 
+  /* Hide button text labels on mobile — show icons only */
+  .btn-label {
+    display: none;
+  }
+
   .btn-play-pause {
-    min-width: 70px;
+    min-width: auto;
+  }
+
+  /* Constrain speed selector on mobile */
+  #select-speed {
+    max-width: 110px;
+    font-size: 10px;
   }
 
   /* Hide secondary controls on mobile */
@@ -1308,10 +1341,7 @@ dialog h4 {
     min-width: 0;
   }
 
-  /* Speed selector */
   #select-speed {
-    max-width: 140px;
-    font-size: 11px;
     height: 36px;
     box-sizing: border-box;
   }
