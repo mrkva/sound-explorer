@@ -229,6 +229,7 @@ export class LiveCapture {
   startRecording() {
     this._recordChunks = [];
     this._recordSamples = 0;
+    this._recordStartDate = new Date();
     this.isRecording = true;
   }
 
@@ -249,49 +250,84 @@ export class LiveCapture {
     this._recordChunks = [];
     this._recordSamples = 0;
 
-    return this._float32ToWavBlob(merged, this.sampleRate);
+    return this._float32ToWavBlob(merged, this.sampleRate, this._recordStartDate);
   }
 
   /**
-   * Encode Float32 samples as a 32-bit float WAV blob.
+   * Encode Float32 samples as a BWF (Broadcast Wave Format) blob.
+   * Embeds a bext chunk with origination date/time and timeReference
+   * so the recording carries wall-clock timecode metadata.
    */
-  _float32ToWavBlob(samples, sampleRate) {
+  _float32ToWavBlob(samples, sampleRate, startDate) {
     const numSamples = samples.length;
     const bytesPerSample = 4; // 32-bit float
     const dataSize = numSamples * bytesPerSample;
-    const buffer = new ArrayBuffer(44 + dataSize);
+
+    // bext chunk: 602 bytes of data + 8 bytes header
+    const bextDataSize = 602;
+    const bextChunkSize = 8 + bextDataSize;
+    const headerSize = 12 + 24 + bextChunkSize + 8; // RIFF(12) + fmt(24) + bext + data header(8)
+    const buffer = new ArrayBuffer(headerSize + dataSize);
     const view = new DataView(buffer);
+    let off = 0;
+
+    const writeStr = (str, len) => {
+      for (let i = 0; i < (len || str.length); i++) {
+        view.setUint8(off + i, i < str.length ? str.charCodeAt(i) : 0);
+      }
+      off += len || str.length;
+    };
 
     // RIFF header
-    this._writeString(view, 0, 'RIFF');
-    view.setUint32(4, 36 + dataSize, true);
-    this._writeString(view, 8, 'WAVE');
+    writeStr('RIFF');
+    view.setUint32(off, headerSize - 8 + dataSize, true); off += 4;
+    writeStr('WAVE');
 
     // fmt chunk
-    this._writeString(view, 12, 'fmt ');
-    view.setUint32(16, 16, true);           // chunk size
-    view.setUint16(20, 3, true);            // format: IEEE float
-    view.setUint16(22, 1, true);            // channels: mono
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * bytesPerSample, true); // byte rate
-    view.setUint16(32, bytesPerSample, true); // block align
-    view.setUint16(34, 32, true);           // bits per sample
+    writeStr('fmt ');
+    view.setUint32(off, 16, true); off += 4;
+    view.setUint16(off, 3, true); off += 2;            // IEEE float
+    view.setUint16(off, 1, true); off += 2;            // mono
+    view.setUint32(off, sampleRate, true); off += 4;
+    view.setUint32(off, sampleRate * bytesPerSample, true); off += 4;
+    view.setUint16(off, bytesPerSample, true); off += 2;
+    view.setUint16(off, 32, true); off += 2;
+
+    // bext chunk (BWF timecode metadata)
+    writeStr('bext');
+    view.setUint32(off, bextDataSize, true); off += 4;
+
+    const d = startDate || new Date();
+    const description = `Sound Explorer live recording`;
+    writeStr(description, 256);                         // description
+    writeStr('Sound Explorer', 32);                     // originator
+    writeStr('', 32);                                   // originatorReference
+
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+    writeStr(dateStr, 10);                              // originationDate YYYY-MM-DD
+    writeStr(timeStr, 8);                               // originationTime HH:MM:SS
+
+    // timeReference: sample offset from midnight
+    const secSinceMidnight = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+    const timeRef = secSinceMidnight * sampleRate;
+    view.setUint32(off, timeRef % 4294967296, true); off += 4;   // low 32 bits
+    view.setUint32(off, Math.floor(timeRef / 4294967296), true); off += 4; // high 32 bits
+
+    view.setUint16(off, 0, true); off += 2;            // version
+
+    // UMID + reserved (254 bytes zeroed — already zero-initialized)
+    off += 254;
 
     // data chunk
-    this._writeString(view, 36, 'data');
-    view.setUint32(40, dataSize, true);
+    writeStr('data');
+    view.setUint32(off, dataSize, true); off += 4;
 
     // Write samples
-    const floatView = new Float32Array(buffer, 44);
+    const floatView = new Float32Array(buffer, headerSize);
     floatView.set(samples);
 
     return new Blob([buffer], { type: 'audio/wav' });
-  }
-
-  _writeString(view, offset, string) {
-    for (let i = 0; i < string.length; i++) {
-      view.setUint8(offset + i, string.charCodeAt(i));
-    }
   }
 
   /**
