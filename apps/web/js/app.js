@@ -127,6 +127,10 @@ class App {
     if (window.matchMedia('(display-mode: fullscreen)').matches) return;
     if (!document.documentElement.requestFullscreen) return;
 
+    // Only auto-fullscreen on mobile (touch devices with small screens)
+    const isMobile = 'ontouchstart' in window && window.innerWidth <= 768;
+    if (!isMobile) return;
+
     // On first user interaction in landscape, request fullscreen to hide browser toolbar
     const tryFullscreen = () => {
       const isLandscape = window.innerWidth > window.innerHeight;
