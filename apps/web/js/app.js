@@ -379,11 +379,20 @@ class App {
     };
 
     // Live input — toolbar toggle and drop zone button
-    document.getElementById('btn-live').addEventListener('click', () => {
-      if (this._liveCapture && this._liveCapture.isCapturing) {
-        this._stopLive();
-      } else {
-        this._startLive();
+    document.getElementById('btn-live').addEventListener('click', async () => {
+      if (this._liveBusy) return;
+      this._liveBusy = true;
+      try {
+        if (this._liveCapture && this._liveCapture.isCapturing) {
+          await this._stopLive();
+        } else {
+          await this._startLive();
+        }
+      } catch (e) {
+        console.error('Live toggle error:', e);
+        this._setStatus(`Error: ${e.message}`);
+      } finally {
+        this._liveBusy = false;
       }
     });
     document.getElementById('btn-live-start').addEventListener('click', () => this._startLive());
