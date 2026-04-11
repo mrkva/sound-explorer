@@ -1147,6 +1147,7 @@ class App {
       container.appendChild(row);
       this._bigVURows.push({
         peakBar, track, dbLabel,
+        smoothedDb: -100,
         peakHoldDb: -100,
         peakHoldTime: 0,
       });
@@ -1229,8 +1230,16 @@ class App {
           const ch = channels[i];
           const r = bigRows[i];
 
-          // Peak/RMS are already ballistic-smoothed by audio-engine / live-capture
-          const barW = Math.max(0, Math.min(100, (ch.peak + 60) / 60 * 100));
+          // IEC 60268-10 Type II ballistic smoothing
+          // Attack: 10ms time constant; Decay: 8.7 dB/s (20 dB in 2.3s)
+          const targetDb = Math.max(-100, ch.peak);
+          if (targetDb > r.smoothedDb) {
+            const coeff = 1 - Math.exp(-dt / 0.010);
+            r.smoothedDb += (targetDb - r.smoothedDb) * coeff;
+          } else {
+            r.smoothedDb = Math.max(r.smoothedDb - 8.7 * dt, targetDb);
+          }
+          const barW = Math.max(0, Math.min(100, (r.smoothedDb + 60) / 60 * 100));
           r.track.style.clipPath = `inset(0 ${100 - barW}% 0 0)`;
 
           // Peak hold: latch at highest value, hold, then decay
@@ -1266,6 +1275,7 @@ class App {
     for (const row of this._bigVURows) {
       row.track.style.clipPath = 'inset(0 100% 0 0)';
       row.peakBar.style.left = '0%';
+      row.smoothedDb = -100;
       row.peakHoldDb = -100;
       row.peakHoldTime = 0;
       row.dbLabel.innerHTML = '<span class="vu-db-rms">-∞</span> / <span class="vu-db-peak">-∞</span>';
@@ -1733,22 +1743,9 @@ class App {
 
       // Build and start VU meter for live input (mono)
       this._buildBigVUMeter(1);
-      this._liveMeterTime = 0;
       this._liveCapture.onLevelUpdate = (peak, rms) => {
-        const rawPeak = peak > 0 ? 20 * Math.log10(peak) : -100;
-        const rawRms = rms > 0 ? 20 * Math.log10(rms) : -100;
-        // IEC 60268-10 ballistic smoothing
-        const now = performance.now() / 1000;
-        const dt = this._liveMeterTime ? Math.min(now - this._liveMeterTime, 0.1) : 0.003;
-        this._liveMeterTime = now;
-        // Attack: 10ms time constant; Decay: 8.7 dB/s
-        const smooth = (cur, target) => {
-          if (target > cur) return cur + (target - cur) * (1 - Math.exp(-dt / 0.010));
-          const d = cur - 8.7 * dt;
-          return Math.max(d, target);
-        };
-        this._livePeakDb = smooth(this._livePeakDb, rawPeak);
-        this._liveRmsDb = smooth(this._liveRmsDb, rawRms);
+        this._livePeakDb = peak > 0 ? 20 * Math.log10(peak) : -100;
+        this._liveRmsDb = rms > 0 ? 20 * Math.log10(rms) : -100;
       };
       this._startVUMeter(true);
 

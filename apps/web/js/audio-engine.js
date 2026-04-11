@@ -548,63 +548,52 @@ export class AudioEngine {
   }
 
   /**
-   * Read raw peak/rms from an analyser node.
-   */
-  _readRawLevels(analyser, buf) {
-    analyser.getFloatTimeDomainData(buf);
-    let peak = 0;
-    let sumSq = 0;
-    for (let i = 0; i < buf.length; i++) {
-      const v = Math.abs(buf[i]);
-      if (v > peak) peak = v;
-      sumSq += buf[i] * buf[i];
-    }
-    return {
-      peak: 20 * Math.log10(Math.max(peak, 1e-10)),
-      rms: 20 * Math.log10(Math.max(sumSq / buf.length, 1e-20)) * 0.5,
-    };
-  }
-
-  /**
-   * Get VU meter values (ballistic-smoothed).
+   * Get VU meter values (raw, unsmoothed).
    * @returns {{ peak: number, rms: number }} in dB
    */
   getVUMeter() {
     if (!this.analyser) return this._vuResult || { peak: -100, rms: -100 };
-    const raw = this._readRawLevels(this.analyser, this._vuBuffer);
-    // Apply ballistic smoothing
-    const now = performance.now() / 1000;
-    const dt = this._meterLastTime ? Math.min(now - this._meterLastTime, 0.1) : 0.016;
-    this._meterLastTime = now;
-    this._vuResult.peak = this._applyBallistic(this._vuResult.peak, raw.peak, dt);
-    this._vuResult.rms = this._applyBallistic(this._vuResult.rms, raw.rms, dt);
+    this.analyser.getFloatTimeDomainData(this._vuBuffer);
+
+    let peak = 0;
+    let sumSq = 0;
+    for (let i = 0; i < this._vuBuffer.length; i++) {
+      const v = Math.abs(this._vuBuffer[i]);
+      if (v > peak) peak = v;
+      sumSq += this._vuBuffer[i] * this._vuBuffer[i];
+    }
+    const rms = Math.sqrt(sumSq / this._vuBuffer.length);
+
+    this._vuResult.peak = 20 * Math.log10(Math.max(peak, 1e-10));
+    this._vuResult.rms = 20 * Math.log10(Math.max(rms, 1e-10));
     return this._vuResult;
   }
 
   /**
-   * Get per-channel VU meter values (ballistic-smoothed).
+   * Get per-channel VU meter values (raw, unsmoothed).
    * @returns {Array<{peak: number, rms: number}>} array of {peak, rms} in dBFS per channel
    */
   getChannelVUMeters() {
     if (this._channelAnalysers.length === 0) {
       return [this.getVUMeter()];
     }
-    const now = performance.now() / 1000;
-    const dt = this._meterLastTime ? Math.min(now - this._meterLastTime, 0.1) : 0.016;
-    this._meterLastTime = now;
-
-    // Initialize meter state if needed
-    while (this._meterState.length < this._channelAnalysers.length) {
-      this._meterState.push({ smoothPeak: -100, smoothRms: -100 });
-    }
-
     const results = [];
     for (let ch = 0; ch < this._channelAnalysers.length; ch++) {
-      const raw = this._readRawLevels(this._channelAnalysers[ch], this._channelBuffers[ch]);
-      const st = this._meterState[ch];
-      st.smoothPeak = this._applyBallistic(st.smoothPeak, raw.peak, dt);
-      st.smoothRms = this._applyBallistic(st.smoothRms, raw.rms, dt);
-      results.push({ peak: st.smoothPeak, rms: st.smoothRms });
+      const analyser = this._channelAnalysers[ch];
+      const buf = this._channelBuffers[ch];
+      analyser.getFloatTimeDomainData(buf);
+      let peak = 0;
+      let sumSq = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const v = Math.abs(buf[i]);
+        if (v > peak) peak = v;
+        sumSq += buf[i] * buf[i];
+      }
+      const rms = Math.sqrt(sumSq / buf.length);
+      results.push({
+        peak: 20 * Math.log10(Math.max(peak, 1e-10)),
+        rms: 20 * Math.log10(Math.max(rms, 1e-10)),
+      });
     }
     return results;
   }
