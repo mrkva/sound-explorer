@@ -379,13 +379,6 @@ class App {
       }
     });
     document.getElementById('btn-live-start').addEventListener('click', () => this._startLive());
-    document.getElementById('btn-live').addEventListener('click', () => {
-      if (this._liveCapture && this._liveCapture.isCapturing) {
-        this._stopLive();
-      } else {
-        this._startLive();
-      }
-    });
     document.getElementById('btn-live-stop').addEventListener('click', () => this._stopLive());
     document.getElementById('btn-live-record').addEventListener('click', () => this._toggleLiveRecord());
     document.getElementById('btn-live-save').addEventListener('click', () => this._saveLiveRecording());
