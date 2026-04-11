@@ -4,4 +4,4 @@
 // - PATCH: bug fixes, small tweaks
 // - MINOR: new features, meaningful changes
 // - MAJOR: breaking / first stable release
-export const VERSION = '0.4.5';
+export const VERSION = '0.4.6';

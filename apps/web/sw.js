@@ -4,7 +4,7 @@
  */
 
 // Keep in sync with js/version.js
-const CACHE_VERSION = '0.4.5';
+const CACHE_VERSION = '0.4.6';
 const CACHE_NAME = 'sound-explorer-v' + CACHE_VERSION;
 
 const APP_SHELL = [
@@ -32,7 +32,10 @@ const APP_SHELL = [
 ];
 
 // Install: cache the app shell (bypass HTTP cache to ensure fresh files)
+// skipWaiting() ensures the new SW activates immediately without waiting
+// for all tabs to close — critical for pushing updates reliably.
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return Promise.all(
@@ -44,7 +47,7 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate: delete old caches, then notify all clients
+// Activate: delete old caches, claim clients, notify all tabs
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -54,7 +57,9 @@ self.addEventListener('activate', (event) => {
           .map((key) => caches.delete(key))
       );
     }).then(() => {
-      // Tell all open tabs that this new SW is now active
+      // Take control of all open tabs immediately
+      return self.clients.claim();
+    }).then(() => {
       return self.clients.matchAll({ type: 'window' }).then((clients) => {
         clients.forEach((client) => {
           client.postMessage({ type: 'SW_UPDATED', version: CACHE_VERSION });
