@@ -63,7 +63,7 @@ export class AudioEngine {
 
     // Main analyser for backward compat
     this.analyser = this.audioCtx.createAnalyser();
-    this.analyser.fftSize = 2048; // ~43ms at 48kHz for stable readings
+    this.analyser.fftSize = 512; // ~10ms at 48kHz — catches transients
     this._vuBuffer = new Float32Array(this.analyser.fftSize);
     this._vuResult = { peak: -100, rms: -100 };
 
@@ -114,7 +114,7 @@ export class AudioEngine {
 
     for (let i = 0; i < numChannels; i++) {
       const analyser = this.audioCtx.createAnalyser();
-      analyser.fftSize = 2048;
+      analyser.fftSize = 512;
       this._channelSplitter.connect(analyser, i);
       this._channelAnalysers.push(analyser);
       this._channelBuffers.push(new Float32Array(analyser.fftSize));

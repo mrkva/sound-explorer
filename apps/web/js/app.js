@@ -1230,12 +1230,10 @@ class App {
           const ch = channels[i];
           const r = bigRows[i];
 
-          // IEC 60268-10 Type II ballistic smoothing
-          // Attack: 10ms time constant; Decay: 8.7 dB/s (20 dB in 2.3s)
+          // True-peak bar: instant attack, IEC 60268-10 decay (8.7 dB/s)
           const targetDb = Math.max(-100, ch.peak);
           if (targetDb > r.smoothedDb) {
-            const coeff = 1 - Math.exp(-dt / 0.010);
-            r.smoothedDb += (targetDb - r.smoothedDb) * coeff;
+            r.smoothedDb = targetDb;
           } else {
             r.smoothedDb = Math.max(r.smoothedDb - 8.7 * dt, targetDb);
           }
