@@ -266,7 +266,14 @@ class App {
         `${this._formatFreq(freq)} @ ${this._formatTime(timeSec)}`;
     };
 
-    // Live input
+    // Live input — toolbar toggle and drop zone button
+    document.getElementById('btn-live').addEventListener('click', () => {
+      if (this._liveCapture && this._liveCapture.isCapturing) {
+        this._stopLive();
+      } else {
+        this._startLive();
+      }
+    });
     document.getElementById('btn-live-start').addEventListener('click', () => this._startLive());
     document.getElementById('btn-live-stop').addEventListener('click', () => this._stopLive());
     document.getElementById('btn-live-record').addEventListener('click', () => this._toggleLiveRecord());
@@ -399,7 +406,7 @@ class App {
     };
 
     this.audio.onEnded = () => {
-      document.getElementById('btn-play').textContent = '\u25B6 Play';
+      document.getElementById('btn-play').querySelector('.btn-label').textContent = ' Play';
     };
   }
 
@@ -527,8 +534,9 @@ class App {
 
   async _togglePlay() {
     await this.audio.togglePlay();
-    document.getElementById('btn-play').textContent =
-      this.audio.isPlaying ? '\u23F8 Pause' : '\u25B6 Play';
+    const playBtn = document.getElementById('btn-play');
+    playBtn.firstChild.textContent = this.audio.isPlaying ? '\u23F8' : '\u25B6';
+    playBtn.querySelector('.btn-label').textContent = this.audio.isPlaying ? ' Pause' : ' Play';
 
     if (this.audio.isPlaying) {
       this._startVUMeter();
@@ -542,7 +550,9 @@ class App {
 
   _stop() {
     this.audio.stop();
-    document.getElementById('btn-play').textContent = '\u25B6 Play';
+    const playBtn = document.getElementById('btn-play');
+    playBtn.firstChild.textContent = '\u25B6';
+    playBtn.querySelector('.btn-label').textContent = ' Play';
     this.spectrogram.updatePlaybackCursor(0);
     this._updateInfoStrip();
     this._stopVUMeter();
@@ -788,7 +798,8 @@ class App {
       btn.style.display = 'none';
     } else {
       btn.style.display = '';
-      btn.textContent = `Export ${rate}x`;
+      const label = btn.querySelector('.btn-label-speed');
+      if (label) label.textContent = ` ${rate}x`;
     }
   }
 
@@ -1646,6 +1657,11 @@ class App {
       };
       this._startVUMeter(true);
 
+      // Update toolbar Live toggle button
+      const btnLive = document.getElementById('btn-live');
+      btnLive.classList.add('btn-live-active');
+      btnLive.querySelector('.btn-label').textContent = ' Stop';
+
       this._setStatus(`Live input: ${this._liveCapture.sampleRate} Hz`);
       this._updateLiveStatus();
     } catch (e) {
@@ -1677,6 +1693,11 @@ class App {
     this._stopVUMeter();
     this._livePeakDb = -Infinity;
     this._liveRmsDb = -Infinity;
+
+    // Reset toolbar Live toggle button
+    const btnLive = document.getElementById('btn-live');
+    btnLive.classList.remove('btn-live-active');
+    btnLive.querySelector('.btn-label').textContent = ' Live';
 
     // Restore file-mode controls
     document.getElementById('live-controls').classList.remove('active');
@@ -1725,14 +1746,16 @@ class App {
     if (this._liveCapture.isRecording) {
       this._liveRecordingBlob = this._liveCapture.stopRecording();
       btn.classList.remove('recording');
-      btn.innerHTML = '&#x25CF; Rec';
+      btn.firstChild.textContent = '\u25CF';
+      btn.querySelector('.btn-label').textContent = ' Rec';
       if (this._liveRecordingBlob) {
         document.getElementById('btn-live-save').style.display = '';
       }
     } else {
       this._liveCapture.startRecording();
       btn.classList.add('recording');
-      btn.innerHTML = '&#x25A0; Stop Rec';
+      btn.firstChild.textContent = '\u25A0';
+      btn.querySelector('.btn-label').textContent = ' Stop';
       document.getElementById('btn-live-save').style.display = 'none';
       this._liveRecordingBlob = null;
     }

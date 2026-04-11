@@ -50,20 +50,21 @@
 
       <span class="toolbar-sep"></span>
 
-      <button id="btn-open-file" class="btn toolbar-btn">Open</button>
+      <button id="btn-open-file" class="btn toolbar-btn" title="Open files">&#x1F4C1;<span class="btn-label"> Open</span></button>
       <input type="file" id="file-input-toolbar" multiple accept=".wav" style="display:none">
+      <button id="btn-live" class="btn toolbar-btn btn-live-toggle" title="Live input">&#x25C9;<span class="btn-label"> Live</span></button>
 
       <span class="toolbar-sep"></span>
 
-      <button id="btn-play" class="btn btn-accent toolbar-btn btn-play-pause">&triangleright; Play</button>
-      <button id="btn-stop" class="btn toolbar-btn">&square; Stop</button>
+      <button id="btn-play" class="btn btn-accent toolbar-btn btn-play-pause">&#x25B6;<span class="btn-label"> Play</span></button>
+      <button id="btn-stop" class="btn toolbar-btn">&#x25A0;<span class="btn-label"> Stop</span></button>
 
       <span class="toolbar-sep"></span>
 
       <label class="toolbar-label">Play as:</label>
       <select id="select-speed" class="select"><option value="1" selected>1×</option></select>
-      <button id="btn-export" class="btn btn-accent toolbar-btn">Export WAV</button>
-      <button id="btn-export-speed" class="btn btn-accent toolbar-btn" style="display:none">Export 0.25x</button>
+      <button id="btn-export" class="btn btn-accent toolbar-btn" title="Export WAV">&#x2913;<span class="btn-label"> WAV</span></button>
+      <button id="btn-export-speed" class="btn btn-accent toolbar-btn" style="display:none">&#x2913;<span class="btn-label btn-label-speed"> 0.25x</span></button>
 
       <span class="toolbar-sep"></span>
 
@@ -117,16 +118,16 @@
           <option value="20">20s</option>
           <option value="30">30s</option>
         </select>
-        <button id="btn-live-record" class="btn toolbar-btn btn-record" title="Record live input">&#x25CF; Rec</button>
-        <button id="btn-live-save" class="btn toolbar-btn" title="Save recording as WAV" style="display:none">Save WAV</button>
-        <button id="btn-live-stop" class="btn toolbar-btn btn-stop-live" title="Stop live input">Stop Live</button>
+        <button id="btn-live-record" class="btn toolbar-btn btn-record" title="Record live input">&#x25CF;<span class="btn-label"> Rec</span></button>
+        <button id="btn-live-save" class="btn toolbar-btn" title="Save recording as WAV" style="display:none">&#x2913;<span class="btn-label"> Save</span></button>
+        <button id="btn-live-stop" class="btn toolbar-btn btn-stop-live" title="Stop live input">&#x25A0;<span class="btn-label"> Stop</span></button>
         <span id="live-status" class="info-text"></span>
       </div>
 
       <span class="toolbar-spacer"></span>
 
-      <button id="btn-annotations" class="btn toolbar-btn">Annotations</button>
-      <button id="btn-metadata" class="btn toolbar-btn">Metadata</button>
+      <button id="btn-annotations" class="btn toolbar-btn" title="Annotations">&#x2630;<span class="btn-label"> Notes</span></button>
+      <button id="btn-metadata" class="btn toolbar-btn" title="Metadata">&#x2139;<span class="btn-label"> Meta</span></button>
       <button id="btn-theme" class="btn toolbar-btn btn-theme" title="Toggle dark mode">&#x263E;</button>
       <button id="btn-shortcuts" class="btn toolbar-btn btn-help" title="Keyboard shortcuts">?</button>
     </div>
