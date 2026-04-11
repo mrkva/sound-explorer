@@ -52,7 +52,11 @@
 
       <button id="btn-open-file" class="btn toolbar-btn" title="Open files">&#x1F4C1;<span class="btn-label"> Open</span></button>
       <input type="file" id="file-input-toolbar" multiple accept=".wav" style="display:none">
+      <button id="btn-export" class="btn btn-accent toolbar-btn" title="Export WAV">&#x2913;<span class="btn-label"> WAV</span></button>
+      <button id="btn-export-speed" class="btn btn-accent toolbar-btn" style="display:none">&#x2913;<span class="btn-label btn-label-speed"> 0.25x</span></button>
       <button id="btn-live" class="btn toolbar-btn btn-live-toggle" title="Live input">&#x25C9;<span class="btn-label"> Live</span></button>
+      <button id="btn-live-record" class="btn toolbar-btn btn-record" title="Record live input">&#x25CF;<span class="btn-label"> Rec</span></button>
+      <button id="btn-live-save" class="btn toolbar-btn" title="Save recording as WAV" style="display:none">&#x2913;<span class="btn-label"> Save</span></button>
 
       <span class="toolbar-sep"></span>
 
@@ -63,8 +67,6 @@
 
       <label class="toolbar-label">Play as:</label>
       <select id="select-speed" class="select"><option value="1" selected>1×</option></select>
-      <button id="btn-export" class="btn btn-accent toolbar-btn" title="Export WAV">&#x2913;<span class="btn-label"> WAV</span></button>
-      <button id="btn-export-speed" class="btn btn-accent toolbar-btn" style="display:none">&#x2913;<span class="btn-label btn-label-speed"> 0.25x</span></button>
 
       <span class="toolbar-sep"></span>
 
@@ -107,10 +109,8 @@
 
       <span class="toolbar-sep"></span>
 
-      <!-- Live input controls (hidden until live mode) -->
+      <!-- Live input controls (visible during live mode) -->
       <div id="live-controls">
-        <select id="select-input-device" class="select" title="Audio input device"></select>
-        <label class="toolbar-label">View:</label>
         <select id="select-live-window" class="select" title="Visible time window">
           <option value="2">2s</option>
           <option value="5">5s</option>
@@ -118,10 +118,6 @@
           <option value="20">20s</option>
           <option value="30">30s</option>
         </select>
-        <button id="btn-live-record" class="btn toolbar-btn btn-record" title="Record live input">&#x25CF;<span class="btn-label"> Rec</span></button>
-        <button id="btn-live-save" class="btn toolbar-btn" title="Save recording as WAV" style="display:none">&#x2913;<span class="btn-label"> Save</span></button>
-        <button id="btn-live-stop" class="btn toolbar-btn btn-stop-live" title="Stop live input">&#x25A0;<span class="btn-label"> Stop</span></button>
-        <span id="live-status" class="info-text"></span>
       </div>
 
       <span class="toolbar-spacer"></span>
@@ -279,6 +275,10 @@
         <div class="control-group">
           <label class="ctrl-label" title="Playback volume">Vol</label>
           <input id="input-volume" type="range" min="0" max="1" value="1" step="0.01" class="slider">
+        </div>
+        <div id="input-device-group" class="control-group" style="display:none">
+          <label class="ctrl-label" title="Audio input device">Input</label>
+          <select id="select-input-device" class="select select-small"></select>
         </div>
       </div>
 

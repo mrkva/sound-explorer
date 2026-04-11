@@ -23,6 +23,8 @@ class App {
     this._liveCapture = null;
     this._livePeakDb = -100;
     this._liveRmsDb = -100;
+    this._liveRecordingStartTime = null;
+    this._liveRecordingStartWall = null;
 
     this._initUI();
     this._initDragDrop();
@@ -49,9 +51,16 @@ class App {
     const isMobile = window.innerWidth <= 768;
 
     const vis = {
-      // Always visible
-      'btn-open-file': true,
+      // File I/O group (Open + Export together)
+      'btn-open-file': !isLive,
+      'btn-export': hasFile && !isLive,
+      'btn-export-speed': false, // managed by speed selector logic
+
+      // Live group (Live + Rec + Save together)
       'btn-live': true,
+      'btn-live-record': isLive,
+      'btn-live-save': hasRecording && !isLive,
+
       'btn-vu': true,
       'btn-theme': !isMobile || !isLive,
       'btn-shortcuts': !isMobile,
@@ -60,8 +69,6 @@ class App {
       'btn-play': hasFile,
       'btn-stop': hasFile,
       'select-speed': hasFile,
-      'btn-export': hasFile,
-      'btn-export-speed': false, // managed by speed selector logic
 
       // Navigation (file or frozen)
       'btn-zoom-in': hasFile || isFrozen,
@@ -78,11 +85,8 @@ class App {
       'btn-annotations': hasFile,
       'btn-metadata': hasFile,
 
-      // Live controls (inside #live-controls container)
-      'btn-live-record': isLive,
-      'btn-live-stop': false, // stop handled by btn-live toggle
-      'btn-live-save': hasRecording && !isLive,
-      'live-status': isLive && !isMobile,
+      // Live controls (window selector in toolbar)
+      'select-live-window': isLive,
     };
 
     for (const [id, show] of Object.entries(vis)) {
@@ -90,9 +94,13 @@ class App {
       if (el) el.style.display = show ? '' : 'none';
     }
 
-    // Live controls container — device selector, window, rec, stop
+    // Live controls container
     const liveCtrl = document.getElementById('live-controls');
     if (liveCtrl) liveCtrl.classList.toggle('active', isLive);
+
+    // Input device selector in bottom panel (visible during live)
+    const deviceGroup = document.getElementById('input-device-group');
+    if (deviceGroup) deviceGroup.style.display = isLive ? '' : 'none';
 
     // Volume group (file mode only)
     const volGroup = document.getElementById('input-volume')?.closest('.control-group');
@@ -111,12 +119,12 @@ class App {
       el.style.display = (showSeps && !isMobile) ? '' : 'none';
     });
 
-    // Live button: toggle between Live / Stop (icon + label span)
+    // Live button: toggle between Live / Stop Live (icon + label span)
     const btnLive = document.getElementById('btn-live');
     if (btnLive) {
       btnLive.firstChild.textContent = isLive ? '\u25A0' : '\u25C9';
       const lbl = btnLive.querySelector('.btn-label');
-      if (lbl) lbl.textContent = isLive ? ' Stop' : ' Live';
+      if (lbl) lbl.textContent = isLive ? ' Stop Live' : ' Live';
       btnLive.classList.toggle('btn-live-active', isLive);
     }
   }
@@ -379,7 +387,6 @@ class App {
       }
     });
     document.getElementById('btn-live-start').addEventListener('click', () => this._startLive());
-    document.getElementById('btn-live-stop').addEventListener('click', () => this._stopLive());
     document.getElementById('btn-live-record').addEventListener('click', () => this._toggleLiveRecord());
     document.getElementById('btn-live-save').addEventListener('click', () => this._saveLiveRecording());
     document.getElementById('select-input-device').addEventListener('change', (e) => {
@@ -1781,6 +1788,13 @@ class App {
       this._stopVUMeter();
       this._livePeakDb = -100;
       this._liveRmsDb = -100;
+      this._liveRecordingStartTime = null;
+
+      // Clear live info strip fields
+      document.getElementById('info-wallclock').textContent = '';
+      document.getElementById('info-position').textContent = '';
+      document.getElementById('info-duration').textContent = '';
+      document.getElementById('info-file').textContent = '';
 
       // If we have a recording, load it into file analysis mode
       if (recordingBlob) {
@@ -1819,11 +1833,14 @@ class App {
 
     if (this._liveCapture.isRecording) {
       this._liveRecordingBlob = this._liveCapture.stopRecording();
+      this._liveRecordingStartTime = null;
       btn.classList.remove('recording');
       btn.firstChild.textContent = '\u25CF';
       btn.querySelector('.btn-label').textContent = ' Rec';
     } else {
       this._liveCapture.startRecording();
+      this._liveRecordingStartTime = performance.now();
+      this._liveRecordingStartWall = new Date();
       btn.classList.add('recording');
       btn.firstChild.textContent = '\u25A0';
       btn.querySelector('.btn-label').textContent = ' Stop';
@@ -1847,15 +1864,25 @@ class App {
 
   _updateLiveStatus() {
     if (!this._liveCapture || !this._liveCapture.isCapturing) return;
-    const sr = this._liveCapture.sampleRate;
-    const totalSec = this._liveCapture.totalSamples / sr;
-    const status = document.getElementById('live-status');
-    const rec = this._liveCapture.isRecording;
-    status.textContent = `${sr} Hz | ${this._formatTime(totalSec)}${rec ? ' | REC' : ''}`;
 
-    // Update info strip
-    document.getElementById('info-file').textContent = `Live ${sr} Hz`;
-    document.getElementById('info-duration').textContent = `DUR ${this._formatTime(totalSec)}`;
+    // Wall clock from system time
+    const now = new Date();
+    const wall = `WALL ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    document.getElementById('info-wallclock').textContent = wall;
+
+    // File info
+    document.getElementById('info-file').textContent = `Live ${this._liveCapture.sampleRate} Hz`;
+
+    // Position: blank during live
+    document.getElementById('info-position').textContent = '';
+
+    // Duration: only when recording
+    if (this._liveCapture.isRecording && this._liveRecordingStartTime) {
+      const elapsed = (performance.now() - this._liveRecordingStartTime) / 1000;
+      document.getElementById('info-duration').textContent = `REC ${this._formatTime(elapsed)}`;
+    } else {
+      document.getElementById('info-duration').textContent = '';
+    }
 
     requestAnimationFrame(() => this._updateLiveStatus());
   }
