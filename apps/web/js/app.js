@@ -1106,8 +1106,8 @@ class App {
 
   _bigVURows = []; // [{cover, peakBar, track, dbLabel, peakHoldDb, peakHoldTime}]
   _bigVUVisible = true;
-  _peakHoldDuration = 1500; // ms to hold peak before decay
-  _peakDecayRate = 15;      // dB/s decay speed
+  _peakHoldDuration = 2000; // ms to hold peak before decay
+  _peakDecayRate = 12;      // dB/s decay speed (IEC 60268-10 Type II: 20 dB / 1.7s ≈ 12 dB/s)
 
   _buildBigVUMeter(numChannels) {
     const container = document.getElementById('vu-meter-big');
@@ -1230,12 +1230,16 @@ class App {
           const ch = channels[i];
           const r = bigRows[i];
 
-          // Ballistic smoothing: instant attack, ~300ms decay
+          // Ballistic smoothing per IEC 60268-10 Type II (digital PPM)
+          // Attack: 5 ms integration time (exponential rise)
+          // Decay: ~12 dB/s (20 dB in 1.7 s)
           const targetDb = Math.max(-100, ch.peak);
-          if (targetDb >= r.smoothedDb) {
-            r.smoothedDb = targetDb; // instant attack
+          if (targetDb > r.smoothedDb) {
+            // Attack: exponential approach with 5 ms time constant
+            const attackCoeff = 1 - Math.exp(-dt / 0.005);
+            r.smoothedDb += (targetDb - r.smoothedDb) * attackCoeff;
           } else {
-            r.smoothedDb -= 80 * dt; // decay 80 dB/s (~300ms from 0 to -24)
+            r.smoothedDb -= 12 * dt; // decay 12 dB/s
             if (r.smoothedDb < targetDb) r.smoothedDb = targetDb;
           }
           const barW = Math.max(0, Math.min(100, (r.smoothedDb + 60) / 60 * 100));
