@@ -21,8 +21,8 @@ class App {
     this._spectGain = 0;
     this._spectRange = 90;
     this._liveCapture = null;
-    this._livePeakDb = -Infinity;
-    this._liveRmsDb = -Infinity;
+    this._livePeakDb = -100;
+    this._liveRmsDb = -100;
 
     this._initUI();
     this._initDragDrop();
@@ -1784,8 +1784,8 @@ class App {
 
       // Stop VU meter
       this._stopVUMeter();
-      this._livePeakDb = -Infinity;
-      this._liveRmsDb = -Infinity;
+      this._livePeakDb = -100;
+      this._liveRmsDb = -100;
 
       // If we have a recording, load it into file analysis mode
       if (recordingBlob) {
