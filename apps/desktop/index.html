@@ -13,16 +13,16 @@
     <span class="toolbar-title">Sound Explorer</span>
     <div class="toolbar-separator"></div>
     <div class="toolbar-group">
-      <button id="btn-open-folder" class="primary">Open Folder</button>
-      <button id="btn-open-file">Open File(s)</button>
       <button id="btn-live-input" class="live-btn" title="Live audio input from microphone or sound card">Live Input</button>
+      <button id="btn-open-folder" class="primary" title="Open a folder of WAV files">Open Folder</button>
+      <button id="btn-open-file" title="Open individual WAV file(s)">Open File(s)</button>
     </div>
 
     <div class="toolbar-separator"></div>
 
     <div class="toolbar-group">
-      <button id="btn-play" class="transport-btn">&#9654; Play</button>
-      <button id="btn-stop" class="transport-btn">&#9632; Stop</button>
+      <button id="btn-play" class="transport-btn btn-action" title="Play / Pause (Space)">&#9654; Play</button>
+      <button id="btn-stop" class="transport-btn" title="Stop playback">&#9632; Stop</button>
       <div class="control-item">
         <label for="output-samplerate">Play as</label>
         <select id="output-samplerate" title="Sample rate interpretation (tape speed)">
@@ -34,9 +34,9 @@
     <div class="toolbar-separator"></div>
 
     <div class="toolbar-group">
-      <button id="btn-zoom-in">+ Zoom</button>
-      <button id="btn-zoom-out">- Zoom</button>
-      <button id="btn-zoom-fit">Fit</button>
+      <button id="btn-zoom-in" title="Zoom in (scroll up)">+ Zoom</button>
+      <button id="btn-zoom-out" title="Zoom out (scroll down)">- Zoom</button>
+      <button id="btn-zoom-fit" title="Fit entire session in view">Fit</button>
       <button id="btn-zoom-sel" title="Zoom to selection (S)">Sel</button>
     </div>
 
@@ -81,8 +81,8 @@
       <span class="selection-info" id="selection-info"></span>
       <button id="btn-annotate-selection" class="annotations-btn">Annotate</button>
       <button id="btn-trim-selection" title="Crop view to selection (T). Use Export WAV to save.">Trim</button>
-      <button id="btn-export-selection" title="Export selection as WAV">Export WAV</button>
-      <button id="btn-export-slowed" title="Export selection with current playback speed applied" style="display:none;">Export Slowed</button>
+      <button id="btn-export-selection" class="btn-save" title="Export selection as WAV">Export WAV</button>
+      <button id="btn-export-slowed" class="btn-save" title="Export selection with current playback speed applied" style="display:none;">Export Slowed</button>
     </div>
 
     <div class="toolbar-group">
@@ -103,8 +103,8 @@
           <option value="30">30s</option>
         </select>
       </div>
-      <button id="btn-live-record" title="Record live input">&#x23FA; Rec</button>
-      <button id="btn-live-save" title="Save recording as WAV" style="display:none;">Save WAV</button>
+      <button id="btn-live-record" class="btn-record" title="Record live input">&#x23FA; Rec</button>
+      <button id="btn-live-save" class="btn-save" title="Save recording as WAV" style="display:none;">Save WAV</button>
       <button id="btn-live-stop" class="danger" title="Stop live input">Stop Live</button>
       <span id="live-status" class="live-status"></span>
     </div>

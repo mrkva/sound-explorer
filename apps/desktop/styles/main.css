@@ -152,7 +152,32 @@ button.primary {
 }
 button.primary:hover { background: var(--btn-primary-hover); }
 
-/* Live input button */
+/* Action buttons — blue accent for play, primary actions */
+.btn-action {
+  background: var(--highlight);
+  border-color: var(--highlight);
+  color: #fff;
+  font-weight: 600;
+}
+.btn-action:hover {
+  filter: brightness(1.15);
+  background: var(--highlight);
+  border-color: var(--highlight);
+}
+
+/* Save/export buttons — blue accent */
+.btn-save {
+  background: var(--highlight);
+  border-color: var(--highlight);
+  color: #fff;
+}
+.btn-save:hover {
+  filter: brightness(1.15);
+  background: var(--highlight);
+  border-color: var(--highlight);
+}
+
+/* Live toggle — green, turns red when active */
 .live-btn {
   background: #2a9d2a;
   border-color: #2a9d2a;
@@ -160,6 +185,27 @@ button.primary:hover { background: var(--btn-primary-hover); }
   font-weight: 600;
 }
 .live-btn:hover { background: #238f23; border-color: #238f23; }
+
+.live-btn.live-active {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.live-btn.live-active:hover {
+  background: #b53030;
+  border-color: #b53030;
+}
+
+/* Record button — red outline, fills when recording */
+.btn-record {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: transparent;
+}
+.btn-record:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
 
 button.danger {
   color: var(--danger);

@@ -656,7 +656,7 @@ class App {
       const wavFiles = files.filter(f => f.name.toLowerCase().endsWith('.wav'));
 
       if (wavFiles.length === 0) {
-        this._setStatus('No WAV files found in drop');
+        this._setStatus('Only WAV files are supported — please convert your audio to WAV format');
         return;
       }
 
@@ -3078,6 +3078,7 @@ class App {
 
       // Show live controls, hide file controls
       document.getElementById('live-controls').style.display = '';
+      document.getElementById('btn-live-input').classList.add('live-active');
       this.btnPlay.style.display = 'none';
       this.btnStop.style.display = 'none';
       // Hide file-only toolbar controls
@@ -3097,7 +3098,13 @@ class App {
       this._updateLiveStatus();
     } catch (e) {
       console.error('Live input error:', e);
-      this._setStatus(`Live input error: ${e.message}`);
+      if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+        this._setStatus('Microphone access denied — please allow microphone in your system settings and try again');
+      } else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError') {
+        this._setStatus('No microphone found — please connect an audio input device');
+      } else {
+        this._setStatus(`Live input error: ${e.message}`);
+      }
     }
   }
 
@@ -3119,6 +3126,7 @@ class App {
     }
 
     document.getElementById('live-controls').style.display = 'none';
+    document.getElementById('btn-live-input').classList.remove('live-active');
     document.getElementById('btn-live-save').style.display = 'none';
     this.btnPlay.style.display = '';
     this.btnStop.style.display = '';
@@ -3174,6 +3182,7 @@ class App {
       btn.innerHTML = '&#x23FA; Rec';
       if (this._liveRecordingBlob) {
         document.getElementById('btn-live-save').style.display = '';
+        this._setStatus('Recording ready — click Stop Live to load for playback, or Save WAV to export');
       }
     } else {
       this._liveCapture.startRecording();
@@ -3205,10 +3214,18 @@ class App {
     const totalSec = this._liveCapture.totalSamples / sr;
     const status = document.getElementById('live-status');
     const rec = this._liveCapture.isRecording;
-    status.textContent = `${sr} Hz | ${this._formatTime(totalSec)}${rec ? ' | REC' : ''}`;
+
+    // Wall clock time
+    const now = new Date();
+    const wallText = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+
+    status.textContent = `${sr} Hz | ${this._formatTime(totalSec)}${rec ? ' | REC' : ''} | ${wallText}`;
 
     this.fileInfoDisplay.textContent = `Live ${sr} Hz`;
-    this.durationDisplay.textContent = this._formatTime(totalSec);
+    // Show wall clock in the wall-time display
+    const wallTimeEl = document.getElementById('wall-time');
+    if (wallTimeEl) wallTimeEl.textContent = wallText;
+    this.durationDisplay.textContent = rec ? `REC ${this._formatTime(totalSec)}` : this._formatTime(totalSec);
 
     requestAnimationFrame(() => this._updateLiveStatus());
   }
