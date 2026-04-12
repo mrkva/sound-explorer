@@ -2,7 +2,7 @@
  * Spectrogram renderer — manages canvas, FFT workers, tile cache, interaction.
  */
 
-import { WavParser } from './wav-parser.js?v=3';
+import { WavParser } from './wav-parser.js';
 import { getWindow, fft, magnitudesDB } from './fft-core.js';
 import { buildColorLUT } from './colormaps.js';
 

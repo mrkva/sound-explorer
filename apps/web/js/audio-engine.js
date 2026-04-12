@@ -9,7 +9,7 @@
  * For speedup (rate > 1), we use playbackRate since browsers handle that fine.
  */
 
-import { WavParser } from './wav-parser.js?v=0.2.2';
+import { WavParser } from './wav-parser.js';
 
 export class AudioEngine {
   constructor() {

@@ -3,9 +3,9 @@
  */
 
 import { VERSION } from './version.js';
-import { WavParser } from './wav-parser.js?v=0.2.3';
-import { SpectrogramRenderer } from './spectrogram.js?v=0.2.3';
-import { AudioEngine } from './audio-engine.js?v=0.2.3';
+import { WavParser } from './wav-parser.js';
+import { SpectrogramRenderer } from './spectrogram.js';
+import { AudioEngine } from './audio-engine.js';
 import { parseIXML, buildIXML, formDataToIXML, ixmlToFormData } from './ixml.js';
 import { parseFRM, serializeFRM } from './frm.js';
 import { LiveCapture } from './live-capture.js';
@@ -1848,6 +1848,7 @@ class App {
       btn.classList.remove('recording');
       btn.firstChild.textContent = '\u25CF';
       btn.querySelector('.btn-label').textContent = ' Rec';
+      this._setStatus('Recording stopped — stop live to save');
     } else {
       this._liveCapture.startRecording();
       this._liveRecordingStartTime = performance.now();
