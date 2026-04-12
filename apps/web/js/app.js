@@ -1803,7 +1803,12 @@ class App {
     if (this._liveCapture) {
       // Stop recording if active
       if (this._liveCapture.isRecording) {
-        recordingBlob = this._liveCapture.stopRecording();
+        try {
+          recordingBlob = this._liveCapture.stopRecording();
+        } catch (e) {
+          console.error('Failed to create recording blob:', e);
+          this._liveCapture.isRecording = false;
+        }
       }
       // Also grab any previously stopped recording
       if (!recordingBlob) recordingBlob = this._liveRecordingBlob;
@@ -1871,9 +1876,17 @@ class App {
     if (!this._liveCapture || !this._liveCapture.isCapturing) return;
 
     if (this._liveCapture.isRecording) {
-      this._liveRecordingBlob = this._liveCapture.stopRecording();
-      this._liveRecordingStartTime = null;
+      // Update visuals FIRST — before blob creation which can fail on large recordings
       this.spectrogram.stopRecordingRegion();
+      this._liveRecordingStartTime = null;
+
+      try {
+        this._liveRecordingBlob = this._liveCapture.stopRecording();
+      } catch (e) {
+        console.error('Failed to create recording blob:', e);
+        this._liveCapture.isRecording = false;
+        this._liveRecordingBlob = null;
+      }
       this._setStatus('Recording stopped — stop live to save');
     } else {
       this._liveCapture.startRecording();
