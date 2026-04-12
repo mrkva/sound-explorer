@@ -1,6 +1,7 @@
 /**
  * Service Worker for Sound Explorer PWA.
- * Caches app shell for offline use and signals the page when updates are available.
+ * Uses network-first strategy so users always get fresh code when online,
+ * with cache fallback for offline use.
  */
 
 // Keep in sync with js/version.js
@@ -31,11 +32,9 @@ const APP_SHELL = [
   './manifest.json'
 ];
 
-// Install: cache the app shell (bypass HTTP cache to ensure fresh files)
-// skipWaiting() ensures the new SW activates immediately without waiting
-// for all tabs to close — critical for pushing updates reliably.
+// Install: cache the app shell, then activate immediately.
+// All fetches use cache:'reload' to bypass the HTTP cache and get fresh files.
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return Promise.all(
@@ -46,11 +45,11 @@ self.addEventListener('install', (event) => {
           })
         )
       );
-    })
+    }).then(() => self.skipWaiting())
   );
 });
 
-// Activate: delete old caches, claim clients, notify all tabs
+// Activate: delete old caches, take control of all tabs, notify them.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -60,7 +59,6 @@ self.addEventListener('activate', (event) => {
           .map((key) => caches.delete(key))
       );
     }).then(() => {
-      // Take control of all open tabs immediately
       return self.clients.claim();
     }).then(() => {
       return self.clients.matchAll({ type: 'window' }).then((clients) => {
@@ -72,26 +70,37 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch: serve from cache, fall back to network (and update cache)
+// Fetch: network-first for navigation and same-origin requests.
+// Try the network, update the cache on success, fall back to cache on failure.
+// This ensures users always get the latest version when online.
 self.addEventListener('fetch', (event) => {
-  // Only handle same-origin GET requests
   if (event.request.method !== 'GET') return;
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      // Return cached version immediately, but also fetch update in background
-      const fetchPromise = fetch(event.request).then((response) => {
-        // Only cache valid responses
-        if (response && response.status === 200 && response.type === 'basic') {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
+  // For navigation requests (page loads), always go to network first
+  // and fall back to the cached index.html for offline support.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         return response;
       }).catch(() => {
-        // Network failed, cached version (if any) was already returned
-      });
+        return caches.match('./index.html');
+      })
+    );
+    return;
+  }
 
-      return cached || fetchPromise;
+  // For all other same-origin requests: network first, cache fallback.
+  event.respondWith(
+    fetch(event.request).then((response) => {
+      if (response && response.status === 200 && response.type === 'basic') {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+      }
+      return response;
+    }).catch(() => {
+      return caches.match(event.request);
     })
   );
 });

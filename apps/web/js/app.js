@@ -1945,48 +1945,35 @@ if ('serviceWorker' in navigator) {
     // updateViaCache: 'none' forces the browser to always fetch sw.js
     // from the network, bypassing HTTP cache for update checks.
     navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
-      // Check for updates every 5 minutes
-      setInterval(() => reg.update(), 5 * 60 * 1000);
+      // Check for updates immediately, then every 2 minutes
+      reg.update().catch(() => {});
+      setInterval(() => reg.update().catch(() => {}), 2 * 60 * 1000);
 
       // Also check when the user comes back to the tab
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') reg.update();
+        if (document.visibilityState === 'visible') reg.update().catch(() => {});
       });
 
-      // A new SW is waiting — show update banner
-      const showUpdateBanner = () => {
-        const banner = document.getElementById('update-banner');
-        if (banner) banner.style.display = '';
-
-        const btnUpdate = document.getElementById('btn-update');
-        if (btnUpdate) {
-          btnUpdate.onclick = () => {
-            if (reg.waiting) {
-              reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-            }
-          };
-        }
-        const btnDismiss = document.getElementById('btn-dismiss-update');
-        if (btnDismiss) {
-          btnDismiss.onclick = () => {
-            if (banner) banner.style.display = 'none';
-          };
-        }
+      // A new SW is waiting — tell it to activate now
+      const activateWaiting = () => {
+        if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
       };
 
-      if (reg.waiting) {
-        showUpdateBanner();
-      }
+      // If a new SW is already waiting when the page loads, activate it
+      if (reg.waiting) activateWaiting();
 
       reg.addEventListener('updatefound', () => {
         const newWorker = reg.installing;
         if (!newWorker) return;
         newWorker.addEventListener('statechange', () => {
           if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            showUpdateBanner();
+            // New version installed — activate immediately
+            activateWaiting();
           }
         });
       });
+    }).catch((err) => {
+      console.error('SW registration failed:', err);
     });
 
     // When the new SW activates and takes over, reload the page
@@ -2003,6 +1990,30 @@ if ('serviceWorker' in navigator) {
       if (event.data && event.data.type === 'SW_UPDATED') {
         console.log(`Service worker updated to v${event.data.version}`);
       }
+    });
+
+    // Proactive version check: fetch version.js directly from the server
+    // and compare with the running version. If they differ, force-unregister
+    // the old SW and hard-reload to break out of stale cache loops.
+    // The random query param ensures this bypasses the SW cache (which matches
+    // on full URL including query string — this URL won't match any cached entry).
+    fetch(`./js/version.js?_nocache=${Date.now()}`, { cache: 'no-store' }).then(r => r.text()).then(text => {
+      const match = text.match(/VERSION\s*=\s*'([^']+)'/);
+      if (match && match[1] !== VERSION) {
+        console.warn(`Version mismatch: running ${VERSION}, server has ${match[1]}. Forcing update.`);
+        navigator.serviceWorker.getRegistration().then(reg => {
+          if (reg) return reg.unregister();
+        }).then(() => {
+          // Clear all SW caches
+          return caches.keys().then(keys =>
+            Promise.all(keys.map(k => caches.delete(k)))
+          );
+        }).then(() => {
+          window.location.reload();
+        });
+      }
+    }).catch(() => {
+      // Network unavailable — skip version check
     });
   });
 }
