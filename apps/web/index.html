@@ -21,7 +21,7 @@
       <p class="drop-hint-desktop">Drag &amp; drop WAV files here</p>
       <p class="drop-sub drop-hint-desktop">or</p>
       <div class="drop-actions">
-        <button id="btn-open" class="btn btn-accent drop-btn">
+        <button id="btn-open" class="btn btn-action drop-btn">
           <svg class="drop-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17v3a2 2 0 002 2h14a2 2 0 002-2v-3"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="16"/></svg>
           <span class="drop-btn-label">Open Files</span>
           <span class="drop-btn-sub">WAV audio files</span>
@@ -50,17 +50,17 @@
 
       <span class="toolbar-sep"></span>
 
-      <button id="btn-open-file" class="btn toolbar-btn" title="Open files"><span class="btn-icon">&#x1F4C1;</span><span class="btn-label"> Open</span></button>
-      <input type="file" id="file-input-toolbar" multiple accept=".wav" style="display:none">
-      <button id="btn-export" class="btn btn-accent toolbar-btn" title="Export WAV"><span class="btn-icon">&#x2913;</span><span class="btn-label"> WAV</span></button>
-      <button id="btn-export-speed" class="btn btn-accent toolbar-btn" style="display:none"><span class="btn-icon">&#x2913;</span><span class="btn-label btn-label-speed"> 0.25x</span></button>
       <button id="btn-live" class="btn toolbar-btn btn-live-toggle" title="Live input"><span class="btn-icon">&#x25C9;</span><span class="btn-label"> Live</span></button>
       <button id="btn-live-record" class="btn toolbar-btn btn-record" title="Record live input"><span class="btn-icon">&#x25CF;</span><span class="btn-label"> Rec</span></button>
-      <button id="btn-live-save" class="btn toolbar-btn" title="Save recording as WAV" style="display:none"><span class="btn-icon">&#x2913;</span><span class="btn-label"> Save</span></button>
+      <button id="btn-live-save" class="btn toolbar-btn btn-save" title="Save recording as WAV" style="display:none"><span class="btn-icon">&#x2913;</span><span class="btn-label"> Save</span></button>
+      <button id="btn-open-file" class="btn toolbar-btn" title="Open files"><span class="btn-icon">&#x1F4C1;</span><span class="btn-label"> Open</span></button>
+      <input type="file" id="file-input-toolbar" multiple accept=".wav" style="display:none">
+      <button id="btn-export" class="btn toolbar-btn btn-save" title="Export WAV"><span class="btn-icon">&#x2913;</span><span class="btn-label"> WAV</span></button>
+      <button id="btn-export-speed" class="btn toolbar-btn btn-save" style="display:none"><span class="btn-icon">&#x2913;</span><span class="btn-label btn-label-speed"> 0.25x</span></button>
 
       <span class="toolbar-sep"></span>
 
-      <button id="btn-play" class="btn btn-accent toolbar-btn btn-play-pause"><span class="btn-icon">&#x25B6;</span><span class="btn-label"> Play</span></button>
+      <button id="btn-play" class="btn toolbar-btn btn-play-pause btn-action"><span class="btn-icon">&#x25B6;</span><span class="btn-label"> Play</span></button>
       <button id="btn-stop" class="btn toolbar-btn"><span class="btn-icon">&#x25A0;</span><span class="btn-label"> Stop</span></button>
 
       <span class="toolbar-sep"></span>
@@ -248,7 +248,7 @@
 
           </div>
           <div class="sidebar-meta-footer">
-            <button id="frm-download" class="btn btn-small btn-accent">Download .frm.txt</button>
+            <button id="frm-download" class="btn btn-small btn-save">Download .frm.txt</button>
             <label class="meta-apply-label"><input type="checkbox" id="frm-apply-export" checked> Embed in exports</label>
           </div>
         </div>
@@ -371,7 +371,7 @@
     <!-- Update banner -->
     <div id="update-banner" class="update-banner" style="display:none">
       <span>A new version is available.</span>
-      <button id="btn-update" class="btn btn-accent btn-small">Update now</button>
+      <button id="btn-update" class="btn btn-action btn-small">Update now</button>
       <button id="btn-dismiss-update" class="btn btn-small">&times;</button>
     </div>
   </div>

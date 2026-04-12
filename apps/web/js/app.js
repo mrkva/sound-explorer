@@ -70,10 +70,10 @@ class App {
       'btn-stop': hasFile,
       'select-speed': hasFile,
 
-      // Navigation (file or frozen)
-      'btn-zoom-in': hasFile || isFrozen,
-      'btn-zoom-out': hasFile || isFrozen,
-      'btn-fit': hasFile || isFrozen,
+      // Navigation (file only — frozen has no sample data to re-render)
+      'btn-zoom-in': hasFile,
+      'btn-zoom-out': hasFile,
+      'btn-fit': hasFile,
       'btn-sel': hasFile,
       'btn-trim': hasFile,
       'btn-untrim': hasFile && this.spectrogram && this.spectrogram.trimStart !== null,
@@ -110,10 +110,9 @@ class App {
     const infoStrip = document.getElementById('info-strip');
     if (infoStrip) infoStrip.style.display = (isMobile && isLive) ? 'none' : '';
 
-    // Toolbar separators: show when file or frozen content present
-    const showSeps = hasFile || isFrozen;
+    // Toolbar separators: show when file loaded (meaningful groups exist)
     document.querySelectorAll('#toolbar .toolbar-sep').forEach(el => {
-      el.style.display = showSeps ? '' : 'none';
+      el.style.display = hasFile ? '' : 'none';
     });
     // Toolbar labels ("Play as:", "Go To:"): only show when file loaded,
     // not in frozen mode — their associated controls require hasFile

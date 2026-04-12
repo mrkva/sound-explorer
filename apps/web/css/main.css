@@ -6,9 +6,9 @@
   --bg-tertiary: #d8d8d8;
   --text-primary: #000000;
   --text-secondary: #555555;
-  --accent: #f15656;
+  --accent: #4a90d9;
   --border: #cccccc;
-  --danger: #f15656;
+  --danger: #d94444;
   --input-bg: #ffffff;
   --slider-track: #cccccc;
   --slider-thumb: #000000;
@@ -23,7 +23,9 @@ body.dark {
   --bg-tertiary: #111111;
   --text-primary: #e0e0e0;
   --text-secondary: #888888;
+  --accent: #5a9de6;
   --border: #333333;
+  --danger: #d94444;
   --input-bg: #0a0a0a;
   --slider-track: #333333;
   --slider-thumb: #e0e0e0;
@@ -887,9 +889,9 @@ body.dark .toolbar-logo {
 /* --- Buttons --- */
 
 .btn {
-  background: transparent;
+  background: var(--bg-tertiary);
   color: var(--text-primary);
-  border: 2px solid var(--text-primary);
+  border: 1px solid var(--border);
   border-radius: 0.375em;
   padding: 4px 12px;
   font-size: 12px;
@@ -906,33 +908,36 @@ body.dark .toolbar-logo {
 }
 
 .btn:active {
-  background: #d94444;
-  border-color: #d94444;
-  color: #fff;
+  filter: brightness(0.85);
 }
 
-.btn-accent {
+/* Action buttons — blue accent for play, primary actions */
+.btn-action {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
 }
 
-.btn-accent:hover {
-  background: #d94444;
-  border-color: #d94444;
+.btn-action:hover {
+  filter: brightness(1.15);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
-.btn-live {
-  background: #2a9d2a;
-  border-color: #2a9d2a;
+/* Save/export buttons — subtle accent tint */
+.btn-save {
+  background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
 }
 
-.btn-live:hover {
-  background: #238f23;
-  border-color: #238f23;
+.btn-save:hover {
+  filter: brightness(1.15);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
+/* Live toggle — green */
 .btn-live-toggle {
   background: #2d8a4e;
   border-color: #2d8a4e;
@@ -940,23 +945,32 @@ body.dark .toolbar-logo {
 }
 
 .btn-live-toggle:hover {
-  background: #238f23;
-  border-color: #238f23;
+  background: #36a35d;
+  border-color: #36a35d;
 }
 
-.btn-live-active {
+/* Live active — red to signal "stop" */
+.btn-live-toggle.btn-live-active {
   background: var(--danger);
   border-color: var(--danger);
-  color: #fff;
 }
 
-.btn-live-active:hover {
+.btn-live-toggle.btn-live-active:hover {
   background: #b53030;
   border-color: #b53030;
 }
 
+/* Record button — red outline, only fills when recording */
 .btn-record {
   color: var(--danger);
+  border-color: var(--danger);
+  background: transparent;
+}
+
+.btn-record:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
 }
 
 .btn-record.recording {
@@ -969,26 +983,6 @@ body.dark .toolbar-logo {
 @keyframes pulse-record {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
-}
-
-.btn-stop-live {
-  color: var(--danger);
-}
-
-.btn-live-toggle {
-  background: #2d8a4e;
-  border-color: #2d8a4e;
-  color: #fff;
-}
-
-.btn-live-toggle:hover {
-  background: #36a35d;
-  border-color: #36a35d;
-}
-
-.btn-live-toggle.btn-live-active {
-  background: var(--danger);
-  border-color: var(--danger);
 }
 
 #live-controls {
