@@ -59,7 +59,7 @@ class App {
       // Live group (Live + Rec + Save together)
       'btn-live': true,
       'btn-live-record': isLive,
-      'btn-live-save': hasRecording && !isLive,
+      'btn-live-save': hasRecording,
 
       'btn-vu': true,
       'btn-theme': !isMobile || !isLive,
@@ -1847,6 +1847,7 @@ class App {
         // _loadFiles has its own try/catch — if it failed internally,
         // wavInfos was still set, so _updateUI() will show correct state
         this._updateUI();
+        this._setStatus('Recording loaded — play, change speed, or export');
         return;
       }
 
@@ -1887,7 +1888,7 @@ class App {
         this._liveCapture.isRecording = false;
         this._liveRecordingBlob = null;
       }
-      this._setStatus('Recording stopped — stop live to save');
+      this._setStatus('Recording ready — click Stop Live to play, change speed & export');
     } else {
       this._liveCapture.startRecording();
       this._liveRecordingStartTime = performance.now();
