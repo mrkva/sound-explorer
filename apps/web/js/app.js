@@ -466,8 +466,13 @@ class App {
     body.addEventListener('drop', (e) => {
       e.preventDefault();
       dropZone.classList.remove('active');
-      const files = Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.wav'));
-      if (files.length > 0) this._loadFiles(files);
+      const allFiles = Array.from(e.dataTransfer.files);
+      const files = allFiles.filter(f => f.name.toLowerCase().endsWith('.wav'));
+      if (files.length > 0) {
+        this._loadFiles(files);
+      } else if (allFiles.length > 0) {
+        this._setStatus('Only WAV files are supported — please convert your audio to WAV format');
+      }
     });
   }
 
@@ -1795,7 +1800,13 @@ class App {
       this._updateLiveStatus();
     } catch (e) {
       console.error('Live input error:', e);
-      this._setStatus(`Live input error: ${e.message}`);
+      if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+        this._setStatus('Microphone access denied — please allow microphone in your browser settings and try again');
+      } else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError') {
+        this._setStatus('No microphone found — please connect an audio input device');
+      } else {
+        this._setStatus(`Live input error: ${e.message}`);
+      }
     }
   }
 

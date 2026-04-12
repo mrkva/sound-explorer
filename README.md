@@ -4,43 +4,54 @@ A spectrogram viewer and audio player for exploring field recordings, built by [
 
 **Try it now: [mrkva.github.io/sound-explorer](https://mrkva.github.io/sound-explorer/)**
 
-Sound Explorer comes in two versions:
+No install needed. Works on desktop and mobile. All processing happens locally in your browser -- your files never leave your device.
 
-- **Web** -- runs in the browser, no install needed. Drag and drop WAV files, works offline as a PWA. Best for quick exploration of individual files and live audio input.
-- **Desktop** (Electron) -- handles large files and multi-file sessions. Load an entire night of recordings as one continuous zoomable spectrogram with wall-clock time navigation.
+## Quick start
 
-Both versions share the same core: FFT computed in parallel Web Workers, tile-cached spectrogram rendering, tape-speed playback, and colormap-based visualization.
+1. **Open** [mrkva.github.io/sound-explorer](https://mrkva.github.io/sound-explorer/)
+2. **Drag & drop** a WAV file onto the page, or click **Open Files**
+3. **Scroll** to zoom in/out on the spectrogram
+4. **Click** on the spectrogram to seek to that position
+5. Press **Space** to play/pause
+6. Change **Play as** speed to slow down ultrasonic content (e.g. 0.25x makes a 384 kHz recording audible)
+7. **Select** a region by Shift-clicking, then **Export** it as a WAV file
+
+### Live audio input
+
+1. Click **Live** to capture audio from your microphone or sound card
+2. Click **Rec** to record a segment
+3. Click **Stop Live** -- the recording loads automatically for playback and export
+4. Use **Play**, **Speed**, and **Export** just like with any WAV file
+
+### Keyboard shortcuts
+
+| Key | Action |
+|-----|--------|
+| Space | Play / Pause |
+| Left / Right | Seek -1s / +1s |
+| Shift + Left / Right | Seek -10s / +10s |
+| Scroll wheel | Zoom in / out |
+| S | Zoom to selection |
+| T | Trim to selection |
+| U | Untrim (restore full view) |
+| L | Toggle loop |
+| Esc | Clear selection |
 
 ## Features
 
-- **Spectrogram** -- parallel FFT across all CPU cores, tile cache for instant scrolling, six colormaps (viridis, magma, inferno, grayscale, green, hot), linear/logarithmic frequency scale, adjustable gain and dynamic range, FFT sizes from 128 to 32768
-- **FFT window functions** -- Hann (default), Hamming, Blackman-Harris, and Flat-top windows for controlling spectral leakage vs. frequency resolution tradeoff
-- **Tape-speed playback** -- change playback speed (0.0625x--4x) with proportional pitch shift, like speeding up or slowing down a tape. Useful for making ultrasonic content audible or skimming through long recordings
-- **Live audio input** -- capture audio from a microphone or sound card and view the spectrogram in real time. Select input device, adjust time window (2--30s), record and export as WAV. Available in both web and desktop versions
+- **Spectrogram** -- parallel FFT across all CPU cores, tile cache for instant scrolling, six colormaps (viridis, magma, inferno, grayscale, green, hot), linear/logarithmic frequency scale, adjustable brightness/contrast and dynamic range, FFT sizes from 128 to 32768
+- **FFT window functions** -- Hann (default for files), Blackman-Harris (default for live), Hamming, and Flat-top
+- **Tape-speed playback** -- change playback speed (0.0625x--4x) with proportional pitch shift, like speeding up or slowing down a tape. Makes ultrasonic content audible or lets you skim through long recordings
+- **Live audio input** -- capture audio from a microphone or sound card and view the spectrogram in real time. Select input device, adjust time window (2--30s), record segments and export as WAV with BWF timecode metadata
 - **Time-frequency navigation** -- scroll to zoom, drag to pan, click to seek, frequency range presets (Full, Birds, Voice, Low, Mid), overview minimap for quick navigation
-- **Selection and export** -- select a region, loop it, export as WAV. Preserves BWF timecode. Can export at altered speed. Trim view to selection
+- **Selection and export** -- select a region, loop it, export as WAV. Preserves BWF timecode. Can export at altered speed for time-expanded recordings. Trim view to selection
 - **Annotations** -- label time regions with notes, displayed as overlays on the spectrogram, export/import as JSON
-- **Multichannel** -- mono downmix, per-channel view, split L|R display
-- **VU meter** -- per-channel level metering with peak hold, dBFS scale, ballistic smoothing
-- **BWF/timecode** -- parses Broadcast Wave Format metadata for wall-clock timestamps
-- **Session metadata** -- comprehensive metadata forms (location, equipment, conditions, notes) with iXML and FRM sidecar support
-- **Theming** -- dark and light modes, saved to localStorage
-
-### Desktop-only features
-
-- Multi-file sessions: load a folder of WAVs stitched into one timeline via BWF timecode
-- Subsampled overview mode for 30+ minute recordings
-- iXML metadata read/write, Field Recording Metadata (FRM) sidecar support
-- Audio output device selection
-- Batch annotation export
-- Timecode offset correction (-12h to +12h)
-
-### Web-only features
-
-- Works offline as an installable PWA (service worker caching)
-- Mobile-optimized: touch crosshair with frequency/time labels, long-press for selection, responsive toolbar
-- Installable as standalone PWA on mobile
-- No server, no backend -- all processing happens locally in the browser
+- **Multichannel** -- mono downmix, per-channel view, split L|R display for stereo files
+- **VU meter** -- per-channel level metering with peak hold, dBFS scale
+- **BWF/timecode** -- parses Broadcast Wave Format metadata for wall-clock timestamps, preserved through export
+- **Session metadata** -- metadata forms (location, equipment, conditions, notes) with iXML and FRM sidecar support
+- **Dark/light mode** -- toggle with the moon/sun button, saved between sessions
+- **Offline support** -- works offline as an installable PWA after first visit
 
 ## Supported formats
 
@@ -51,11 +62,33 @@ Both versions share the same core: FFT computed in parallel Web Workers, tile-ca
 | WAVE_FORMAT_EXTENSIBLE | All above | Any |
 | BWF (Broadcast Wave) | All above | Any |
 
-## Running
+Only WAV files are supported. If you have MP3, FLAC, or other formats, convert them to WAV first (e.g. using [FFmpeg](https://ffmpeg.org/): `ffmpeg -i input.mp3 output.wav`).
+
+## Browser support
+
+Works in Chrome, Firefox, Edge, and Safari. Chrome recommended for best performance with large files and live audio input.
+
+## Two versions
+
+Sound Explorer comes in two versions:
+
+- **Web** -- runs in the browser, no install needed. Drag and drop WAV files, works offline as a PWA. Best for quick exploration and live audio input.
+- **Desktop** (Electron) -- handles large files and multi-file sessions. Load an entire night of recordings as one continuous zoomable spectrogram with wall-clock time navigation.
+
+Both versions share the same core: FFT computed in parallel Web Workers, tile-cached spectrogram rendering, tape-speed playback, and colormap-based visualization.
+
+### Desktop-only features
+
+- Multi-file sessions: load a folder of WAVs stitched into one timeline via BWF timecode
+- Subsampled overview mode for 30+ minute recordings
+- iXML metadata read/write, Field Recording Metadata (FRM) sidecar support
+- Audio output device selection
+- Batch annotation export
+- Timecode offset correction (-12h to +12h)
+
+## Running locally
 
 ### Web version
-
-No install needed -- just open [mrkva.github.io/sound-explorer](https://mrkva.github.io/sound-explorer/). To run locally:
 
 ```bash
 cd apps/web
@@ -84,10 +117,10 @@ See [apps/desktop/README.md](apps/desktop/README.md) for build and usage details
 
 ```
 sound-explorer/
-  docs/            ← shared documentation
+  docs/            <- shared documentation
   apps/
-    desktop/       ← Electron version (large files, multi-file sessions)
-    web/           ← browser version (GitHub Pages, PWA)
+    desktop/       <- Electron version (large files, multi-file sessions)
+    web/           <- browser version (GitHub Pages, PWA)
 ```
 
 Both versions share the same FFT engine (Cooley-Tukey radix-2) and colormap code, kept as local copies in each app's source folder.

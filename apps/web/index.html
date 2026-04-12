@@ -56,12 +56,12 @@
       <button id="btn-open-file" class="btn toolbar-btn" title="Open files"><span class="btn-icon">&#x1F4C1;</span><span class="btn-label"> Open</span></button>
       <input type="file" id="file-input-toolbar" multiple accept=".wav" style="display:none">
       <button id="btn-export" class="btn toolbar-btn btn-save" title="Export WAV"><span class="btn-icon">&#x2913;</span><span class="btn-label"> WAV</span></button>
-      <button id="btn-export-speed" class="btn toolbar-btn btn-save" style="display:none"><span class="btn-icon">&#x2913;</span><span class="btn-label btn-label-speed"> 0.25x</span></button>
+      <button id="btn-export-speed" class="btn toolbar-btn btn-save" title="Export WAV at current playback speed" style="display:none"><span class="btn-icon">&#x2913;</span><span class="btn-label btn-label-speed"> 0.25x</span></button>
 
       <span class="toolbar-sep"></span>
 
-      <button id="btn-play" class="btn toolbar-btn btn-play-pause btn-action"><span class="btn-icon">&#x25B6;</span><span class="btn-label"> Play</span></button>
-      <button id="btn-stop" class="btn toolbar-btn"><span class="btn-icon">&#x25A0;</span><span class="btn-label"> Stop</span></button>
+      <button id="btn-play" class="btn toolbar-btn btn-play-pause btn-action" title="Play / Pause (Space)"><span class="btn-icon">&#x25B6;</span><span class="btn-label"> Play</span></button>
+      <button id="btn-stop" class="btn toolbar-btn" title="Stop playback"><span class="btn-icon">&#x25A0;</span><span class="btn-label"> Stop</span></button>
 
       <span class="toolbar-sep"></span>
 
@@ -70,9 +70,9 @@
 
       <span class="toolbar-sep"></span>
 
-      <button id="btn-zoom-in" class="btn toolbar-btn">+Zoom</button>
-      <button id="btn-zoom-out" class="btn toolbar-btn">-Zoom</button>
-      <button id="btn-fit" class="btn toolbar-btn">Fit</button>
+      <button id="btn-zoom-in" class="btn toolbar-btn" title="Zoom in (scroll up)">+Zoom</button>
+      <button id="btn-zoom-out" class="btn toolbar-btn" title="Zoom out (scroll down)">-Zoom</button>
+      <button id="btn-fit" class="btn toolbar-btn" title="Fit entire file in view">Fit</button>
       <button id="btn-sel" class="btn toolbar-btn" title="Zoom to selection (S)">Sel</button>
       <button id="btn-trim" class="btn toolbar-btn" title="Trim to selection (T)">Trim</button>
       <button id="btn-untrim" class="btn toolbar-btn" title="Restore full view (U)" style="display:none">Untrim</button>
@@ -82,7 +82,7 @@
       <label class="toolbar-label">Go To:</label>
       <button id="btn-goto-mode" class="btn toolbar-btn" title="Toggle between file position and wall clock time">Position</button>
       <input id="input-goto" type="text" class="input input-time" placeholder="0:00.00">
-      <button id="btn-goto" class="btn toolbar-btn">Go</button>
+      <button id="btn-goto" class="btn toolbar-btn" title="Jump to time position">Go</button>
 
       <span class="toolbar-sep"></span>
 
@@ -104,7 +104,7 @@
           <option value="300">5m</option>
         </select>
         <span id="label-sel-duration" class="info-text"></span>
-        <button id="btn-loop" class="btn toolbar-btn">Loop</button>
+        <button id="btn-loop" class="btn toolbar-btn" title="Loop selection (L)">Loop</button>
       </div>
 
       <span class="toolbar-sep"></span>
