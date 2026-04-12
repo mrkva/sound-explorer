@@ -614,8 +614,9 @@ class App {
       this._setStatus('Preparing audio...');
       await this.audio.loadFile(wavInfos[0]);
 
-      // Update UI
+      // Update UI — reset speed to native
       this._populateSpeedSelector();
+      this._updateExportSpeedButton(1);
       this._populateChannelSelector();
       this._buildBigVUMeter(wavInfos[0].channels);
       this._updateFileInfo();

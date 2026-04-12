@@ -133,6 +133,7 @@ export class AudioEngine {
     this.wavInfo = wavInfo;
     this.stop();
     this._currentRate = -1; // force rebuild
+    this.playbackRate = 1;  // reset speed to native on new file
     await this.setPlaybackRate(this.playbackRate);
 
     // Pre-warm the AudioContext so first play() doesn't need to initialize it.
