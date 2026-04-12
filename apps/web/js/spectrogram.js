@@ -997,10 +997,17 @@ export class SpectrogramRenderer {
 
     // Recording regions overlay (live mode)
     if (this._liveRecordRegions.length > 0) {
+      // During live mode, use column-grid coordinates (matches the bitmap exactly).
+      // In file/frozen mode, fall back to the standard sample-based mapping.
+      const useLiveCoords = this._liveIsLive && this._liveSamplesPerCol > 0 && this._liveTotalCols > 0;
+      const sampleToX = useLiveCoords
+        ? (s) => MARGIN_LEFT + (s / this._liveSamplesPerCol) - this._liveTotalCols + plotW
+        : (s) => this._timeToX(s);
+
       for (const region of this._liveRecordRegions) {
-        const x1 = this._timeToX(region.startSample);
+        const x1 = sampleToX(region.startSample);
         const endSample = region.endSample !== null ? region.endSample : this.totalSamples;
-        const x2 = this._timeToX(endSample);
+        const x2 = sampleToX(endSample);
         const rx1 = Math.max(MARGIN_LEFT, x1);
         const rx2 = Math.min(this.canvas.width, x2);
         if (rx2 <= rx1) continue;
@@ -1023,11 +1030,11 @@ export class SpectrogramRenderer {
           ctx.stroke();
         }
 
-        // End edge line (only for completed regions)
-        if (!isActive && x2 <= this.canvas.width) {
+        // End edge line
+        if (x2 >= MARGIN_LEFT && x2 <= this.canvas.width) {
           ctx.strokeStyle = 'rgba(220, 40, 40, 0.6)';
           ctx.lineWidth = 1;
-          ctx.setLineDash([4, 4]);
+          ctx.setLineDash(isActive ? [] : [4, 4]);
           ctx.beginPath();
           ctx.moveTo(x2, 0);
           ctx.lineTo(x2, plotH);
@@ -1426,6 +1433,7 @@ export class SpectrogramRenderer {
   _liveColCache = null;   // circular buffer of FFT magnitude arrays (one per column)
   _liveLastCol = 0;       // last computed column index
   _liveSamplesPerCol = 0;
+  _liveTotalCols = 0;     // total columns rendered (for overlay alignment)
   _liveWindowNormDB = 0;  // FFT normalization offset = 20*log10(sum(window)/2)
   _liveRecordRegions = []; // [{startSample, endSample|null}] for recording overlay
 
@@ -1552,6 +1560,7 @@ export class SpectrogramRenderer {
           this._liveColCache[col % w] = magnitudesDB(spectrum, N);
         }
         this._liveLastCol = totalCols;
+        this._liveTotalCols = totalCols;
 
         // Render full frame from cache
         this._renderLiveFrame(w, h, totalCols, sr);
