@@ -199,8 +199,38 @@ body.dark .drop-logo {
   margin-bottom: 0;
 }
 
-.drop-links {
+.drop-features {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
   margin-top: 28px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  text-align: left;
+}
+
+.drop-feature {
+  padding: 14px 16px;
+  background: var(--bg-primary);
+}
+
+.drop-feature-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+
+.drop-feature-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.drop-links {
+  margin-top: 24px;
   font-size: 13px;
 }
 
