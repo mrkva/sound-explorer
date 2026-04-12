@@ -580,6 +580,7 @@ export class SpectrogramRenderer {
     this.selectionEnd = null;
     this._lastPlaybackTime = null;
     this._tileCache.clear();
+    this._liveRecordRegions = [];
 
     return this.render();
   }
@@ -994,6 +995,62 @@ export class SpectrogramRenderer {
       ctx.setLineDash([]);
     }
 
+    // Recording regions overlay (live mode)
+    if (this._liveRecordRegions.length > 0) {
+      for (const region of this._liveRecordRegions) {
+        const x1 = this._timeToX(region.startSample);
+        const endSample = region.endSample !== null ? region.endSample : this.totalSamples;
+        const x2 = this._timeToX(endSample);
+        const rx1 = Math.max(MARGIN_LEFT, x1);
+        const rx2 = Math.min(this.canvas.width, x2);
+        if (rx2 <= rx1) continue;
+        const rw = rx2 - rx1;
+        const isActive = region.endSample === null;
+
+        // Red top/bottom border bars (3px)
+        ctx.fillStyle = isActive ? 'rgba(220, 40, 40, 0.85)' : 'rgba(220, 40, 40, 0.5)';
+        ctx.fillRect(rx1, 0, rw, 3);
+        ctx.fillRect(rx1, plotH - 3, rw, 3);
+
+        // Start edge line (solid)
+        if (x1 >= MARGIN_LEFT) {
+          ctx.strokeStyle = 'rgba(220, 40, 40, 0.8)';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(x1, 0);
+          ctx.lineTo(x1, plotH);
+          ctx.stroke();
+        }
+
+        // End edge line (only for completed regions)
+        if (!isActive && x2 <= this.canvas.width) {
+          ctx.strokeStyle = 'rgba(220, 40, 40, 0.6)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(x2, 0);
+          ctx.lineTo(x2, plotH);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        // "REC" / "REC ●" label at start edge
+        const labelX = Math.max(MARGIN_LEFT + 4, x1 + 4);
+        if (labelX < rx2 - 20) {
+          const label = isActive ? '\u25CF REC' : 'REC';
+          ctx.font = 'bold 11px monospace';
+          const tw = ctx.measureText(label).width;
+          // Label background
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+          ctx.fillRect(labelX - 2, 5, tw + 4, 14);
+          ctx.fillStyle = isActive ? '#ff4444' : 'rgba(220, 100, 100, 0.8)';
+          ctx.textAlign = 'left';
+          ctx.fillText(label, labelX, 16);
+        }
+      }
+    }
+
     // Annotations
     if (this._annotations) {
       for (const ann of this._annotations) {
@@ -1370,6 +1427,7 @@ export class SpectrogramRenderer {
   _liveLastCol = 0;       // last computed column index
   _liveSamplesPerCol = 0;
   _liveWindowNormDB = 0;  // FFT normalization offset = 20*log10(sum(window)/2)
+  _liveRecordRegions = []; // [{startSample, endSample|null}] for recording overlay
 
   /**
    * Enter live input mode with column-cached rendering.
@@ -1404,6 +1462,7 @@ export class SpectrogramRenderer {
     this._liveIsLive = true;
     this._liveLastCol = 0;
     this._liveColCache = null;
+    this._liveRecordRegions = [];
 
     // Pre-build color LUT and window for main-thread rendering
     this._liveColorLUT = buildColorLUT(this.colormap);
@@ -1601,11 +1660,25 @@ export class SpectrogramRenderer {
     this._lastBitmap = this._liveCanvas;
   }
 
+  startRecordingRegion() {
+    const sample = this._liveCapture ? this._liveCapture.totalSamples : 0;
+    this._liveRecordRegions.push({ startSample: sample, endSample: null });
+  }
+
+  stopRecordingRegion() {
+    const sample = this._liveCapture ? this._liveCapture.totalSamples : 0;
+    const active = this._liveRecordRegions.find(r => r.endSample === null);
+    if (active) active.endSample = sample;
+  }
+
   stopLive() {
     if (this._liveRAF) {
       cancelAnimationFrame(this._liveRAF);
       this._liveRAF = null;
     }
+    // Close any open recording region
+    const active = this._liveRecordRegions.find(r => r.endSample === null);
+    if (active && this._liveCapture) active.endSample = this._liveCapture.totalSamples;
     // Keep _lastBitmap so the frozen spectrogram remains explorable
     this._liveCapture = null;
     this._liveColCache = null;

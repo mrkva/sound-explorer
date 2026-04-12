@@ -1837,15 +1837,10 @@ class App {
       if (recordingBlob) {
         const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         const file = new File([recordingBlob], `live-recording-${ts}.wav`, { type: 'audio/wav' });
-        try {
-          await this._loadFiles([file]);
-          this._liveRecordingBlob = null;
-        } catch (e) {
-          // _loadFiles failed — keep blob so Save button works
-          this._liveRecordingBlob = recordingBlob;
-          console.error('Failed to load recording into player:', e);
-          this._setStatus('Recording saved but playback failed — use Save');
-        }
+        await this._loadFiles([file]);
+        this._liveRecordingBlob = null;
+        // _loadFiles has its own try/catch — if it failed internally,
+        // wavInfos was still set, so _updateUI() will show correct state
         this._updateUI();
         return;
       }
@@ -1878,11 +1873,13 @@ class App {
     if (this._liveCapture.isRecording) {
       this._liveRecordingBlob = this._liveCapture.stopRecording();
       this._liveRecordingStartTime = null;
+      this.spectrogram.stopRecordingRegion();
       this._setStatus('Recording stopped — stop live to save');
     } else {
       this._liveCapture.startRecording();
       this._liveRecordingStartTime = performance.now();
       this._liveRecordingBlob = null;
+      this.spectrogram.startRecordingRegion();
       this._setStatus('Recording...');
     }
     this._updateUI();
