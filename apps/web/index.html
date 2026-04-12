@@ -17,10 +17,10 @@
   <div id="drop-zone">
     <div class="drop-content">
       <img id="drop-logo" src="img/logo_black.png" alt="LOM" class="drop-logo">
-      <h2>Sound Explorer <span class="drop-version">v0.1</span></h2>
-      <p class="drop-intro">Spectrogram viewer and audio player for exploring field recordings. Load a WAV file, see its spectrogram, zoom into time-frequency regions of interest, and play them back at different speeds.</p>
-      <p class="drop-hint-desktop">Drag &amp; drop WAV files here</p>
-      <p class="drop-sub drop-hint-desktop">or</p>
+      <h2>Sound Explorer <span class="drop-version">v0.8.1</span></h2>
+      <p class="drop-alpha">Alpha &mdash; work in progress, expect rough edges</p>
+      <p class="drop-intro">Spectrogram viewer and audio player for field recordings.<br class="drop-hint-desktop">Visualize, navigate, and listen to WAV files at any speed.</p>
+
       <div class="drop-actions">
         <button id="btn-open" class="btn btn-action drop-btn">
           <svg class="drop-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17v3a2 2 0 002 2h14a2 2 0 002-2v-3"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="16"/></svg>
@@ -33,14 +33,30 @@
           <span class="drop-btn-sub">Microphone / sound card</span>
         </button>
       </div>
+      <p class="drop-drag-hint drop-hint-desktop">or drag &amp; drop WAV files anywhere on this page</p>
       <input type="file" id="file-input" multiple accept=".wav" style="display:none">
-      <div class="drop-shortcuts">
-        <div class="shortcut-row"><kbd>Space</kbd> Play/Pause &nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> Seek &plusmn;1s &nbsp; <kbd>Shift</kbd>+<kbd>&larr;</kbd><kbd>&rarr;</kbd> &plusmn;10s</div>
-        <div class="shortcut-row"><kbd>&uarr;</kbd><kbd>&darr;</kbd> Gain &nbsp; <kbd>+</kbd><kbd>-</kbd> Zoom &nbsp; <kbd>F</kbd> Fit &nbsp; <kbd>S</kbd> Sel &nbsp; <kbd>T</kbd> Trim &nbsp; <kbd>U</kbd> Untrim</div>
-        <div class="shortcut-row"><kbd>G</kbd> Go to &nbsp; <kbd>Home</kbd><kbd>End</kbd> Jump &nbsp; <kbd>Esc</kbd> Clear selection</div>
+
+      <div class="drop-features drop-hint-desktop">
+        <div class="drop-feature">
+          <div class="drop-feature-icon">&#x1F50D;</div>
+          <div class="drop-feature-text"><strong>Zoom &amp; navigate</strong><br>Scroll to zoom, click to seek</div>
+        </div>
+        <div class="drop-feature">
+          <div class="drop-feature-icon">&#x23EF;</div>
+          <div class="drop-feature-text"><strong>Tape-speed playback</strong><br>0.0625&times; to 4&times; with pitch shift</div>
+        </div>
+        <div class="drop-feature">
+          <div class="drop-feature-icon">&#x1F3A8;</div>
+          <div class="drop-feature-text"><strong>6 colormaps</strong><br>Viridis, magma, inferno &amp; more</div>
+        </div>
+        <div class="drop-feature">
+          <div class="drop-feature-icon">&#x1F4BE;</div>
+          <div class="drop-feature-text"><strong>Select &amp; export</strong><br>Export regions as WAV</div>
+        </div>
       </div>
+
       <div class="drop-links">
-        <a href="help.html">Help &amp; Documentation</a>
+        <a href="help.html">Help</a>
         <span class="drop-links-sep">&middot;</span>
         <a href="https://github.com/mrkva/sound-explorer/tree/main/apps/desktop">Desktop App</a>
         <span class="drop-links-sep">&middot;</span>
@@ -48,6 +64,7 @@
         <span class="drop-links-sep">&middot;</span>
         <a href="https://lom.audio">LOM</a>
       </div>
+      <p class="drop-privacy">All processing happens locally &mdash; your files never leave your device</p>
     </div>
   </div>
 

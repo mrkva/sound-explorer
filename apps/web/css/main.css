@@ -82,14 +82,16 @@ body {
 
 .drop-content {
   text-align: center;
+  max-width: 560px;
+  padding: 0 24px;
 }
 
 .drop-logo {
-  width: 80px;
-  height: 80px;
+  width: 64px;
+  height: 64px;
   object-fit: contain;
-  margin-bottom: 20px;
-  opacity: 0.6;
+  margin-bottom: 16px;
+  opacity: 0.5;
 }
 
 body.dark .drop-logo {
@@ -97,17 +99,32 @@ body.dark .drop-logo {
 }
 
 .drop-version {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 400;
   color: var(--text-secondary);
+  opacity: 0.6;
 }
 
 .drop-content h2 {
-  font-size: 28px;
-  font-weight: 400;
-  letter-spacing: -0.02em;
-  margin-bottom: 10px;
+  font-size: 32px;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  margin-bottom: 6px;
   color: var(--text-primary);
+}
+
+.drop-alpha {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 2px 8px;
+  margin-bottom: 16px;
+  opacity: 0.8;
 }
 
 .drop-content p {
@@ -116,17 +133,19 @@ body.dark .drop-logo {
   font-size: 14px;
 }
 
-.drop-sub {
-  font-size: 12px;
+.drop-intro {
+  max-width: 420px;
+  margin: 0 auto 24px;
+  font-size: 15px;
+  line-height: 1.6;
   color: var(--text-secondary);
-  opacity: 0.7;
 }
 
 .drop-actions {
   display: flex;
   gap: 12px;
   justify-content: center;
-  margin-top: 16px;
+  margin-top: 0;
 }
 
 .drop-btn {
@@ -135,10 +154,21 @@ body.dark .drop-logo {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 16px 28px;
-  min-width: 140px;
-  border-radius: 6px;
+  padding: 14px 32px;
+  min-width: 150px;
+  border-radius: 8px;
   height: auto;
+  font-size: 15px;
+  transition: transform 0.1s, box-shadow 0.15s;
+}
+
+.drop-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.drop-btn:active {
+  transform: translateY(0);
 }
 
 .drop-btn-icon {
@@ -148,7 +178,7 @@ body.dark .drop-logo {
 }
 
 .drop-btn-label {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -159,24 +189,53 @@ body.dark .drop-logo {
   font-weight: 400;
 }
 
-.drop-intro {
-  max-width: 480px;
-  margin: 0 auto 16px;
-  font-size: 14px;
-  line-height: 1.5;
+.drop-drag-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
+.drop-features {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 32px;
+  text-align: left;
+}
+
+.drop-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+}
+
+.drop-feature-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.drop-feature-text {
+  font-size: 12px;
+  line-height: 1.4;
   color: var(--text-secondary);
 }
 
-.drop-shortcuts {
-  margin-top: 24px;
-  color: var(--text-secondary);
+.drop-feature-text strong {
+  color: var(--text-primary);
+  font-weight: 600;
   font-size: 12px;
-  line-height: 2;
-  opacity: 0.5;
 }
 
 .drop-links {
-  margin-top: 20px;
+  margin-top: 28px;
   font-size: 13px;
 }
 
@@ -191,30 +250,19 @@ body.dark .drop-logo {
 
 .drop-links-sep {
   color: var(--text-secondary);
-  opacity: 0.4;
-  margin: 0 6px;
+  opacity: 0.3;
+  margin: 0 8px;
 }
 
-.shortcut-row {
-  white-space: nowrap;
-}
-
-.drop-shortcuts kbd {
-  display: inline-block;
-  padding: 1px 5px;
-  font-family: monospace;
+.drop-privacy {
   font-size: 11px;
-  color: var(--text-primary);
-  background: var(--bg-primary);
-  border: 1px solid var(--text-secondary);
-  border-radius: 3px;
-  margin: 0 1px;
+  color: var(--text-secondary);
+  opacity: 0.4;
+  margin-top: 12px;
 }
 
 @media (max-width: 600px) {
-  .drop-shortcuts { display: none; }
   .drop-hint-desktop { display: none !important; }
-  .drop-sub { display: none !important; }
 
   .drop-actions {
     flex-direction: column;
