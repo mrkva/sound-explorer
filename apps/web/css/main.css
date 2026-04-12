@@ -114,17 +114,11 @@ body.dark .drop-logo {
 }
 
 .drop-alpha {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--accent);
-  border: 1px solid var(--accent);
-  border-radius: 3px;
-  padding: 2px 8px;
-  margin-bottom: 16px;
-  opacity: 0.8;
+  font-size: 12px;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  margin-top: 24px;
+  margin-bottom: 0;
 }
 
 .drop-content p {
@@ -195,43 +189,6 @@ body.dark .drop-logo {
   opacity: 0.5;
   margin-top: 12px;
   margin-bottom: 0;
-}
-
-.drop-features {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 32px;
-  text-align: left;
-}
-
-.drop-feature {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-}
-
-.drop-feature-icon {
-  font-size: 18px;
-  line-height: 1;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.drop-feature-text {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--text-secondary);
-}
-
-.drop-feature-text strong {
-  color: var(--text-primary);
-  font-weight: 600;
-  font-size: 12px;
 }
 
 .drop-links {
