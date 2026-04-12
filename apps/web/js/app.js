@@ -119,7 +119,7 @@ class App {
       el.style.display = (showSeps && !isMobile) ? '' : 'none';
     });
 
-    // Live button: toggle label, keep ◉ icon so it's distinct from Rec's ■
+    // Live button: keep ◉ icon always, toggle label and active class
     const btnLive = document.getElementById('btn-live');
     if (btnLive) {
       const lbl = btnLive.querySelector('.btn-label');
@@ -127,15 +127,32 @@ class App {
       btnLive.classList.toggle('btn-live-active', isLive);
     }
 
-    // Sync recording button state (safety net — _toggleLiveRecord sets this
-    // too, but _updateUI ensures consistency if anything gets out of sync)
+    // Recording button — single source of truth for icon, label, and animation
     const recBtn = document.getElementById('btn-live-record');
     if (recBtn) {
-      const isRec = isLive && !!(this._liveCapture && this._liveCapture.isRecording);
-      recBtn.classList.toggle('recording', isRec);
-      recBtn.firstChild.textContent = isRec ? '\u25A0' : '\u25CF';
+      const isRec = !!(isLive && this._liveCapture && this._liveCapture.isRecording);
+      // Force class list to exact state (don't rely on toggle/remove)
+      if (isRec) {
+        if (!recBtn.classList.contains('recording')) recBtn.classList.add('recording');
+        recBtn.style.animation = '';
+      } else {
+        recBtn.classList.remove('recording');
+        recBtn.style.animation = 'none';
+      }
+      const icon = recBtn.querySelector('.btn-icon');
+      if (icon) icon.textContent = isRec ? '\u25A0' : '\u25CF';
       const recLbl = recBtn.querySelector('.btn-label');
       if (recLbl) recLbl.textContent = isRec ? ' Stop' : ' Rec';
+    }
+
+    // Play button — toggle between Play and Pause
+    const btnPlay = document.getElementById('btn-play');
+    if (btnPlay && hasFile) {
+      const playing = this.audio && this.audio.isPlaying;
+      const playIcon = btnPlay.querySelector('.btn-icon');
+      if (playIcon) playIcon.textContent = playing ? '\u23F8' : '\u25B6';
+      const playLbl = btnPlay.querySelector('.btn-label');
+      if (playLbl) playLbl.textContent = playing ? ' Pause' : ' Play';
     }
   }
 
@@ -536,7 +553,9 @@ class App {
     };
 
     this.audio.onEnded = () => {
-      document.getElementById('btn-play').querySelector('.btn-label').textContent = ' Play';
+      this._stopVUMeter();
+      this._stopInfoStripTimer();
+      this._updateUI();
     };
   }
 
@@ -673,9 +692,7 @@ class App {
 
   async _togglePlay() {
     await this.audio.togglePlay();
-    const playBtn = document.getElementById('btn-play');
-    playBtn.firstChild.textContent = this.audio.isPlaying ? '\u23F8' : '\u25B6';
-    playBtn.querySelector('.btn-label').textContent = this.audio.isPlaying ? ' Pause' : ' Play';
+    this._updateUI();
 
     if (this.audio.isPlaying) {
       this._startVUMeter();
@@ -689,9 +706,7 @@ class App {
 
   _stop() {
     this.audio.stop();
-    const playBtn = document.getElementById('btn-play');
-    playBtn.firstChild.textContent = '\u25B6';
-    playBtn.querySelector('.btn-label').textContent = ' Play';
+    this._updateUI();
     this.spectrogram.updatePlaybackCursor(0);
     this._updateInfoStrip();
     this._stopVUMeter();
@@ -1850,22 +1865,16 @@ class App {
 
   _toggleLiveRecord() {
     if (!this._liveCapture || !this._liveCapture.isCapturing) return;
-    const btn = document.getElementById('btn-live-record');
 
     if (this._liveCapture.isRecording) {
       this._liveRecordingBlob = this._liveCapture.stopRecording();
       this._liveRecordingStartTime = null;
-      btn.classList.remove('recording');
-      btn.firstChild.textContent = '\u25CF';
-      btn.querySelector('.btn-label').textContent = ' Rec';
       this._setStatus('Recording stopped — stop live to save');
     } else {
       this._liveCapture.startRecording();
       this._liveRecordingStartTime = performance.now();
-      btn.classList.add('recording');
-      btn.firstChild.textContent = '\u25A0';
-      btn.querySelector('.btn-label').textContent = ' Stop';
       this._liveRecordingBlob = null;
+      this._setStatus('Recording...');
     }
     this._updateUI();
   }
