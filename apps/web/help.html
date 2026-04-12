@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sound Explorer - Help</title>
+  <link rel="icon" type="image/svg+xml" href="img/icon.svg">
+  <style>
+    :root {
+      --bg: #111111;
+      --bg2: #1a1a1a;
+      --text: #e0e0e0;
+      --text2: #888888;
+      --accent: #5a9de6;
+      --border: #333333;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #ffffff;
+        --bg2: #f5f5f3;
+        --text: #1a1a1a;
+        --text2: #666666;
+        --accent: #4a90d9;
+        --border: #dddddd;
+      }
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 0 20px 60px;
+    }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    header {
+      padding: 32px 0 24px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    header img { width: 48px; height: 48px; opacity: 0.7; }
+    header h1 { font-size: 24px; font-weight: 400; }
+    .back-link {
+      display: inline-block;
+      margin-bottom: 24px;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-link:hover { text-decoration: underline; }
+    h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 32px 0 12px;
+      color: var(--text);
+    }
+    h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin: 20px 0 8px;
+    }
+    p, li { font-size: 14px; color: var(--text2); margin-bottom: 8px; }
+    ul, ol { padding-left: 20px; margin-bottom: 16px; }
+    li { margin-bottom: 4px; }
+    strong { color: var(--text); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 20px;
+      font-size: 14px;
+    }
+    th, td {
+      text-align: left;
+      padding: 6px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    th { color: var(--text); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+    td { color: var(--text2); }
+    kbd {
+      display: inline-block;
+      padding: 1px 6px;
+      font-family: monospace;
+      font-size: 12px;
+      color: var(--text);
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+    }
+    .section { margin-bottom: 32px; }
+    .tip {
+      background: var(--bg2);
+      border-left: 3px solid var(--accent);
+      padding: 10px 14px;
+      margin: 12px 0;
+      font-size: 13px;
+      color: var(--text2);
+      border-radius: 0 4px 4px 0;
+    }
+    code {
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 13px;
+      background: var(--bg2);
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+    a { color: var(--accent); }
+    hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="./" class="back-link">&larr; Back to Sound Explorer</a>
+    <header>
+      <img src="img/icon.svg" alt="Sound Explorer">
+      <h1>Sound Explorer Help</h1>
+    </header>
+
+    <div class="section">
+      <h2>Getting started</h2>
+      <ol>
+        <li><strong>Open a recording</strong> &mdash; drag and drop a WAV file onto the window, or click <strong>Open Files</strong>.</li>
+        <li><strong>Navigate</strong> &mdash; scroll to zoom, click to seek, press <kbd>Space</kbd> to play/pause.</li>
+        <li><strong>Change speed</strong> &mdash; use the <strong>Play as</strong> selector to slow down or speed up. Playing a 384 kHz bat call at 0.0625&times; makes it audible.</li>
+        <li><strong>Select &amp; export</strong> &mdash; shift-click to select a region, then click <strong>Export WAV</strong>.</li>
+      </ol>
+    </div>
+
+    <div class="section">
+      <h2>Live audio input</h2>
+      <ol>
+        <li>Click <strong>Live</strong> to capture audio from your microphone or sound card.</li>
+        <li>The spectrogram updates in real time. Use the <strong>View</strong> selector to change the visible time window (2&ndash;30 seconds).</li>
+        <li>Click <strong>Rec</strong> to record a segment.</li>
+        <li>Click <strong>Stop Live</strong> &mdash; the recording loads automatically for playback and export.</li>
+      </ol>
+      <div class="tip">
+        Your browser will ask for microphone permission the first time. On macOS, you may also need to allow access in System Settings &rarr; Privacy &amp; Security &rarr; Microphone.
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Keyboard shortcuts</h2>
+      <table>
+        <thead>
+          <tr><th>Key</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><kbd>Space</kbd></td><td>Play / Pause</td></tr>
+          <tr><td><kbd>&larr;</kbd> / <kbd>&rarr;</kbd></td><td>Seek &minus;1s / +1s</td></tr>
+          <tr><td><kbd>Shift</kbd>+<kbd>&larr;</kbd> / <kbd>&rarr;</kbd></td><td>Seek &minus;10s / +10s</td></tr>
+          <tr><td><kbd>&uarr;</kbd> / <kbd>&darr;</kbd></td><td>Increase / decrease spectrogram gain</td></tr>
+          <tr><td><kbd>Scroll wheel</kbd></td><td>Zoom in / out</td></tr>
+          <tr><td><kbd>+</kbd> / <kbd>-</kbd></td><td>Zoom in / out</td></tr>
+          <tr><td><kbd>F</kbd></td><td>Fit entire file in view</td></tr>
+          <tr><td><kbd>S</kbd></td><td>Zoom to selection</td></tr>
+          <tr><td><kbd>T</kbd></td><td>Trim view to selection</td></tr>
+          <tr><td><kbd>U</kbd></td><td>Untrim (restore full view)</td></tr>
+          <tr><td><kbd>L</kbd></td><td>Toggle loop</td></tr>
+          <tr><td><kbd>G</kbd></td><td>Focus Go-to time input</td></tr>
+          <tr><td><kbd>Home</kbd> / <kbd>End</kbd></td><td>Jump to start / end</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Clear selection</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Spectrogram controls</h2>
+      <p>The bottom panel contains spectrogram display settings:</p>
+      <ul>
+        <li><strong>Brightness &amp; Contrast</strong> &mdash; adjust the visual mapping of amplitude to color.</li>
+        <li><strong>Range (dB)</strong> &mdash; dynamic range of the colormap (e.g. 90 dB shows a wider range of amplitudes).</li>
+        <li><strong>FFT size</strong> &mdash; larger values give better frequency resolution but less time precision. 2048 is a good default. Use 8192 or higher for narrowband analysis.</li>
+        <li><strong>Window function</strong> &mdash; Hann (default), Blackman-Harris (less spectral leakage), Hamming, Flat-top.</li>
+        <li><strong>Colormap</strong> &mdash; viridis, magma, inferno, grayscale, green, hot.</li>
+        <li><strong>Frequency range</strong> &mdash; set min/max Hz, or use presets (Full, Birds, Voice, Low, Mid). Toggle logarithmic scale.</li>
+        <li><strong>Channel mode</strong> &mdash; mono downmix, left only, right only, or split L|R display for stereo files.</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h2>Selection and export</h2>
+      <ol>
+        <li><strong>Select</strong> &mdash; shift-click to set selection start, shift-click again to set the end. Or click the <strong>Sel</strong> button and drag.</li>
+        <li><strong>Loop</strong> &mdash; press <kbd>L</kbd> to loop the selected region.</li>
+        <li><strong>Export WAV</strong> &mdash; exports the selection as a WAV file. If you have a non-native playback speed selected, a second export button appears to export with the speed change applied.</li>
+        <li><strong>Trim</strong> &mdash; press <kbd>T</kbd> to crop the view to the selection. Press <kbd>U</kbd> to restore.</li>
+      </ol>
+      <div class="tip">
+        Exported files preserve BWF timecode metadata when present in the original. The audio is exported at original quality &mdash; no transcoding.
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Supported formats</h2>
+      <table>
+        <thead>
+          <tr><th>Format</th><th>Bit depth</th><th>Sample rates</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>PCM WAV</td><td>16-bit, 24-bit, 32-bit</td><td>Any (tested up to 384 kHz)</td></tr>
+          <tr><td>IEEE Float WAV</td><td>32-bit</td><td>Any</td></tr>
+          <tr><td>WAVE_FORMAT_EXTENSIBLE</td><td>All above</td><td>Any</td></tr>
+          <tr><td>BWF (Broadcast Wave)</td><td>All above</td><td>Any</td></tr>
+        </tbody>
+      </table>
+      <p>Only WAV files are supported. To convert other formats, use <a href="https://ffmpeg.org/">FFmpeg</a>:</p>
+      <p><code>ffmpeg -i input.mp3 output.wav</code></p>
+    </div>
+
+    <div class="section">
+      <h2>Annotations</h2>
+      <p>Label time regions with notes. Annotations appear as colored overlays on the spectrogram.</p>
+      <ul>
+        <li>Select a region, then click <strong>Notes</strong> in the toolbar to open the annotations panel.</li>
+        <li>Add a label and optional description.</li>
+        <li>Export annotations as JSON for later import or analysis.</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h2>Tips</h2>
+      <ul>
+        <li>All processing happens locally in your browser &mdash; your files never leave your device.</li>
+        <li>After the first visit, Sound Explorer works offline as an installable PWA.</li>
+        <li>Chrome is recommended for best performance with large files and live audio input.</li>
+        <li>For multi-file sessions and iXML metadata support, use the <a href="https://github.com/mrkva/sound-explorer/tree/main/apps/desktop">desktop app</a>.</li>
+      </ul>
+    </div>
+
+    <hr>
+    <p style="font-size: 13px; color: var(--text2);">
+      Sound Explorer is made by <a href="https://lom.audio">LOM</a>.
+      Source code on <a href="https://github.com/mrkva/sound-explorer">GitHub</a>.
+    </p>
+  </div>
+</body>
+</html>

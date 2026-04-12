@@ -5,12 +5,13 @@
  */
 
 // Keep in sync with js/version.js
-const CACHE_VERSION = '0.8.0';
+const CACHE_VERSION = '0.8.1';
 const CACHE_NAME = 'sound-explorer-v' + CACHE_VERSION;
 
 const APP_SHELL = [
   './',
   './index.html',
+  './help.html',
   './css/main.css',
   './js/app.js',
   './js/audio-engine.js',

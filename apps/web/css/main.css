@@ -159,12 +159,40 @@ body.dark .drop-logo {
   font-weight: 400;
 }
 
+.drop-intro {
+  max-width: 480px;
+  margin: 0 auto 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
 .drop-shortcuts {
   margin-top: 24px;
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 2;
   opacity: 0.5;
+}
+
+.drop-links {
+  margin-top: 20px;
+  font-size: 13px;
+}
+
+.drop-links a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.drop-links a:hover {
+  text-decoration: underline;
+}
+
+.drop-links-sep {
+  color: var(--text-secondary);
+  opacity: 0.4;
+  margin: 0 6px;
 }
 
 .shortcut-row {
