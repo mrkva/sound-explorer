@@ -54,7 +54,7 @@ class App {
       // File I/O group (Open + Export together)
       'btn-open-file': !isLive,
       'btn-export': hasFile && !isLive,
-      'btn-export-speed': false, // managed by speed selector logic
+      'btn-export-speed': hasFile && !isLive && this.audio && this.audio.playbackRate !== 1,
 
       // Live group (Live + Rec + Save together)
       'btn-live': true,
@@ -76,7 +76,7 @@ class App {
       'btn-fit': hasFile || isFrozen,
       'btn-sel': hasFile,
       'btn-trim': hasFile,
-      'btn-untrim': false, // managed by trim logic
+      'btn-untrim': hasFile && this.spectrogram && this.spectrogram.trimStart !== null,
       'btn-goto-mode': hasFile && !isMobile,
       'input-goto': hasFile && !isMobile,
       'btn-goto': hasFile && !isMobile,
