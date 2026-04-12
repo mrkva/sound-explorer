@@ -110,13 +110,15 @@ class App {
     const infoStrip = document.getElementById('info-strip');
     if (infoStrip) infoStrip.style.display = (isMobile && isLive) ? 'none' : '';
 
-    // Toolbar separators and labels: show when file or frozen content present
+    // Toolbar separators: show when file or frozen content present
     const showSeps = hasFile || isFrozen;
     document.querySelectorAll('#toolbar .toolbar-sep').forEach(el => {
       el.style.display = showSeps ? '' : 'none';
     });
+    // Toolbar labels ("Play as:", "Go To:"): only show when file loaded,
+    // not in frozen mode — their associated controls require hasFile
     document.querySelectorAll('#toolbar .toolbar-label').forEach(el => {
-      el.style.display = (showSeps && !isMobile) ? '' : 'none';
+      el.style.display = (hasFile && !isMobile) ? '' : 'none';
     });
 
     // Live button: keep ◉ icon always, toggle label and active class
@@ -1813,6 +1815,15 @@ class App {
       // Also grab any previously stopped recording
       if (!recordingBlob) recordingBlob = this._liveRecordingBlob;
 
+      if (!recordingBlob) {
+        console.warn('_stopLive: no recording blob available.',
+          'isRecording:', this._liveCapture.isRecording,
+          '_liveRecordingBlob:', this._liveRecordingBlob,
+          '_recordSamples:', this._liveCapture._recordSamples);
+      } else {
+        console.log('_stopLive: recording blob ready,', recordingBlob.size, 'bytes');
+      }
+
       const sr = this._liveCapture.sampleRate;
       const totalSamples = this._liveCapture.totalSamples;
 
@@ -1844,10 +1855,12 @@ class App {
         const file = new File([recordingBlob], `live-recording-${ts}.wav`, { type: 'audio/wav' });
         await this._loadFiles([file]);
         this._liveRecordingBlob = null;
-        // _loadFiles has its own try/catch — if it failed internally,
-        // wavInfos was still set, so _updateUI() will show correct state
         this._updateUI();
-        this._setStatus('Recording loaded — play, change speed, or export');
+        // Only show success if _loadFiles actually set wavInfos
+        if (this.wavInfos && this.wavInfos.length > 0) {
+          this._setStatus('Recording loaded — play, change speed, or export');
+        }
+        // otherwise _loadFiles already set an error status
         return;
       }
 
@@ -1888,7 +1901,13 @@ class App {
         this._liveCapture.isRecording = false;
         this._liveRecordingBlob = null;
       }
-      this._setStatus('Recording ready — click Stop Live to play, change speed & export');
+      if (this._liveRecordingBlob) {
+        console.log('Recording blob created:', this._liveRecordingBlob.size, 'bytes');
+        this._setStatus('Recording ready — click Stop Live to play, change speed & export');
+      } else {
+        console.warn('Recording blob is null — stopRecording() returned null or threw');
+        this._setStatus('Recording failed — no audio data captured');
+      }
     } else {
       this._liveCapture.startRecording();
       this._liveRecordingStartTime = performance.now();
