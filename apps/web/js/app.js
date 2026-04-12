@@ -119,13 +119,23 @@ class App {
       el.style.display = (showSeps && !isMobile) ? '' : 'none';
     });
 
-    // Live button: toggle between Live / Stop Live (icon + label span)
+    // Live button: toggle label, keep ◉ icon so it's distinct from Rec's ■
     const btnLive = document.getElementById('btn-live');
     if (btnLive) {
-      btnLive.firstChild.textContent = isLive ? '\u25A0' : '\u25C9';
       const lbl = btnLive.querySelector('.btn-label');
       if (lbl) lbl.textContent = isLive ? ' Stop Live' : ' Live';
       btnLive.classList.toggle('btn-live-active', isLive);
+    }
+
+    // Sync recording button state (safety net — _toggleLiveRecord sets this
+    // too, but _updateUI ensures consistency if anything gets out of sync)
+    const recBtn = document.getElementById('btn-live-record');
+    if (recBtn) {
+      const isRec = isLive && !!(this._liveCapture && this._liveCapture.isRecording);
+      recBtn.classList.toggle('recording', isRec);
+      recBtn.firstChild.textContent = isRec ? '\u25A0' : '\u25CF';
+      const recLbl = recBtn.querySelector('.btn-label');
+      if (recLbl) recLbl.textContent = isRec ? ' Stop' : ' Rec';
     }
   }
 
