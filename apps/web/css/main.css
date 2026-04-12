@@ -113,12 +113,20 @@ body.dark .drop-logo {
   color: var(--text-primary);
 }
 
-.drop-alpha {
-  font-size: 12px;
-  color: var(--text-secondary);
-  opacity: 0.5;
-  margin-top: 24px;
-  margin-bottom: 0;
+.drop-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 2px 7px;
+  vertical-align: middle;
+  position: relative;
+  top: -2px;
+  opacity: 0.7;
 }
 
 .drop-content p {
