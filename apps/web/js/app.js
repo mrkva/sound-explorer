@@ -1815,15 +1815,6 @@ class App {
       // Also grab any previously stopped recording
       if (!recordingBlob) recordingBlob = this._liveRecordingBlob;
 
-      if (!recordingBlob) {
-        console.warn('_stopLive: no recording blob available.',
-          'isRecording:', this._liveCapture.isRecording,
-          '_liveRecordingBlob:', this._liveRecordingBlob,
-          '_recordSamples:', this._liveCapture._recordSamples);
-      } else {
-        console.log('_stopLive: recording blob ready,', recordingBlob.size, 'bytes');
-      }
-
       const sr = this._liveCapture.sampleRate;
       const totalSamples = this._liveCapture.totalSamples;
 
@@ -1901,13 +1892,9 @@ class App {
         this._liveCapture.isRecording = false;
         this._liveRecordingBlob = null;
       }
-      if (this._liveRecordingBlob) {
-        console.log('Recording blob created:', this._liveRecordingBlob.size, 'bytes');
-        this._setStatus('Recording ready — click Stop Live to play, change speed & export');
-      } else {
-        console.warn('Recording blob is null — stopRecording() returned null or threw');
-        this._setStatus('Recording failed — no audio data captured');
-      }
+      this._setStatus(this._liveRecordingBlob
+        ? 'Recording ready — click Stop Live to play, change speed & export'
+        : 'Recording failed — no audio data captured');
     } else {
       this._liveCapture.startRecording();
       this._liveRecordingStartTime = performance.now();

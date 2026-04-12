@@ -263,12 +263,15 @@ export class LiveCapture {
     const bytesPerSample = 4; // 32-bit float
     const dataSize = numSamples * bytesPerSample;
 
-    // bext chunk: 602 bytes of data + 8 bytes header
+    // bext chunk: 602 bytes of data + 8 bytes header = 610
+    // Header total: RIFF(12) + fmt(24) + bext(610) + data header(8) = 654
+    // 654 is NOT 4-byte aligned, so we write header and sample data as
+    // separate buffers to avoid Float32Array alignment issues.
     const bextDataSize = 602;
     const bextChunkSize = 8 + bextDataSize;
-    const headerSize = 12 + 24 + bextChunkSize + 8; // RIFF(12) + fmt(24) + bext + data header(8)
-    const buffer = new ArrayBuffer(headerSize + dataSize);
-    const view = new DataView(buffer);
+    const headerSize = 12 + 24 + bextChunkSize + 8;
+    const header = new ArrayBuffer(headerSize);
+    const view = new DataView(header);
     let off = 0;
 
     const writeStr = (str, len) => {
@@ -323,11 +326,11 @@ export class LiveCapture {
     writeStr('data');
     view.setUint32(off, dataSize, true); off += 4;
 
-    // Write samples
-    const floatView = new Float32Array(buffer, headerSize);
-    floatView.set(samples);
+    // Sample data: reference the Float32Array's underlying buffer directly.
+    // Kept separate from header to avoid Float32Array 4-byte alignment issues.
+    const sampleBytes = new Uint8Array(samples.buffer, samples.byteOffset, dataSize);
 
-    return new Blob([buffer], { type: 'audio/wav' });
+    return new Blob([header, sampleBytes], { type: 'audio/wav' });
   }
 
   /**
