@@ -621,6 +621,7 @@ class App {
     } catch (err) {
       this._setStatus(`Error: ${err.message}`);
       console.error(err);
+      this._updateUI();
     }
   }
 
@@ -1834,10 +1835,18 @@ class App {
 
       // If we have a recording, load it into file analysis mode
       if (recordingBlob) {
-        this._liveRecordingBlob = null;
         const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         const file = new File([recordingBlob], `live-recording-${ts}.wav`, { type: 'audio/wav' });
-        await this._loadFiles([file]);
+        try {
+          await this._loadFiles([file]);
+          this._liveRecordingBlob = null;
+        } catch (e) {
+          // _loadFiles failed — keep blob so Save button works
+          this._liveRecordingBlob = recordingBlob;
+          console.error('Failed to load recording into player:', e);
+          this._setStatus('Recording saved but playback failed — use Save');
+        }
+        this._updateUI();
         return;
       }
 
