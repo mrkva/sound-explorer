@@ -21,6 +21,8 @@ Sound Explorer is designed for biology students and field recordists who work wi
 - **BWF/timecode support** -- parses Broadcast Wave Format metadata for wall-clock timestamps, so you know exactly when in the night a bat call occurred.
 - **Annotations** -- label time regions with notes, export/import as JSON.
 - **Multichannel support** -- mono downmix, individual channel selection, or split L|R view.
+- **Spectrum analyser** -- real-time frequency spectrum sidebar with save/compare snapshot lines, adjustable range, fullscreen mode.
+- **PNG export** -- export spectrogram or spectrum as publication-quality images with axes, wall-clock labels, settings info, and branding.
 
 ## How it was made
 

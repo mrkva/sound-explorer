@@ -47,6 +47,20 @@ Field Recording Explorer loads WAV files — single files or entire folders — 
 - Save annotations to JSON (+ companion `ffmpeg` shell script); load from JSON
 - Auto-loads `*.annotations.json` files found in the recording folder
 
+### Spectrum analyser
+- Real-time frequency spectrum sidebar with log-frequency X-axis and dB Y-axis
+- Save snapshot lines with custom labels and colors for comparison
+- Adjustable frequency range (min/max Hz)
+- Fullscreen mode expands spectrum over the spectrogram
+- Export spectrum as PNG with axes, legend, and branding
+
+### PNG export
+- Export spectrogram view as publication-quality PNG at 2x resolution
+- Includes time and frequency axes with labels
+- Wall-clock row shown when BWF timecode is available
+- Settings footer (sample rate, FFT size, window, frequency range, date)
+- Sound Explorer branding bar
+
 ### Export
 - Export selection or annotation as WAV — bit-perfect PCM copy at original format and sample rate
 - Speed-shifted export: writes the same PCM data with a different sample rate in the WAV header, so any player reproduces it at the altered speed/pitch

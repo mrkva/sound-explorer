@@ -48,7 +48,9 @@ No install needed. Works on desktop and mobile. All processing happens locally i
 - **Annotations** -- label time regions with notes, displayed as overlays on the spectrogram, export/import as JSON
 - **Multichannel** -- mono downmix, per-channel view, split L|R display for stereo files
 - **VU meter** -- per-channel level metering with peak hold, dBFS scale
-- **BWF/timecode** -- parses Broadcast Wave Format metadata for wall-clock timestamps, preserved through export
+- **Spectrum analyser** -- real-time frequency spectrum display in a sidebar panel with log-frequency axis, save and label snapshot lines for comparison, adjustable frequency range, resizable panel, fullscreen mode
+- **PNG export** -- export spectrogram or spectrum analyser as publication-quality PNG with frequency/amplitude axes, time labels, wall-clock row (when available), settings info, and Sound Explorer branding
+- **BWF/timecode** -- parses Broadcast Wave Format metadata for wall-clock timestamps, displayed on spectrogram axis and preserved through export
 - **Session metadata** -- metadata forms (location, equipment, conditions, notes) with iXML and FRM sidecar support
 - **Dark/light mode** -- toggle with the moon/sun button, saved between sessions
 - **Offline support** -- works offline as an installable PWA after first visit
