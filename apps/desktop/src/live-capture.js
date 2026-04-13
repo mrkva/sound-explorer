@@ -98,6 +98,13 @@ export class LiveCapture {
     // Create source from stream
     this.sourceNode = this.audioCtx.createMediaStreamSource(this.stream);
 
+    // Spectrum analyser for live frequency display
+    this.spectrumAnalyser = this.audioCtx.createAnalyser();
+    this.spectrumAnalyser.fftSize = 8192;
+    this.spectrumAnalyser.smoothingTimeConstant = 0.7;
+    this._spectrumBuffer = new Float32Array(this.spectrumAnalyser.frequencyBinCount);
+    this.sourceNode.connect(this.spectrumAnalyser);
+
     // Try AudioWorklet first, fall back to ScriptProcessor
     try {
       await this._setupWorklet();
@@ -223,6 +230,19 @@ export class LiveCapture {
   }
 
   /**
+   * Get frequency spectrum data as Float32Array of dB values.
+   */
+  getSpectrumData() {
+    if (!this.spectrumAnalyser) return null;
+    this.spectrumAnalyser.getFloatFrequencyData(this._spectrumBuffer);
+    return {
+      data: this._spectrumBuffer,
+      binCount: this.spectrumAnalyser.frequencyBinCount,
+      sampleRate: this.sampleRate,
+    };
+  }
+
+  /**
    * Start recording captured audio for later WAV export.
    */
   startRecording() {
@@ -339,6 +359,10 @@ export class LiveCapture {
     this.isCapturing = false;
     this.isRecording = false;
 
+    if (this.spectrumAnalyser) {
+      this.spectrumAnalyser.disconnect();
+      this.spectrumAnalyser = null;
+    }
     if (this.workletNode) {
       this.workletNode.disconnect();
       this.workletNode = null;

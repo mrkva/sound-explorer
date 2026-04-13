@@ -49,6 +49,8 @@ export class AudioEngine {
       try { this.sourceNode?.disconnect(); } catch(e) {}
       try { this.gainNode?.disconnect(); } catch(e) {}
       try { this.analyserNode?.disconnect(); } catch(e) {}
+      try { this.spectrumAnalyser?.disconnect(); } catch(e) {}
+      this.spectrumAnalyser = null;
       await this.audioContext.close();
       this.audioContext = null;
       this.sourceNode = null;
@@ -82,6 +84,13 @@ export class AudioEngine {
     this.sourceNode.connect(this.gainNode);
     this.gainNode.connect(this.analyserNode);
     this.analyserNode.connect(this.audioContext.destination);
+
+    // Spectrum analyser (high-resolution for frequency display)
+    this.spectrumAnalyser = this.audioContext.createAnalyser();
+    this.spectrumAnalyser.fftSize = 8192;
+    this.spectrumAnalyser.smoothingTimeConstant = 0.7;
+    this._spectrumBuffer = new Float32Array(this.spectrumAnalyser.frequencyBinCount);
+    this.gainNode.connect(this.spectrumAnalyser);
 
     // Events
     this.audioElement.addEventListener('ended', () => {
@@ -206,6 +215,19 @@ export class AudioEngine {
     if (this.audioElement) {
       this.audioElement.playbackRate = rate;
     }
+  }
+
+  /**
+   * Get frequency spectrum data as Float32Array of dB values.
+   */
+  getSpectrumData() {
+    if (!this.spectrumAnalyser) return null;
+    this.spectrumAnalyser.getFloatFrequencyData(this._spectrumBuffer);
+    return {
+      data: this._spectrumBuffer,
+      binCount: this.spectrumAnalyser.frequencyBinCount,
+      sampleRate: this.audioContext.sampleRate,
+    };
   }
 
   /**

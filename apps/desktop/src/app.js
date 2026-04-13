@@ -62,6 +62,18 @@ class App {
     this.tcOffsetSelect = document.getElementById('tc-offset');
     this._tcOffsetHours = 0;
 
+    // Spectrum analyser
+    this._spectrumRAF = null;
+    this._spectrumSavedLines = [];
+    this._spectrumColors = [
+      '#5B9BD5', '#8B5CF6', '#D946EF', '#06B6D4',
+      '#F59E0B', '#10B981', '#EF4444', '#F97316',
+    ];
+    this._spectrumFreqMin = 20;
+    this._spectrumFreqMax = null;
+    this._spectrumFullscreen = false;
+    this._sidebarWidth = 420;
+
     // Annotations
     this.annotations = [];
     this.annotationDialog = document.getElementById('annotation-dialog');
@@ -490,6 +502,11 @@ class App {
 
     document.getElementById('btn-close-sidebar').addEventListener('click', () => {
       this.annotationsSidebar.classList.remove('open');
+      if (this._spectrumFullscreen) {
+        this._spectrumFullscreen = false;
+        this.annotationsSidebar.classList.remove('spectrum-fullscreen');
+      }
+      this._stopSpectrumAnalyser();
       this._resizeCanvas();
       setTimeout(() => this._resizeCanvas(), 220);
     });
@@ -500,6 +517,27 @@ class App {
         if (tab.dataset.tab) this._switchSidebarTab(tab.dataset.tab);
       });
     });
+
+    // Spectrum analyser controls
+    document.getElementById('btn-spectrum').addEventListener('click', () => this._toggleSidebar('spectrum'));
+    document.getElementById('btn-spectrum-save').addEventListener('click', () => this._saveSpectrumLine());
+    document.getElementById('btn-spectrum-clear').addEventListener('click', () => this._clearSpectrumLines());
+    document.getElementById('btn-spectrum-export').addEventListener('click', () => this._exportSpectrumPNG());
+    document.getElementById('btn-spectrum-fullscreen').addEventListener('click', () => this._toggleSpectrumFullscreen());
+    document.getElementById('btn-export-png').addEventListener('click', () => this._exportSpectrogramPNG());
+
+    const freqMinInput = document.getElementById('spectrum-freq-min');
+    const freqMaxInput = document.getElementById('spectrum-freq-max');
+    freqMinInput.addEventListener('change', () => {
+      const v = parseInt(freqMinInput.value, 10);
+      if (v > 0) this._spectrumFreqMin = v;
+    });
+    freqMaxInput.addEventListener('change', () => {
+      const v = parseInt(freqMaxInput.value, 10);
+      this._spectrumFreqMax = v > 0 ? v : null;
+    });
+
+    this._initSidebarResize();
 
     document.getElementById('btn-export-annotations').addEventListener('click', () => {
       this._exportAnnotations();
@@ -2083,9 +2121,18 @@ class App {
     if (isOpen && currentTab === tab) {
       // Close sidebar
       sidebar.classList.remove('open');
+      if (this._spectrumFullscreen) {
+        this._spectrumFullscreen = false;
+        sidebar.classList.remove('spectrum-fullscreen');
+      }
+      this._stopSpectrumAnalyser();
     } else {
       // Open sidebar and switch to requested tab
       sidebar.classList.add('open');
+      if (this._sidebarWidth !== 420) {
+        sidebar.style.width = this._sidebarWidth + 'px';
+        sidebar.style.minWidth = this._sidebarWidth + 'px';
+      }
       this._switchSidebarTab(tab);
     }
     this._resizeCanvas();
@@ -2100,6 +2147,538 @@ class App {
     sidebar.querySelectorAll('.sidebar-pane').forEach(p => {
       p.classList.toggle('active', p.dataset.tab === tab);
     });
+    if (tab === 'spectrum') {
+      this._startSpectrumAnalyser();
+    } else {
+      this._stopSpectrumAnalyser();
+      if (this._spectrumFullscreen) {
+        this._spectrumFullscreen = false;
+        sidebar.classList.remove('spectrum-fullscreen');
+      }
+    }
+  }
+
+  // ── Spectrum Analyser ────��────────────────────────────────────────
+
+  _startSpectrumAnalyser() {
+    if (this._spectrumRAF) return;
+    const canvas = document.getElementById('spectrum-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    const draw = () => {
+      this._spectrumRAF = requestAnimationFrame(draw);
+
+      let spec = null;
+      if (this._liveCapture && this._liveCapture.isCapturing) {
+        spec = this._liveCapture.getSpectrumData();
+      } else if (this.engine && this.engine.isPlaying) {
+        spec = this.engine.getSpectrumData();
+      } else if (this.engine && this.engine.spectrumAnalyser) {
+        spec = this.engine.getSpectrumData();
+      }
+
+      const wrap = canvas.parentElement;
+      const dpr = window.devicePixelRatio || 1;
+      const w = wrap.clientWidth;
+      const h = wrap.clientHeight;
+      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      const pad = { top: 8, right: 8, bottom: 20, left: 36 };
+      const pw = w - pad.left - pad.right;
+      const ph = h - pad.top - pad.bottom;
+      ctx.clearRect(0, 0, w, h);
+
+      const dbMin = -120, dbMax = 0;
+      const sampleRate = spec ? spec.sampleRate : (this.session?.sampleRate || 48000);
+      const nyquist = sampleRate / 2;
+      const freqMin = Math.max(1, this._spectrumFreqMin || 20);
+      const freqMax = Math.min(nyquist, this._spectrumFreqMax || nyquist);
+      const logMin = Math.log10(freqMin);
+      const logMax = Math.log10(freqMax);
+
+      const freqToX = (f) => pad.left + ((Math.log10(f) - logMin) / (logMax - logMin)) * pw;
+      const dbToY = (db) => pad.top + ((dbMax - db) / (dbMax - dbMin)) * ph;
+
+      // Grid
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 1;
+      ctx.font = '9px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+
+      const freqTicks = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000];
+      for (const f of freqTicks) {
+        if (f < freqMin || f > freqMax) continue;
+        const x = freqToX(f);
+        ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + ph); ctx.stroke();
+        const label = f >= 1000 ? (f / 1000) + 'k' : String(f);
+        ctx.fillText(label, x, pad.top + ph + 4);
+      }
+
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      for (let db = dbMin; db <= dbMax; db += 20) {
+        const y = dbToY(db);
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + pw, y); ctx.stroke();
+        ctx.fillText(db + '', pad.left - 4, y);
+      }
+
+      const hexToRgba = (hex, a) => {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r},${g},${b},${a})`;
+      };
+
+      const drawLine = (data, binCount, sr, color, alpha, fill) => {
+        const binHz = sr / (binCount * 2);
+        ctx.beginPath();
+        let started = false;
+        for (let i = 1; i < binCount; i++) {
+          const f = i * binHz;
+          if (f < freqMin || f > freqMax) continue;
+          const x = freqToX(f);
+          const db = Math.max(dbMin, Math.min(dbMax, data[i]));
+          const y = dbToY(db);
+          if (!started) { ctx.moveTo(x, y); started = true; }
+          else ctx.lineTo(x, y);
+        }
+        if (fill && started) {
+          ctx.lineTo(freqToX(freqMax), dbToY(dbMin));
+          ctx.lineTo(freqToX(freqMin), dbToY(dbMin));
+          ctx.closePath();
+          ctx.fillStyle = hexToRgba(color, alpha * 0.15);
+          ctx.fill();
+        }
+        ctx.strokeStyle = hexToRgba(color, alpha);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      };
+
+      for (const line of this._spectrumSavedLines) {
+        drawLine(line.data, line.binCount, line.sampleRate, line.color, 0.6, true);
+      }
+
+      if (spec && spec.data) {
+        drawLine(spec.data, spec.binCount, spec.sampleRate, '#ffffff', 1, false);
+      }
+    };
+
+    this._spectrumRAF = requestAnimationFrame(draw);
+  }
+
+  _stopSpectrumAnalyser() {
+    if (this._spectrumRAF) {
+      cancelAnimationFrame(this._spectrumRAF);
+      this._spectrumRAF = null;
+    }
+  }
+
+  _saveSpectrumLine() {
+    let spec = null;
+    if (this._liveCapture && this._liveCapture.isCapturing) {
+      spec = this._liveCapture.getSpectrumData();
+    } else if (this.engine) {
+      spec = this.engine.getSpectrumData();
+    }
+    if (!spec || !spec.data) {
+      this.statusDisplay.textContent = 'No spectrum data — play audio or start live input';
+      return;
+    }
+
+    const idx = this._spectrumSavedLines.length;
+    const color = this._spectrumColors[idx % this._spectrumColors.length];
+    this._spectrumSavedLines.push({
+      data: new Float32Array(spec.data),
+      binCount: spec.binCount,
+      sampleRate: spec.sampleRate,
+      color,
+      label: `Capture ${idx + 1}`,
+    });
+    this._renderSpectrumLinesList();
+  }
+
+  _clearSpectrumLines() {
+    this._spectrumSavedLines = [];
+    this._renderSpectrumLinesList();
+  }
+
+  _deleteSpectrumLine(idx) {
+    this._spectrumSavedLines.splice(idx, 1);
+    this._renderSpectrumLinesList();
+  }
+
+  _renderSpectrumLinesList() {
+    const list = document.getElementById('spectrum-lines-list');
+    if (!list) return;
+    list.innerHTML = '';
+    this._spectrumSavedLines.forEach((line, i) => {
+      const row = document.createElement('div');
+      row.className = 'spectrum-line-item';
+
+      const swatch = document.createElement('div');
+      swatch.className = 'spectrum-line-swatch';
+      swatch.style.background = line.color;
+
+      const label = document.createElement('input');
+      label.className = 'spectrum-line-label';
+      label.type = 'text';
+      label.value = line.label;
+      label.addEventListener('change', () => { line.label = label.value; });
+
+      const del = document.createElement('button');
+      del.className = 'spectrum-line-del';
+      del.textContent = '\u00D7';
+      del.addEventListener('click', () => this._deleteSpectrumLine(i));
+
+      row.appendChild(swatch);
+      row.appendChild(label);
+      row.appendChild(del);
+      list.appendChild(row);
+    });
+  }
+
+  _initSidebarResize() {
+    const sidebar = this.annotationsSidebar;
+    const handle = document.createElement('div');
+    handle.className = 'sidebar-resize-handle';
+    sidebar.prepend(handle);
+
+    let startX, startW;
+    const onMove = (e) => {
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const delta = startX - clientX;
+      const newW = Math.max(200, Math.min(window.innerWidth * 0.8, startW + delta));
+      sidebar.style.width = newW + 'px';
+      sidebar.style.minWidth = newW + 'px';
+      this._sidebarWidth = newW;
+    };
+    const onUp = () => {
+      handle.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      this._resizeCanvas();
+    };
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = sidebar.offsetWidth;
+      handle.classList.add('dragging');
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  _toggleSpectrumFullscreen() {
+    const sidebar = this.annotationsSidebar;
+    this._spectrumFullscreen = !this._spectrumFullscreen;
+    sidebar.classList.toggle('spectrum-fullscreen', this._spectrumFullscreen);
+
+    const btn = document.getElementById('btn-spectrum-fullscreen');
+    btn.title = this._spectrumFullscreen ? 'Exit fullscreen' : 'Toggle fullscreen';
+    btn.textContent = this._spectrumFullscreen ? '\u2716' : '\u26F6';
+
+    if (!this._spectrumFullscreen) {
+      this._resizeCanvas();
+    }
+  }
+
+  _exportSpectrumPNG() {
+    const sampleRate = this._liveCapture?.isCapturing
+      ? this._liveCapture.sampleRate
+      : (this.session?.sampleRate || 48000);
+    const nyquist = sampleRate / 2;
+    const freqMin = Math.max(1, this._spectrumFreqMin || 20);
+    const freqMax = Math.min(nyquist, this._spectrumFreqMax || nyquist);
+    const dbMin = -120, dbMax = 0;
+    const logMin = Math.log10(freqMin);
+    const logMax = Math.log10(freqMax);
+
+    const lines = this._spectrumSavedLines;
+    let liveSpec = null;
+    if (this._liveCapture?.isCapturing) liveSpec = this._liveCapture.getSpectrumData();
+    else if (this.engine) liveSpec = this.engine.getSpectrumData();
+    const hasLive = !!(liveSpec?.data);
+    const legendItems = lines.length + (hasLive ? 1 : 0);
+    const hasLegend = legendItems > 0;
+
+    const scale = 2;
+    const pad = { top: 24, right: 20, bottom: 36, left: 52 };
+    const plotW = 800, plotH = 400;
+    const legendLineH = 22, legendPad = 12;
+    const legendH = hasLegend ? legendPad + legendItems * legendLineH + legendPad : 0;
+    const brandH = 28;
+    const totalW = pad.left + plotW + pad.right;
+    const totalH = pad.top + plotH + pad.bottom + legendH + brandH;
+
+    const exp = document.createElement('canvas');
+    exp.width = totalW * scale;
+    exp.height = totalH * scale;
+    const ctx = exp.getContext('2d');
+    ctx.scale(scale, scale);
+
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, totalW, totalH);
+
+    const freqToX = (f) => pad.left + ((Math.log10(f) - logMin) / (logMax - logMin)) * plotW;
+    const dbToY = (db) => pad.top + ((dbMax - db) / (dbMax - dbMin)) * plotH;
+
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(pad.left, pad.top, plotW, plotH);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+
+    const freqTicks = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000];
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (const f of freqTicks) {
+      if (f < freqMin || f > freqMax) continue;
+      const x = freqToX(f);
+      ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + plotH); ctx.stroke();
+      ctx.fillText(f >= 1000 ? (f / 1000) + 'k' : String(f), x, pad.top + plotH + 5);
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText('Frequency (Hz)', pad.left + plotW / 2, pad.top + plotH + 20);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let db = dbMin; db <= dbMax; db += 20) {
+      const y = dbToY(db);
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + plotW, y); ctx.stroke();
+      ctx.fillText(db + ' dB', pad.left - 5, y);
+    }
+
+    const hexToRgba = (hex, a) => {
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return `rgba(${r},${g},${b},${a})`;
+    };
+
+    const drawLine = (data, binCount, sr, color, alpha, fill) => {
+      const binHz = sr / (binCount * 2);
+      ctx.beginPath();
+      let started = false;
+      for (let i = 1; i < binCount; i++) {
+        const f = i * binHz;
+        if (f < freqMin || f > freqMax) continue;
+        const x = freqToX(f);
+        const db = Math.max(dbMin, Math.min(dbMax, data[i]));
+        const y = dbToY(db);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      if (fill && started) {
+        ctx.lineTo(freqToX(freqMax), dbToY(dbMin));
+        ctx.lineTo(freqToX(freqMin), dbToY(dbMin));
+        ctx.closePath();
+        ctx.fillStyle = hexToRgba(color, alpha * 0.15);
+        ctx.fill();
+      }
+      ctx.strokeStyle = hexToRgba(color, alpha);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    };
+
+    for (const line of lines) drawLine(line.data, line.binCount, line.sampleRate, line.color, 0.7, true);
+    if (hasLive) drawLine(liveSpec.data, liveSpec.binCount, liveSpec.sampleRate, '#ffffff', 1, false);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(pad.left, pad.top, plotW, plotH);
+
+    if (hasLegend) {
+      const ly = pad.top + plotH + pad.bottom;
+      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+      ctx.beginPath(); ctx.moveTo(pad.left, ly); ctx.lineTo(pad.left + plotW, ly); ctx.stroke();
+      ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      lines.forEach((line, i) => {
+        const y = ly + legendPad + i * legendLineH + legendLineH / 2;
+        ctx.fillStyle = line.color;
+        ctx.fillRect(pad.left, y - 6, 14, 12);
+        ctx.fillStyle = '#ccc';
+        ctx.fillText(line.label, pad.left + 22, y);
+      });
+      if (hasLive) {
+        const y = ly + legendPad + lines.length * legendLineH + legendLineH / 2;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(pad.left, y - 6, 14, 12);
+        ctx.fillStyle = '#ccc';
+        ctx.fillText('Live', pad.left + 22, y);
+      }
+    }
+
+    const by = totalH - brandH;
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.fillRect(0, by, totalW, brandH);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText('\u223F Sound Explorer', pad.left, by + brandH / 2);
+    ctx.textAlign = 'right';
+    const dateStr = new Date().toISOString().slice(0, 10);
+    ctx.fillText(`${sampleRate} Hz \u00B7 ${dateStr}`, pad.left + plotW, by + brandH / 2);
+
+    exp.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'spectrum.png';
+      a.click();
+      URL.revokeObjectURL(url);
+    }, 'image/png');
+  }
+
+  _exportSpectrogramPNG() {
+    if (!this.spectrogram || !this.session) return;
+    const sg = this.spectrogram;
+    if (!sg._spectBitmap) {
+      this.statusDisplay.textContent = 'No spectrogram to export';
+      return;
+    }
+
+    const scale = 2;
+    // Check wall clock: session.toWallClock returns seconds or null
+    const hasWallClock = this.session.sessionStartTime !== null;
+    const marginL = 60, marginT = 10, marginR = 10;
+    const marginB = hasWallClock ? 66 : 50;
+    const brandH = 28;
+    const plotW = this.canvas.width - 50;
+    const plotH = this.canvas.height - 40; // desktop uses fixed 40px bottom axis
+    const totalW = marginL + plotW + marginR;
+    const totalH = marginT + plotH + marginB + brandH;
+
+    const exp = document.createElement('canvas');
+    exp.width = totalW * scale;
+    exp.height = totalH * scale;
+    const ctx = exp.getContext('2d');
+    ctx.scale(scale, scale);
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, totalW, totalH);
+    ctx.drawImage(sg._spectBitmap, marginL, marginT, plotW, plotH);
+
+    // Desktop spectrogram viewStart/viewEnd are already in seconds
+    const viewDuration = sg.viewEnd - sg.viewStart;
+    const timeStart = sg.viewStart;
+    ctx.fillStyle = '#999';
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1;
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    const formatWall = (sec) => {
+      const s = ((sec % 86400) + 86400) % 86400;
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const ss = Math.floor(s % 60);
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+    };
+
+    const numTimeTicks = Math.max(2, Math.floor(plotW / 100));
+    for (let i = 0; i <= numTimeTicks; i++) {
+      const t = timeStart + (i / numTimeTicks) * viewDuration;
+      const x = marginL + (i / numTimeTicks) * plotW;
+      ctx.beginPath(); ctx.moveTo(x, marginT + plotH); ctx.lineTo(x, marginT + plotH + 5); ctx.stroke();
+      ctx.fillText(sg._formatDuration(t), x, marginT + plotH + 8);
+
+      if (hasWallClock) {
+        const wallSec = this.session.toWallClock(t);
+        if (wallSec !== null) {
+          ctx.fillStyle = '#7a9ec2';
+          ctx.font = '9px monospace';
+          ctx.fillText(formatWall(wallSec), x, marginT + plotH + 22);
+          ctx.fillStyle = '#999';
+          ctx.font = '10px monospace';
+        }
+      }
+    }
+    const timeLabelY = hasWallClock ? marginT + plotH + 40 : marginT + plotH + 28;
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillText(hasWallClock ? 'Time / Wall Clock' : 'Time', marginL + plotW / 2, timeLabelY);
+
+    ctx.fillStyle = '#999';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    const numFreqTicks = Math.max(2, Math.floor(plotH / 60));
+    for (let i = 0; i <= numFreqTicks; i++) {
+      const frac = i / numFreqTicks;
+      let freq;
+      if (sg.logFrequency && sg.minFreq > 0) {
+        const logMin = Math.log10(sg.minFreq);
+        const logMax = Math.log10(sg.maxFreq);
+        freq = Math.pow(10, logMin + frac * (logMax - logMin));
+      } else {
+        freq = sg.minFreq + frac * (sg.maxFreq - sg.minFreq);
+      }
+      const y = marginT + plotH - frac * plotH;
+      ctx.strokeStyle = '#555';
+      ctx.beginPath(); ctx.moveTo(marginL - 5, y); ctx.lineTo(marginL, y); ctx.stroke();
+      let label;
+      if (freq >= 1000) label = (freq / 1000).toFixed(freq >= 10000 ? 0 : 1) + 'k';
+      else label = Math.round(freq).toString();
+      ctx.fillText(label, marginL - 8, y);
+    }
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.translate(12, marginT + plotH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Frequency (Hz)', 0, 0);
+    ctx.restore();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(marginL, marginT, plotW, plotH);
+
+    const by = totalH - brandH;
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.fillRect(0, by, totalW, brandH);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText('\u223F Sound Explorer', marginL, by + brandH / 2);
+
+    const sr = this.session.sampleRate;
+    const fftLabel = `FFT ${sg.fftSize}`;
+    const windowLabel = sg.windowType;
+    const rangeLabel = `${sg.minFreq}\u2013${Math.round(sg.maxFreq)} Hz`;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${sr} Hz \u00B7 ${fftLabel} \u00B7 ${windowLabel} \u00B7 ${rangeLabel} \u00B7 ${dateStr}`, marginL + plotW, by + brandH / 2);
+
+    exp.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const baseName = this.session?.files?.[0]?.name?.replace(/\.wav$/i, '') || 'spectrogram';
+      a.download = `${baseName}_spectrogram.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+      this.statusDisplay.textContent = 'Spectrogram PNG exported';
+    }, 'image/png');
   }
 
   _resizeCanvas() {

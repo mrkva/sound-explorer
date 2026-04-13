@@ -941,6 +941,7 @@ button.danger {
 
 /* ── Tabbed sidebar (Annotations + Metadata) ────────────────────── */
 .app-sidebar {
+  position: relative;
   width: 0;
   min-width: 0;
   background: var(--bg-secondary);
@@ -1171,6 +1172,136 @@ button.danger {
   font-size: 12px;
   cursor: pointer;
 }
+/* Spectrum analyser tab */
+.spectrum-canvas-wrap {
+  flex: 1;
+  min-height: 180px;
+  position: relative;
+  background: #0a0a0a;
+}
+.spectrum-canvas-wrap canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.spectrum-controls {
+  display: flex;
+  gap: 4px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  align-items: center;
+}
+.spectrum-controls button {
+  padding: 3px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.spectrum-range {
+  display: flex;
+  gap: 4px;
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  align-items: center;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+.spectrum-range-label {
+  font-weight: 600;
+  margin-right: 2px;
+}
+.spectrum-range-input {
+  width: 60px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 2px 4px;
+  font-size: 10px;
+  border-radius: 3px;
+  font-family: inherit;
+}
+.spectrum-range-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.spectrum-lines-list {
+  overflow-y: auto;
+  max-height: 140px;
+  flex-shrink: 0;
+}
+.spectrum-line-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+}
+.spectrum-line-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.spectrum-line-label {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid transparent;
+  color: var(--text-primary);
+  font-size: 11px;
+  padding: 1px 2px;
+  font-family: inherit;
+}
+.spectrum-line-label:hover,
+.spectrum-line-label:focus {
+  border-bottom-color: var(--border);
+  outline: none;
+}
+.spectrum-line-del {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 2px;
+  line-height: 1;
+}
+.spectrum-line-del:hover {
+  color: var(--text-primary);
+}
+
+/* Sidebar resize handle */
+.sidebar-resize-handle {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 5;
+}
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.dragging {
+  background: var(--accent);
+  opacity: 0.4;
+}
+.app-sidebar.spectrum-fullscreen {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  min-width: 100% !important;
+  z-index: 10;
+  border-left: none;
+}
+
 .frm-section {
   margin-bottom: 4px;
   border: 1px solid var(--border);

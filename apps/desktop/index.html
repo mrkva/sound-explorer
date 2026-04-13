@@ -89,6 +89,8 @@
       <button id="btn-untrim" style="display:none;" title="Restore full session (U)">Untrim</button>
       <button id="btn-annotations" class="annotations-btn">Annotations</button>
       <button id="btn-session-meta" class="annotations-btn" title="Edit iXML / session metadata">Metadata</button>
+      <button id="btn-spectrum" class="annotations-btn" title="Spectrum analyser">&#x223F; Spectrum</button>
+      <button id="btn-export-png" title="Export spectrogram as PNG">&#x2913; PNG</button>
     </div>
 
     <div class="toolbar-group live-controls" id="live-controls" style="display: none;">
@@ -228,6 +230,7 @@
       <div class="sidebar-tabs">
         <button class="sidebar-tab active" data-tab="annotations">Annotations (<span id="annotation-count">0</span>)</button>
         <button class="sidebar-tab" data-tab="metadata">Metadata</button>
+        <button class="sidebar-tab" data-tab="spectrum">Spectrum</button>
         <button id="btn-close-sidebar" class="sidebar-close" title="Close sidebar">&times;</button>
       </div>
 
@@ -332,6 +335,28 @@
           <button id="frm-save" class="frm-secondary-btn" title="Save as session.frm.txt sidecar">Save .frm.txt</button>
           <button id="frm-save-as" class="frm-secondary-btn">Save As...</button>
         </div>
+      </div>
+
+      <!-- Spectrum analyser tab -->
+      <div class="sidebar-pane" data-tab="spectrum">
+        <div class="spectrum-canvas-wrap">
+          <canvas id="spectrum-canvas"></canvas>
+        </div>
+        <div class="spectrum-controls">
+          <button id="btn-spectrum-save" class="btn-action">Save Line</button>
+          <button id="btn-spectrum-clear">Clear All</button>
+          <button id="btn-spectrum-export" class="btn-save" title="Export as PNG">&#8595; PNG</button>
+          <span style="flex:1"></span>
+          <button id="btn-spectrum-fullscreen" title="Toggle fullscreen">&#x26F6;</button>
+        </div>
+        <div class="spectrum-range">
+          <label class="spectrum-range-label">Range</label>
+          <input id="spectrum-freq-min" type="number" class="spectrum-range-input" value="20" min="1" step="1" title="Min frequency (Hz)">
+          <span>&ndash;</span>
+          <input id="spectrum-freq-max" type="number" class="spectrum-range-input" value="" placeholder="max" min="1" step="1" title="Max frequency (Hz)">
+          <span>Hz</span>
+        </div>
+        <div id="spectrum-lines-list" class="spectrum-lines-list"></div>
       </div>
     </div>
   </div>
