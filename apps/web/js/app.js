@@ -437,8 +437,11 @@ class App {
 
     this.spectrogram.onCursorMove = (sample, freq) => {
       const timeSec = sample / (this.wavInfos[0]?.sampleRate || 1);
-      document.getElementById('info-cursor').textContent =
-        `${this._formatFreq(freq)} @ ${this._formatTime(timeSec)}`;
+      let text = `${this._formatFreq(freq)} @ ${this._formatTime(timeSec)}`;
+      if (this.spectrogram.wallClockFn) {
+        text += ` (${this.spectrogram.wallClockFn(timeSec)})`;
+      }
+      document.getElementById('info-cursor').textContent = text;
     };
 
     // Live input — toolbar toggle and drop zone button
@@ -656,6 +659,7 @@ class App {
       this._buildBigVUMeter(wavInfos[0].channels);
       this._updateFileInfo();
       this._updateFreqInputs();
+      this._updateWallClockFn();
       this._updateUI();
 
       this._setStatus(`Loaded ${files.length} file(s)`);
@@ -805,6 +809,27 @@ class App {
     const sFrac = cs % 100;
 
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sWhole).padStart(2, '0')}.${String(sFrac).padStart(2, '0')}`;
+  }
+
+  /**
+   * Set or clear the spectrogram's wall clock function based on current file's bext data.
+   */
+  _updateWallClockFn() {
+    if (!this.spectrogram) return;
+    const info = this.wavInfos[0];
+    if (info?.bext) {
+      const startSec = info.bext.timeReference / info.sampleRate;
+      this.spectrogram.wallClockFn = (positionSec) => {
+        const totalSec = startSec + positionSec;
+        const h = Math.floor(totalSec / 3600);
+        const m = Math.floor((totalSec % 3600) / 60);
+        const s = totalSec % 60;
+        const sWhole = Math.floor(s);
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sWhole).padStart(2, '0')}`;
+      };
+    } else {
+      this.spectrogram.wallClockFn = null;
+    }
   }
 
   // --- Selection ---
@@ -1027,10 +1052,12 @@ class App {
     }
 
     const scale = 2;
-    const marginL = 60, marginB = 50, marginT = 10, marginR = 10;
+    const hasWallClock = !!sg.wallClockFn;
+    const marginL = 60, marginT = 10, marginR = 10;
+    const marginB = hasWallClock ? 66 : 50;
     const brandH = 28;
     const plotW = srcCanvas.width - 50; // original MARGIN_LEFT = 50
-    const plotH = srcCanvas.height - 40; // original MARGIN_BOTTOM = 40
+    const plotH = srcCanvas.height - sg._marginBottom;
     const totalW = marginL + plotW + marginR;
     const totalH = marginT + plotH + marginB + brandH;
 
@@ -1063,11 +1090,21 @@ class App {
       const x = marginL + (i / numTimeTicks) * plotW;
       ctx.beginPath(); ctx.moveTo(x, marginT + plotH); ctx.lineTo(x, marginT + plotH + 5); ctx.stroke();
       ctx.fillText(sg._formatTime(t), x, marginT + plotH + 8);
+
+      // Wall clock row
+      if (hasWallClock) {
+        ctx.fillStyle = '#7a9ec2';
+        ctx.font = '9px monospace';
+        ctx.fillText(sg.wallClockFn(t), x, marginT + plotH + 22);
+        ctx.fillStyle = '#999';
+        ctx.font = '10px monospace';
+      }
     }
     // Time axis label
+    const timeLabelY = hasWallClock ? marginT + plotH + 40 : marginT + plotH + 28;
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.fillText('Time', marginL + plotW / 2, marginT + plotH + 28);
+    ctx.fillText(hasWallClock ? 'Time / Wall Clock' : 'Time', marginL + plotW / 2, timeLabelY);
 
     // Frequency axis
     ctx.fillStyle = '#999';
@@ -2418,6 +2455,9 @@ class App {
 
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
       this.spectrogram._updateCanvasSize();
+
+      // Clear wall clock (live mode uses system time in info strip instead)
+      this.spectrogram.wallClockFn = null;
 
       // Update frequency controls
       const nyquist = this._liveCapture.sampleRate / 2;

@@ -7,7 +7,8 @@ import { getWindow, fft, magnitudesDB } from './fft-core.js';
 import { buildColorLUT } from './colormaps.js';
 
 const MARGIN_LEFT = 50;
-const MARGIN_BOTTOM = 40;
+const MARGIN_BOTTOM_BASE = 40;
+const MARGIN_BOTTOM_WALLCLOCK = 56;
 
 const CURSOR_COLORS = {
   viridis: '#f15656',
@@ -44,6 +45,9 @@ export class SpectrogramRenderer {
     this.logScale = false;
     this.channel = 'mix';
     this.gainDB = 0;        // audio input gain (dB) — applied to live input
+
+    // Wall clock function: (positionSec) => "HH:MM:SS.cc" or null
+    this.wallClockFn = null;
 
     // Selection
     this.selectionStart = null;
@@ -407,6 +411,10 @@ export class SpectrogramRenderer {
     }
   }
 
+  get _marginBottom() {
+    return this.wallClockFn ? MARGIN_BOTTOM_WALLCLOCK : MARGIN_BOTTOM_BASE;
+  }
+
   _updateCanvasSize() {
     const parent = this.canvas.parentElement;
     const rect = parent.getBoundingClientRect();
@@ -430,7 +438,7 @@ export class SpectrogramRenderer {
   }
 
   _yToFreq(py) {
-    const h = this.canvas.height - MARGIN_BOTTOM;
+    const h = this.canvas.height - this._marginBottom;
     if (py < 0 || py > h) return null;
     const frac = 1 - py / h;
     if (this.logScale && this.freqMin > 0) {
@@ -606,7 +614,7 @@ export class SpectrogramRenderer {
 
     const gen = ++this._renderGeneration;
     const w = this.canvas.width - MARGIN_LEFT;
-    const h = this.canvas.height - MARGIN_BOTTOM;
+    const h = this.canvas.height - this._marginBottom;
     if (w <= 0 || h <= 0) return;
 
     const viewSamples = this.viewEnd - this.viewStart;
@@ -746,7 +754,7 @@ export class SpectrogramRenderer {
     // Parse channel pair e.g. "0|1"
     const parts = this.channel.split('|').map(s => parseInt(s.trim()));
     const w = this.canvas.width - MARGIN_LEFT;
-    const totalH = this.canvas.height - MARGIN_BOTTOM;
+    const totalH = this.canvas.height - this._marginBottom;
     const halfH = Math.floor((totalH - 2) / 2);
 
     for (let idx = 0; idx < parts.length && idx < 2; idx++) {
@@ -887,10 +895,10 @@ export class SpectrogramRenderer {
     const w = this.canvas.width;
     const h = this.canvas.height;
     const plotW = w - MARGIN_LEFT;
-    const plotH = h - MARGIN_BOTTOM;
+    const plotH = h - this._marginBottom;
 
     ctx.fillStyle = '#000000';
-    ctx.fillRect(0, plotH, w, MARGIN_BOTTOM);
+    ctx.fillRect(0, plotH, w, this._marginBottom);
     ctx.fillRect(0, 0, MARGIN_LEFT, h);
 
     ctx.strokeStyle = '#555555';
@@ -904,6 +912,7 @@ export class SpectrogramRenderer {
     ctx.font = '11px monospace';
     ctx.textAlign = 'center';
 
+    const hasWallClock = !!this.wallClockFn;
     const numTimeTicks = Math.max(2, Math.floor(plotW / 100));
     for (let i = 0; i <= numTimeTicks; i++) {
       const t = timeStart + (i / numTimeTicks) * viewDuration;
@@ -920,6 +929,15 @@ export class SpectrogramRenderer {
         ctx.fillText(label, x, plotH + 20);
       } else {
         ctx.fillText(this._formatTime(t), x, plotH + 20);
+      }
+
+      // Wall clock row below time
+      if (hasWallClock) {
+        ctx.fillStyle = '#7a9ec2';
+        ctx.font = '10px monospace';
+        ctx.fillText(this.wallClockFn(t), x, plotH + 34);
+        ctx.fillStyle = '#999999';
+        ctx.font = '11px monospace';
       }
     }
 
@@ -959,7 +977,7 @@ export class SpectrogramRenderer {
   _redraw() {
     if (!this._lastBitmap) return;
     const w = this.canvas.width - MARGIN_LEFT;
-    const h = this.canvas.height - MARGIN_BOTTOM;
+    const h = this.canvas.height - this._marginBottom;
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.ctx.drawImage(this._lastBitmap, MARGIN_LEFT, 0, w, h);
     this._drawAxes();
@@ -974,7 +992,7 @@ export class SpectrogramRenderer {
   _drawOverlaysOnly() {
     const ctx = this.ctx;
     const plotW = this.canvas.width - MARGIN_LEFT;
-    const plotH = this.canvas.height - MARGIN_BOTTOM;
+    const plotH = this.canvas.height - this._marginBottom;
 
     // Selection overlay
     if (this.selectionStart !== null && this.selectionEnd !== null) {
@@ -1117,6 +1135,17 @@ export class SpectrogramRenderer {
         ctx.fillStyle = labelColor;
         ctx.textAlign = 'center';
         ctx.fillText(timeStr, Math.max(MARGIN_LEFT + tw / 2, this._cursorX), plotH + 12);
+
+        // Wall clock label below time
+        if (this.wallClockFn) {
+          const wallStr = this.wallClockFn(timeSec);
+          const ww = ctx.measureText(wallStr).width + 6;
+          const wx = Math.min(this._cursorX - ww / 2, this.canvas.width - ww);
+          ctx.fillStyle = labelBg;
+          ctx.fillRect(Math.max(MARGIN_LEFT, wx), plotH + 16, ww, 14);
+          ctx.fillStyle = '#7a9ec2';
+          ctx.fillText(wallStr, Math.max(MARGIN_LEFT + ww / 2, this._cursorX), plotH + 27);
+        }
       }
 
       // Frequency label at left edge of horizontal line
@@ -1190,7 +1219,7 @@ export class SpectrogramRenderer {
 
   showCursor() {
     this._ensureCursorEl();
-    this._cursorEl.style.height = (this.canvas.height - MARGIN_BOTTOM) + 'px';
+    this._cursorEl.style.height = (this.canvas.height - this._marginBottom) + 'px';
     this._cursorEl.style.opacity = '1';
   }
 
@@ -1215,7 +1244,7 @@ export class SpectrogramRenderer {
     if (x >= MARGIN_LEFT && x <= this.canvas.width) {
       this._cursorEl.style.opacity = '1';
       // Only set height when it changes (avoids triggering layout every frame)
-      const h = this.canvas.height - MARGIN_BOTTOM;
+      const h = this.canvas.height - this._marginBottom;
       if (h !== this._cursorHeight) {
         this._cursorEl.style.height = h + 'px';
         this._cursorHeight = h;
@@ -1504,7 +1533,7 @@ export class SpectrogramRenderer {
       }
 
       const w = this.canvas.width - MARGIN_LEFT;
-      const h = this.canvas.height - MARGIN_BOTTOM;
+      const h = this.canvas.height - this._marginBottom;
 
       if (w > 0 && h > 0 && total > this.fftSize) {
         // Fixed scale: one column = viewSamples/w samples
