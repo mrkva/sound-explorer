@@ -817,6 +817,7 @@ class App {
   _updateWallClockFn() {
     if (!this.spectrogram) return;
     const info = this.wavInfos[0];
+    const prev = this.spectrogram.wallClockFn;
     if (info?.bext) {
       const startSec = info.bext.timeReference / info.sampleRate;
       this.spectrogram.wallClockFn = (positionSec) => {
@@ -829,6 +830,10 @@ class App {
       };
     } else {
       this.spectrogram.wallClockFn = null;
+    }
+    // Re-render if wall clock state changed (margin height changes)
+    if (!!prev !== !!this.spectrogram.wallClockFn) {
+      this.spectrogram.render();
     }
   }
 

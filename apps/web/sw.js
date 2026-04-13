@@ -5,7 +5,7 @@
  */
 
 // Keep in sync with js/version.js
-const CACHE_VERSION = '0.8.2';
+const CACHE_VERSION = '0.8.3';
 const CACHE_NAME = 'sound-explorer-v' + CACHE_VERSION;
 
 const APP_SHELL = [
@@ -93,8 +93,9 @@ self.addEventListener('fetch', (event) => {
   }
 
   // For all other same-origin requests: network first, cache fallback.
+  // Use cache:'no-cache' to bypass browser HTTP cache and get fresh files.
   event.respondWith(
-    fetch(event.request).then((response) => {
+    fetch(event.request, { cache: 'no-cache' }).then((response) => {
       if (response && response.status === 200 && response.type === 'basic') {
         const clone = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
