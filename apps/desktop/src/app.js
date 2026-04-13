@@ -2160,6 +2160,46 @@ class App {
 
   // ── Spectrum Analyser ────��────────────────────────────────────────
 
+  static _hexToRgba(hex, a) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  static _drawSpectrumLine(ctx, data, binCount, sr, color, alpha, fill, freqToX, dbToY, dbMin, freqMin, freqMax) {
+    const binHz = sr / (binCount * 2);
+    ctx.beginPath();
+    let started = false;
+    for (let i = 1; i < binCount; i++) {
+      const f = i * binHz;
+      if (f < freqMin || f > freqMax) continue;
+      const x = freqToX(f);
+      const db = Math.max(dbMin, data[i]);
+      const y = dbToY(db);
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else ctx.lineTo(x, y);
+    }
+    if (fill && started) {
+      ctx.lineTo(freqToX(freqMax), dbToY(dbMin));
+      ctx.lineTo(freqToX(freqMin), dbToY(dbMin));
+      ctx.closePath();
+      ctx.fillStyle = App._hexToRgba(color, alpha * 0.15);
+      ctx.fill();
+    }
+    ctx.strokeStyle = App._hexToRgba(color, alpha);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  _formatHMS(sec) {
+    const s = ((sec % 86400) + 86400) % 86400;
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const ss = Math.floor(s % 60);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  }
+
   _startSpectrumAnalyser() {
     if (this._spectrumRAF) return;
     const canvas = document.getElementById('spectrum-canvas');
@@ -2172,11 +2212,12 @@ class App {
       let spec = null;
       if (this._liveCapture && this._liveCapture.isCapturing) {
         spec = this._liveCapture.getSpectrumData();
-      } else if (this.engine && this.engine.isPlaying) {
-        spec = this.engine.getSpectrumData();
       } else if (this.engine && this.engine.spectrumAnalyser) {
         spec = this.engine.getSpectrumData();
       }
+
+      // Skip redraw when idle (no live data and no saved lines)
+      if (!spec && this._spectrumSavedLines.length === 0) return;
 
       const wrap = canvas.parentElement;
       const dpr = window.devicePixelRatio || 1;
@@ -2229,44 +2270,12 @@ class App {
         ctx.fillText(db + '', pad.left - 4, y);
       }
 
-      const hexToRgba = (hex, a) => {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        return `rgba(${r},${g},${b},${a})`;
-      };
-
-      const drawLine = (data, binCount, sr, color, alpha, fill) => {
-        const binHz = sr / (binCount * 2);
-        ctx.beginPath();
-        let started = false;
-        for (let i = 1; i < binCount; i++) {
-          const f = i * binHz;
-          if (f < freqMin || f > freqMax) continue;
-          const x = freqToX(f);
-          const db = Math.max(dbMin, Math.min(dbMax, data[i]));
-          const y = dbToY(db);
-          if (!started) { ctx.moveTo(x, y); started = true; }
-          else ctx.lineTo(x, y);
-        }
-        if (fill && started) {
-          ctx.lineTo(freqToX(freqMax), dbToY(dbMin));
-          ctx.lineTo(freqToX(freqMin), dbToY(dbMin));
-          ctx.closePath();
-          ctx.fillStyle = hexToRgba(color, alpha * 0.15);
-          ctx.fill();
-        }
-        ctx.strokeStyle = hexToRgba(color, alpha);
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      };
-
       for (const line of this._spectrumSavedLines) {
-        drawLine(line.data, line.binCount, line.sampleRate, line.color, 0.6, true);
+        App._drawSpectrumLine(ctx, line.data, line.binCount, line.sampleRate, line.color, 0.6, true, freqToX, dbToY, dbMin, freqMin, freqMax);
       }
 
       if (spec && spec.data) {
-        drawLine(spec.data, spec.binCount, spec.sampleRate, '#ffffff', 1, false);
+        App._drawSpectrumLine(ctx, spec.data, spec.binCount, spec.sampleRate, '#ffffff', 1, false, freqToX, dbToY, dbMin, freqMin, freqMax);
       }
     };
 
@@ -2352,7 +2361,7 @@ class App {
 
     let startX, startW;
     const onMove = (e) => {
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientX = e.clientX;
       const delta = startX - clientX;
       const newW = Math.max(200, Math.min(window.innerWidth * 0.8, startW + delta));
       sidebar.style.width = newW + 'px';
@@ -2458,40 +2467,8 @@ class App {
       ctx.fillText(db + ' dB', pad.left - 5, y);
     }
 
-    const hexToRgba = (hex, a) => {
-      const r = parseInt(hex.slice(1, 3), 16);
-      const g = parseInt(hex.slice(3, 5), 16);
-      const b = parseInt(hex.slice(5, 7), 16);
-      return `rgba(${r},${g},${b},${a})`;
-    };
-
-    const drawLine = (data, binCount, sr, color, alpha, fill) => {
-      const binHz = sr / (binCount * 2);
-      ctx.beginPath();
-      let started = false;
-      for (let i = 1; i < binCount; i++) {
-        const f = i * binHz;
-        if (f < freqMin || f > freqMax) continue;
-        const x = freqToX(f);
-        const db = Math.max(dbMin, Math.min(dbMax, data[i]));
-        const y = dbToY(db);
-        if (!started) { ctx.moveTo(x, y); started = true; }
-        else ctx.lineTo(x, y);
-      }
-      if (fill && started) {
-        ctx.lineTo(freqToX(freqMax), dbToY(dbMin));
-        ctx.lineTo(freqToX(freqMin), dbToY(dbMin));
-        ctx.closePath();
-        ctx.fillStyle = hexToRgba(color, alpha * 0.15);
-        ctx.fill();
-      }
-      ctx.strokeStyle = hexToRgba(color, alpha);
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    };
-
-    for (const line of lines) drawLine(line.data, line.binCount, line.sampleRate, line.color, 0.7, true);
-    if (hasLive) drawLine(liveSpec.data, liveSpec.binCount, liveSpec.sampleRate, '#ffffff', 1, false);
+    for (const line of lines) App._drawSpectrumLine(ctx, line.data, line.binCount, line.sampleRate, line.color, 0.7, true, freqToX, dbToY, dbMin, freqMin, freqMax);
+    if (hasLive) App._drawSpectrumLine(ctx, liveSpec.data, liveSpec.binCount, liveSpec.sampleRate, '#ffffff', 1, false, freqToX, dbToY, dbMin, freqMin, freqMax);
 
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
     ctx.lineWidth = 1;
@@ -2552,7 +2529,6 @@ class App {
     }
 
     const scale = 2;
-    // Check wall clock: session.toWallClock returns seconds or null
     const hasWallClock = this.session.sessionStartTime !== null;
     const marginL = 60, marginT = 10, marginR = 10;
     const marginB = hasWallClock ? 66 : 50;
@@ -2572,7 +2548,6 @@ class App {
     ctx.fillRect(0, 0, totalW, totalH);
     ctx.drawImage(sg._spectBitmap, marginL, marginT, plotW, plotH);
 
-    // Desktop spectrogram viewStart/viewEnd are already in seconds
     const viewDuration = sg.viewEnd - sg.viewStart;
     const timeStart = sg.viewStart;
     ctx.fillStyle = '#999';
@@ -2581,14 +2556,6 @@ class App {
     ctx.font = '10px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-
-    const formatWall = (sec) => {
-      const s = ((sec % 86400) + 86400) % 86400;
-      const h = Math.floor(s / 3600);
-      const m = Math.floor((s % 3600) / 60);
-      const ss = Math.floor(s % 60);
-      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
-    };
 
     const numTimeTicks = Math.max(2, Math.floor(plotW / 100));
     for (let i = 0; i <= numTimeTicks; i++) {
@@ -2602,7 +2569,7 @@ class App {
         if (wallSec !== null) {
           ctx.fillStyle = '#7a9ec2';
           ctx.font = '9px monospace';
-          ctx.fillText(formatWall(wallSec), x, marginT + plotH + 22);
+          ctx.fillText(this._formatHMS(wallSec), x, marginT + plotH + 22);
           ctx.fillStyle = '#999';
           ctx.font = '10px monospace';
         }
