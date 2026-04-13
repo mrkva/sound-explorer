@@ -67,6 +67,7 @@ class App {
       'btn-open-file': !isLive,
       'btn-export': hasFile && !isLive,
       'btn-export-speed': hasFile && !isLive && this.audio && this.audio.playbackRate !== 1,
+      'btn-export-png': hasFile || isFrozen,
 
       // Live group (Live + Rec + Save together)
       'btn-live': true,
@@ -258,6 +259,7 @@ class App {
     document.getElementById('select-duration-preset').addEventListener('change', (e) => this._onDurationPreset(e.target.value));
     document.getElementById('btn-export').addEventListener('click', () => this._exportWav());
     document.getElementById('btn-export-speed').addEventListener('click', () => this._exportWavAtSpeed());
+    document.getElementById('btn-export-png').addEventListener('click', () => this._exportSpectrogramPNG());
     document.getElementById('btn-loop').addEventListener('click', () => this._toggleLoop());
 
     // Sidebar (annotations + metadata tabs)
@@ -1012,6 +1014,138 @@ class App {
     this._setStatus(`Exported: ${filename}`);
   }
 
+  /**
+   * Export the current spectrogram view as a PNG with axes, labels, and branding.
+   */
+  _exportSpectrogramPNG() {
+    if (!this.spectrogram) return;
+    const sg = this.spectrogram;
+    const srcCanvas = sg.canvas;
+    if (!srcCanvas || !sg._lastBitmap) {
+      this._setStatus('No spectrogram to export');
+      return;
+    }
+
+    const scale = 2;
+    const marginL = 60, marginB = 50, marginT = 10, marginR = 10;
+    const brandH = 28;
+    const plotW = srcCanvas.width - 50; // original MARGIN_LEFT = 50
+    const plotH = srcCanvas.height - 40; // original MARGIN_BOTTOM = 40
+    const totalW = marginL + plotW + marginR;
+    const totalH = marginT + plotH + marginB + brandH;
+
+    const exp = document.createElement('canvas');
+    exp.width = totalW * scale;
+    exp.height = totalH * scale;
+    const ctx = exp.getContext('2d');
+    ctx.scale(scale, scale);
+
+    // Background
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, totalW, totalH);
+
+    // Draw the spectrogram bitmap into the plot area
+    ctx.drawImage(sg._lastBitmap, marginL, marginT, plotW, plotH);
+
+    // Time axis
+    const viewDuration = (sg.viewEnd - sg.viewStart) / sg.wavInfo.sampleRate;
+    const timeStart = sg.viewStart / sg.wavInfo.sampleRate;
+    ctx.fillStyle = '#999';
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1;
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    const numTimeTicks = Math.max(2, Math.floor(plotW / 100));
+    for (let i = 0; i <= numTimeTicks; i++) {
+      const t = timeStart + (i / numTimeTicks) * viewDuration;
+      const x = marginL + (i / numTimeTicks) * plotW;
+      ctx.beginPath(); ctx.moveTo(x, marginT + plotH); ctx.lineTo(x, marginT + plotH + 5); ctx.stroke();
+      ctx.fillText(sg._formatTime(t), x, marginT + plotH + 8);
+    }
+    // Time axis label
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillText('Time', marginL + plotW / 2, marginT + plotH + 28);
+
+    // Frequency axis
+    ctx.fillStyle = '#999';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+
+    const numFreqTicks = Math.max(2, Math.floor(plotH / 60));
+    for (let i = 0; i <= numFreqTicks; i++) {
+      const frac = i / numFreqTicks;
+      let freq;
+      if (sg.logScale && sg.freqMin > 0) {
+        const logMin = Math.log10(sg.freqMin);
+        const logMax = Math.log10(sg.freqMax);
+        freq = Math.pow(10, logMin + frac * (logMax - logMin));
+      } else {
+        freq = sg.freqMin + frac * (sg.freqMax - sg.freqMin);
+      }
+      const y = marginT + plotH - frac * plotH;
+      ctx.strokeStyle = '#555';
+      ctx.beginPath(); ctx.moveTo(marginL - 5, y); ctx.lineTo(marginL, y); ctx.stroke();
+
+      let label;
+      if (freq >= 1000) label = (freq / 1000).toFixed(freq >= 10000 ? 0 : 1) + 'k';
+      else label = Math.round(freq).toString();
+      ctx.fillText(label, marginL - 8, y);
+    }
+    // Frequency axis label (rotated)
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.translate(12, marginT + plotH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Frequency (Hz)', 0, 0);
+    ctx.restore();
+
+    // Plot border
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(marginL, marginT, plotW, plotH);
+
+    // Branding bar
+    const by = totalH - brandH;
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.fillRect(0, by, totalW, brandH);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText('\u223F Sound Explorer', marginL, by + brandH / 2);
+
+    // File info and settings on the right side of branding bar
+    const info = sg.wavInfo;
+    const sr = info.sampleRate;
+    const fftLabel = `FFT ${sg.fftSize}`;
+    const windowLabel = sg.windowType;
+    const rangeLabel = `${sg.freqMin}–${Math.round(sg.freqMax)} Hz`;
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${sr} Hz \u00B7 ${fftLabel} \u00B7 ${windowLabel} \u00B7 ${rangeLabel} \u00B7 ${dateStr}`, marginL + plotW, by + brandH / 2);
+
+    // Download
+    exp.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const baseName = this.wavInfos[0]?._file?.name?.replace(/\.wav$/i, '') || 'spectrogram';
+      a.download = `${baseName}_spectrogram.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+      this._setStatus('Spectrogram PNG exported');
+    }, 'image/png');
+  }
+
   _formatWallClockISO(date, totalSec) {
     return `${date}T${this._formatHMS(totalSec)}`;
   }
@@ -1384,65 +1518,184 @@ class App {
     }
   }
 
+  /**
+   * Render the spectrum analyser to a high-quality PNG with axes, legend, and branding.
+   * Draws from scratch at a fixed export resolution rather than screen-grabbing.
+   */
   _exportSpectrumPNG() {
-    const canvas = document.getElementById('spectrum-canvas');
-    if (!canvas) return;
-
-    // Determine dimensions for the export canvas
-    const srcW = canvas.width;
-    const srcH = canvas.height;
-    const dpr = window.devicePixelRatio || 1;
+    const sampleRate = this._liveCapture?.isCapturing
+      ? this._liveCapture.sampleRate
+      : (this.wavInfos[0]?.sampleRate || 48000);
+    const nyquist = sampleRate / 2;
+    const freqMin = Math.max(1, this._spectrumFreqMin || 20);
+    const freqMax = Math.min(nyquist, this._spectrumFreqMax || nyquist);
+    const dbMin = -120, dbMax = 0;
+    const logMin = Math.log10(freqMin);
+    const logMax = Math.log10(freqMax);
 
     const lines = this._spectrumSavedLines;
+    // Check for live spectrum to include in legend
+    let liveSpec = null;
+    if (this._liveCapture?.isCapturing) liveSpec = this._liveCapture.getSpectrumData();
+    else if (this.audio) liveSpec = this.audio.getSpectrumData();
+    const hasLive = !!(liveSpec?.data);
+    const legendItems = lines.length + (hasLive ? 1 : 0);
+    const hasLegend = legendItems > 0;
+
+    // Export dimensions (CSS pixels, then scaled by 2× for crisp output)
+    const scale = 2;
+    const pad = { top: 24, right: 20, bottom: 36, left: 52 };
+    const plotW = 800;
+    const plotH = 400;
     const legendLineH = 22;
-    const legendPadding = 12;
-    const legendH = lines.length > 0 ? legendPadding + lines.length * legendLineH + legendPadding : 0;
+    const legendPad = 12;
+    const legendH = hasLegend ? legendPad + legendItems * legendLineH + legendPad : 0;
+    const brandH = 28;
+    const totalW = pad.left + plotW + pad.right;
+    const totalH = pad.top + plotH + pad.bottom + legendH + brandH;
 
-    // Create export canvas
     const exp = document.createElement('canvas');
-    exp.width = srcW;
-    exp.height = srcH + legendH * dpr;
+    exp.width = totalW * scale;
+    exp.height = totalH * scale;
     const ctx = exp.getContext('2d');
+    ctx.scale(scale, scale);
 
-    // Draw spectrum canvas content
-    ctx.drawImage(canvas, 0, 0);
+    // Background
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, totalW, totalH);
 
-    // Draw legend background
-    if (lines.length > 0) {
-      ctx.save();
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const lw = srcW / dpr;
-      const ly = srcH / dpr;
+    // Coordinate helpers
+    const freqToX = (f) => pad.left + ((Math.log10(f) - logMin) / (logMax - logMin)) * plotW;
+    const dbToY = (db) => pad.top + ((dbMax - db) / (dbMax - dbMin)) * plotH;
 
-      ctx.fillStyle = '#1a1a1a';
-      ctx.fillRect(0, ly, lw, legendH);
-      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, ly);
-      ctx.lineTo(lw, ly);
-      ctx.stroke();
+    // Plot background
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(pad.left, pad.top, plotW, plotH);
 
-      ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
-      ctx.textBaseline = 'middle';
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
 
-      lines.forEach((line, i) => {
-        const y = ly + legendPadding + i * legendLineH + legendLineH / 2;
+    // Frequency grid + labels
+    const freqTicks = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000];
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (const f of freqTicks) {
+      if (f < freqMin || f > freqMax) continue;
+      const x = freqToX(f);
+      ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + plotH); ctx.stroke();
+      const label = f >= 1000 ? (f / 1000) + 'k' : String(f);
+      ctx.fillText(label, x, pad.top + plotH + 5);
+    }
+    // Frequency axis label
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Frequency (Hz)', pad.left + plotW / 2, pad.top + plotH + 20);
 
-        // Color swatch
-        ctx.fillStyle = line.color;
-        ctx.fillRect(legendPadding, y - 6, 14, 12);
-
-        // Label
-        ctx.fillStyle = '#ccc';
-        ctx.textAlign = 'left';
-        ctx.fillText(line.label, legendPadding + 22, y);
-      });
-
-      ctx.restore();
+    // dB grid + labels
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    for (let db = dbMin; db <= dbMax; db += 20) {
+      const y = dbToY(db);
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + plotW, y); ctx.stroke();
+      ctx.fillText(db + ' dB', pad.left - 5, y);
     }
 
-    // Export as PNG download
+    // hex to rgba helper
+    const hexToRgba = (hex, a) => {
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return `rgba(${r},${g},${b},${a})`;
+    };
+
+    // Draw a spectrum line
+    const drawLine = (data, binCount, sr, color, alpha, fill) => {
+      const binHz = sr / (binCount * 2);
+      ctx.beginPath();
+      let started = false;
+      for (let i = 1; i < binCount; i++) {
+        const f = i * binHz;
+        if (f < freqMin || f > freqMax) continue;
+        const x = freqToX(f);
+        const db = Math.max(dbMin, Math.min(dbMax, data[i]));
+        const y = dbToY(db);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      if (fill && started) {
+        ctx.lineTo(freqToX(freqMax), dbToY(dbMin));
+        ctx.lineTo(freqToX(freqMin), dbToY(dbMin));
+        ctx.closePath();
+        ctx.fillStyle = hexToRgba(color, alpha * 0.15);
+        ctx.fill();
+      }
+      ctx.strokeStyle = hexToRgba(color, alpha);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    };
+
+    // Draw saved lines
+    for (const line of lines) {
+      drawLine(line.data, line.binCount, line.sampleRate, line.color, 0.7, true);
+    }
+
+    // Draw current live spectrum if available
+    if (hasLive) {
+      drawLine(liveSpec.data, liveSpec.binCount, liveSpec.sampleRate, '#ffffff', 1, false);
+    }
+
+    // Plot border
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(pad.left, pad.top, plotW, plotH);
+
+    // Legend
+    if (hasLegend) {
+      const ly = pad.top + plotH + pad.bottom;
+      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+      ctx.beginPath(); ctx.moveTo(pad.left, ly); ctx.lineTo(pad.left + plotW, ly); ctx.stroke();
+
+      ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      lines.forEach((line, i) => {
+        const y = ly + legendPad + i * legendLineH + legendLineH / 2;
+        ctx.fillStyle = line.color;
+        ctx.fillRect(pad.left, y - 6, 14, 12);
+        ctx.fillStyle = '#ccc';
+        ctx.fillText(line.label, pad.left + 22, y);
+      });
+
+      if (hasLive) {
+        const y = ly + legendPad + lines.length * legendLineH + legendLineH / 2;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(pad.left, y - 6, 14, 12);
+        ctx.fillStyle = '#ccc';
+        ctx.fillText('Live', pad.left + 22, y);
+      }
+    }
+
+    // Branding bar at bottom
+    const by = totalH - brandH;
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.fillRect(0, by, totalW, brandH);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText('\u223F Sound Explorer', pad.left, by + brandH / 2);
+    ctx.textAlign = 'right';
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    ctx.fillText(`${sampleRate} Hz \u00B7 ${dateStr}`, pad.left + plotW, by + brandH / 2);
+
+    // Download
     exp.toBlob((blob) => {
       if (!blob) return;
       const url = URL.createObjectURL(blob);
