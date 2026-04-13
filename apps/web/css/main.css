@@ -557,6 +557,83 @@ body.dark .toolbar-logo {
   white-space: nowrap;
 }
 
+/* Spectrum analyser tab */
+.spectrum-canvas-wrap {
+  flex: 1;
+  min-height: 180px;
+  position: relative;
+  background: #0a0a0a;
+}
+
+.spectrum-canvas-wrap canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.spectrum-controls {
+  display: flex;
+  gap: 4px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.spectrum-lines-list {
+  overflow-y: auto;
+  max-height: 140px;
+  flex-shrink: 0;
+}
+
+.spectrum-line-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+}
+
+.spectrum-line-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.spectrum-line-label {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid transparent;
+  color: var(--text-primary);
+  font-size: 11px;
+  padding: 1px 2px;
+  font-family: inherit;
+}
+
+.spectrum-line-label:hover,
+.spectrum-line-label:focus {
+  border-bottom-color: var(--border);
+  outline: none;
+}
+
+.spectrum-line-del {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.spectrum-line-del:hover {
+  color: var(--text-primary);
+}
+
 /* FRM form styling */
 .frm-section {
   margin-bottom: 4px;

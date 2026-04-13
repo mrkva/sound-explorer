@@ -79,6 +79,13 @@ export class AudioEngine {
 
     this.gainNode.connect(this.analyser);
     this.analyser.connect(this.audioCtx.destination);
+
+    // Spectrum analyser — higher resolution for frequency display
+    this.spectrumAnalyser = this.audioCtx.createAnalyser();
+    this.spectrumAnalyser.fftSize = 8192;
+    this.spectrumAnalyser.smoothingTimeConstant = 0.7;
+    this._spectrumBuffer = new Float32Array(this.spectrumAnalyser.frequencyBinCount);
+    this.gainNode.connect(this.spectrumAnalyser);
   }
 
   /**
@@ -597,6 +604,20 @@ export class AudioEngine {
       });
     }
     return results;
+  }
+
+  /**
+   * Get frequency spectrum data as Float32Array of dB values.
+   * Returns { data: Float32Array, binCount: number, sampleRate: number }
+   */
+  getSpectrumData() {
+    if (!this.spectrumAnalyser) return null;
+    this.spectrumAnalyser.getFloatFrequencyData(this._spectrumBuffer);
+    return {
+      data: this._spectrumBuffer,
+      binCount: this.spectrumAnalyser.frequencyBinCount,
+      sampleRate: this.audioCtx.sampleRate,
+    };
   }
 
   /**

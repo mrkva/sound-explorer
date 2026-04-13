@@ -150,6 +150,7 @@
 
       <button id="btn-annotations" class="btn toolbar-btn" title="Annotations">&#x2630;<span class="btn-label"> Notes</span></button>
       <button id="btn-metadata" class="btn toolbar-btn" title="Metadata">&#x2139;<span class="btn-label"> Meta</span></button>
+      <button id="btn-spectrum" class="btn toolbar-btn" title="Spectrum analyser">&#x223F;<span class="btn-label"> Spectrum</span></button>
       <button id="btn-theme" class="btn toolbar-btn btn-theme" title="Toggle dark mode">&#x263E;</button>
       <button id="btn-shortcuts" class="btn toolbar-btn btn-help" title="Keyboard shortcuts">?</button>
     </div>
@@ -174,6 +175,7 @@
         <div class="sidebar-tabs">
           <button class="sidebar-tab active" data-tab="annotations">Annotations</button>
           <button class="sidebar-tab" data-tab="metadata">Metadata</button>
+          <button class="sidebar-tab" data-tab="spectrum">Spectrum</button>
           <button id="btn-close-sidebar" class="sidebar-close">&times;</button>
         </div>
 
@@ -277,6 +279,18 @@
             <button id="frm-download" class="btn btn-small btn-save">Download .frm.txt</button>
             <label class="meta-apply-label"><input type="checkbox" id="frm-apply-export" checked> Embed in exports</label>
           </div>
+        </div>
+
+        <!-- Spectrum analyser tab -->
+        <div class="sidebar-pane" data-tab="spectrum">
+          <div class="spectrum-canvas-wrap">
+            <canvas id="spectrum-canvas"></canvas>
+          </div>
+          <div class="spectrum-controls">
+            <button id="btn-spectrum-save" class="btn btn-small btn-action">Save Line</button>
+            <button id="btn-spectrum-clear" class="btn btn-small">Clear All</button>
+          </div>
+          <div id="spectrum-lines-list" class="spectrum-lines-list"></div>
         </div>
       </div>
     </div>

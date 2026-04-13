@@ -22,6 +22,14 @@ class App {
     this._spectRange = 90;
     this._liveCapture = null;
     this._liveRecordingBlob = null;
+
+    // Spectrum analyser
+    this._spectrumRAF = null;
+    this._spectrumSavedLines = [];
+    this._spectrumColors = [
+      '#5B9BD5', '#8B5CF6', '#D946EF', '#06B6D4',
+      '#F59E0B', '#10B981', '#EF4444', '#F97316',
+    ];
     this._liveRecordingStartTime = null;
     this._livePeakDb = -100;
     this._liveRmsDb = -100;
@@ -84,6 +92,7 @@ class App {
       // Sidebar
       'btn-annotations': hasFile,
       'btn-metadata': hasFile,
+      'btn-spectrum': hasFile || isLive,
 
       // Live controls (window selector in toolbar)
       'select-live-window': isLive,
@@ -250,7 +259,10 @@ class App {
     // Sidebar (annotations + metadata tabs)
     document.getElementById('btn-annotations').addEventListener('click', () => this._toggleSidebar('annotations'));
     document.getElementById('btn-metadata').addEventListener('click', () => this._toggleSidebar('metadata'));
+    document.getElementById('btn-spectrum').addEventListener('click', () => this._toggleSidebar('spectrum'));
     document.getElementById('btn-close-sidebar').addEventListener('click', () => this._closeSidebar());
+    document.getElementById('btn-spectrum-save').addEventListener('click', () => this._saveSpectrumLine());
+    document.getElementById('btn-spectrum-clear').addEventListener('click', () => this._clearSpectrumLines());
     document.getElementById('app-sidebar').querySelectorAll('.sidebar-tab').forEach(tab => {
       tab.addEventListener('click', () => { if (tab.dataset.tab) this._switchSidebarTab(tab.dataset.tab); });
     });
@@ -1029,12 +1041,14 @@ class App {
       this._switchSidebarTab(tab);
       if (tab === 'annotations') this._renderAnnotationsList();
       if (tab === 'metadata') this._populateMetadataForm();
+      if (tab === 'spectrum') this._startSpectrumAnalyser();
     }
     this._resizeSidebar();
   }
 
   _closeSidebar() {
     document.getElementById('app-sidebar').classList.remove('open');
+    this._stopSpectrumAnalyser();
     this._resizeSidebar();
   }
 
@@ -1047,6 +1061,8 @@ class App {
       p.classList.toggle('active', p.dataset.tab === tab);
     });
     if (tab === 'metadata') this._populateMetadataForm();
+    if (tab === 'spectrum') this._startSpectrumAnalyser();
+    else this._stopSpectrumAnalyser();
   }
 
   _resizeSidebar() {
@@ -1060,6 +1076,211 @@ class App {
       this.spectrogram._tileCache.clear();
       this.spectrogram.render();
     }, 250);
+  }
+
+  // ── Spectrum Analyser ─────────────────────────────────────────────
+
+  _startSpectrumAnalyser() {
+    if (this._spectrumRAF) return;
+    const canvas = document.getElementById('spectrum-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    const draw = () => {
+      this._spectrumRAF = requestAnimationFrame(draw);
+
+      // Get spectrum data from either live capture or audio engine
+      let spec = null;
+      if (this._liveCapture && this._liveCapture.isCapturing) {
+        spec = this._liveCapture.getSpectrumData();
+      } else if (this.audio && this.audio.isPlaying) {
+        spec = this.audio.getSpectrumData();
+      } else if (this.audio && this.audio.spectrumAnalyser) {
+        spec = this.audio.getSpectrumData();
+      }
+
+      // Size canvas to container
+      const wrap = canvas.parentElement;
+      const dpr = window.devicePixelRatio || 1;
+      const w = wrap.clientWidth;
+      const h = wrap.clientHeight;
+      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      const pad = { top: 8, right: 8, bottom: 20, left: 36 };
+      const pw = w - pad.left - pad.right;
+      const ph = h - pad.top - pad.bottom;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Axis range
+      const dbMin = -120, dbMax = 0;
+      const sampleRate = spec ? spec.sampleRate : (this.wavInfos[0]?.sampleRate || 48000);
+      const nyquist = sampleRate / 2;
+      const freqMin = 20;
+      const freqMax = nyquist;
+      const logMin = Math.log10(freqMin);
+      const logMax = Math.log10(freqMax);
+
+      const freqToX = (f) => pad.left + ((Math.log10(f) - logMin) / (logMax - logMin)) * pw;
+      const dbToY = (db) => pad.top + ((dbMax - db) / (dbMax - dbMin)) * ph;
+
+      // Draw grid
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 1;
+      ctx.font = '9px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+
+      // Frequency grid lines
+      const freqTicks = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000];
+      for (const f of freqTicks) {
+        if (f < freqMin || f > freqMax) continue;
+        const x = freqToX(f);
+        ctx.beginPath();
+        ctx.moveTo(x, pad.top);
+        ctx.lineTo(x, pad.top + ph);
+        ctx.stroke();
+        let label;
+        if (f >= 1000) label = (f / 1000) + 'k';
+        else label = String(f);
+        ctx.fillText(label, x, pad.top + ph + 4);
+      }
+
+      // dB grid lines
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      for (let db = dbMin; db <= dbMax; db += 20) {
+        const y = dbToY(db);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(pad.left + pw, y);
+        ctx.stroke();
+        ctx.fillText(db + '', pad.left - 4, y);
+      }
+
+      // Helper: hex color to rgba string
+      const hexToRgba = (hex, a) => {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r},${g},${b},${a})`;
+      };
+
+      // Helper: draw a spectrum line from frequency data
+      const drawLine = (data, binCount, sr, color, alpha, fill) => {
+        const binHz = sr / (binCount * 2);
+        ctx.beginPath();
+        let started = false;
+        for (let i = 1; i < binCount; i++) {
+          const f = i * binHz;
+          if (f < freqMin || f > freqMax) continue;
+          const x = freqToX(f);
+          const db = Math.max(dbMin, Math.min(dbMax, data[i]));
+          const y = dbToY(db);
+          if (!started) { ctx.moveTo(x, y); started = true; }
+          else ctx.lineTo(x, y);
+        }
+        if (fill && started) {
+          ctx.lineTo(freqToX(freqMax), dbToY(dbMin));
+          ctx.lineTo(freqToX(freqMin), dbToY(dbMin));
+          ctx.closePath();
+          ctx.fillStyle = hexToRgba(color, alpha * 0.15);
+          ctx.fill();
+        }
+        ctx.strokeStyle = hexToRgba(color, alpha);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      };
+
+      // Draw saved lines (back to front)
+      for (const line of this._spectrumSavedLines) {
+        drawLine(line.data, line.binCount, line.sampleRate, line.color, 0.6, true);
+      }
+
+      // Draw current live spectrum
+      if (spec && spec.data) {
+        drawLine(spec.data, spec.binCount, spec.sampleRate, '#ffffff', 1, false);
+      }
+    };
+
+    this._spectrumRAF = requestAnimationFrame(draw);
+  }
+
+  _stopSpectrumAnalyser() {
+    if (this._spectrumRAF) {
+      cancelAnimationFrame(this._spectrumRAF);
+      this._spectrumRAF = null;
+    }
+  }
+
+  _saveSpectrumLine() {
+    // Get current spectrum data
+    let spec = null;
+    if (this._liveCapture && this._liveCapture.isCapturing) {
+      spec = this._liveCapture.getSpectrumData();
+    } else if (this.audio) {
+      spec = this.audio.getSpectrumData();
+    }
+    if (!spec || !spec.data) {
+      this._setStatus('No spectrum data — play audio or start live input');
+      return;
+    }
+
+    const idx = this._spectrumSavedLines.length;
+    const color = this._spectrumColors[idx % this._spectrumColors.length];
+    this._spectrumSavedLines.push({
+      data: new Float32Array(spec.data),
+      binCount: spec.binCount,
+      sampleRate: spec.sampleRate,
+      color,
+      label: `Capture ${idx + 1}`,
+    });
+    this._renderSpectrumLinesList();
+  }
+
+  _clearSpectrumLines() {
+    this._spectrumSavedLines = [];
+    this._renderSpectrumLinesList();
+  }
+
+  _deleteSpectrumLine(idx) {
+    this._spectrumSavedLines.splice(idx, 1);
+    this._renderSpectrumLinesList();
+  }
+
+  _renderSpectrumLinesList() {
+    const list = document.getElementById('spectrum-lines-list');
+    if (!list) return;
+    list.innerHTML = '';
+    this._spectrumSavedLines.forEach((line, i) => {
+      const row = document.createElement('div');
+      row.className = 'spectrum-line-item';
+
+      const swatch = document.createElement('div');
+      swatch.className = 'spectrum-line-swatch';
+      swatch.style.background = line.color;
+
+      const label = document.createElement('input');
+      label.className = 'spectrum-line-label';
+      label.type = 'text';
+      label.value = line.label;
+      label.addEventListener('change', () => { line.label = label.value; });
+
+      const del = document.createElement('button');
+      del.className = 'spectrum-line-del';
+      del.textContent = '\u00D7';
+      del.addEventListener('click', () => this._deleteSpectrumLine(i));
+
+      row.appendChild(swatch);
+      row.appendChild(label);
+      row.appendChild(del);
+      list.appendChild(row);
+    });
   }
 
   _toggleAnnotationsPanel(forceShow) {
