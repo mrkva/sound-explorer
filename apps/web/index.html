@@ -289,6 +289,16 @@
           <div class="spectrum-controls">
             <button id="btn-spectrum-save" class="btn btn-small btn-action">Save Line</button>
             <button id="btn-spectrum-clear" class="btn btn-small">Clear All</button>
+            <button id="btn-spectrum-export" class="btn btn-small btn-save" title="Export as PNG">&#8595; PNG</button>
+            <span class="spectrum-spacer"></span>
+            <button id="btn-spectrum-fullscreen" class="btn btn-small" title="Toggle fullscreen">&#x26F6;</button>
+          </div>
+          <div class="spectrum-range">
+            <label class="spectrum-range-label">Range</label>
+            <input id="spectrum-freq-min" type="number" class="spectrum-range-input" value="20" min="1" step="1" title="Min frequency (Hz)">
+            <span class="spectrum-range-sep">&ndash;</span>
+            <input id="spectrum-freq-max" type="number" class="spectrum-range-input" value="" placeholder="max" min="1" step="1" title="Max frequency (Hz)">
+            <span class="spectrum-range-unit">Hz</span>
           </div>
           <div id="spectrum-lines-list" class="spectrum-lines-list"></div>
         </div>

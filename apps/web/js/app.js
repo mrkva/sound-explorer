@@ -30,6 +30,10 @@ class App {
       '#5B9BD5', '#8B5CF6', '#D946EF', '#06B6D4',
       '#F59E0B', '#10B981', '#EF4444', '#F97316',
     ];
+    this._spectrumFreqMin = 20;
+    this._spectrumFreqMax = null; // null = nyquist
+    this._spectrumFullscreen = false;
+    this._sidebarWidth = 340;
     this._liveRecordingStartTime = null;
     this._livePeakDb = -100;
     this._liveRmsDb = -100;
@@ -263,6 +267,23 @@ class App {
     document.getElementById('btn-close-sidebar').addEventListener('click', () => this._closeSidebar());
     document.getElementById('btn-spectrum-save').addEventListener('click', () => this._saveSpectrumLine());
     document.getElementById('btn-spectrum-clear').addEventListener('click', () => this._clearSpectrumLines());
+    document.getElementById('btn-spectrum-export').addEventListener('click', () => this._exportSpectrumPNG());
+    document.getElementById('btn-spectrum-fullscreen').addEventListener('click', () => this._toggleSpectrumFullscreen());
+
+    // Frequency range inputs
+    const freqMinInput = document.getElementById('spectrum-freq-min');
+    const freqMaxInput = document.getElementById('spectrum-freq-max');
+    freqMinInput.addEventListener('change', () => {
+      const v = parseInt(freqMinInput.value, 10);
+      if (v > 0) this._spectrumFreqMin = v;
+    });
+    freqMaxInput.addEventListener('change', () => {
+      const v = parseInt(freqMaxInput.value, 10);
+      this._spectrumFreqMax = v > 0 ? v : null;
+    });
+
+    // Sidebar resize handle
+    this._initSidebarResize();
     document.getElementById('app-sidebar').querySelectorAll('.sidebar-tab').forEach(tab => {
       tab.addEventListener('click', () => { if (tab.dataset.tab) this._switchSidebarTab(tab.dataset.tab); });
     });
@@ -1038,6 +1059,10 @@ class App {
       this._closeSidebar();
     } else {
       sidebar.classList.add('open');
+      if (this._sidebarWidth !== 340) {
+        sidebar.style.width = this._sidebarWidth + 'px';
+        sidebar.style.minWidth = this._sidebarWidth + 'px';
+      }
       this._switchSidebarTab(tab);
       if (tab === 'annotations') this._renderAnnotationsList();
       if (tab === 'metadata') this._populateMetadataForm();
@@ -1047,7 +1072,12 @@ class App {
   }
 
   _closeSidebar() {
-    document.getElementById('app-sidebar').classList.remove('open');
+    const sidebar = document.getElementById('app-sidebar');
+    sidebar.classList.remove('open');
+    if (this._spectrumFullscreen) {
+      this._spectrumFullscreen = false;
+      sidebar.classList.remove('spectrum-fullscreen');
+    }
     this._stopSpectrumAnalyser();
     this._resizeSidebar();
   }
@@ -1061,8 +1091,15 @@ class App {
       p.classList.toggle('active', p.dataset.tab === tab);
     });
     if (tab === 'metadata') this._populateMetadataForm();
-    if (tab === 'spectrum') this._startSpectrumAnalyser();
-    else this._stopSpectrumAnalyser();
+    if (tab === 'spectrum') {
+      this._startSpectrumAnalyser();
+    } else {
+      this._stopSpectrumAnalyser();
+      if (this._spectrumFullscreen) {
+        this._spectrumFullscreen = false;
+        sidebar.classList.remove('spectrum-fullscreen');
+      }
+    }
   }
 
   _resizeSidebar() {
@@ -1120,8 +1157,8 @@ class App {
       const dbMin = -120, dbMax = 0;
       const sampleRate = spec ? spec.sampleRate : (this.wavInfos[0]?.sampleRate || 48000);
       const nyquist = sampleRate / 2;
-      const freqMin = 20;
-      const freqMax = nyquist;
+      const freqMin = Math.max(1, this._spectrumFreqMin || 20);
+      const freqMax = Math.min(nyquist, this._spectrumFreqMax || nyquist);
       const logMin = Math.log10(freqMin);
       const logMax = Math.log10(freqMax);
 
@@ -1281,6 +1318,140 @@ class App {
       row.appendChild(del);
       list.appendChild(row);
     });
+  }
+
+  _initSidebarResize() {
+    const sidebar = document.getElementById('app-sidebar');
+    const handle = document.createElement('div');
+    handle.className = 'sidebar-resize-handle';
+    sidebar.prepend(handle);
+
+    let startX, startW;
+    const onMove = (e) => {
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const delta = startX - clientX;
+      const newW = Math.max(200, Math.min(window.innerWidth * 0.8, startW + delta));
+      sidebar.style.width = newW + 'px';
+      sidebar.style.minWidth = newW + 'px';
+      this._sidebarWidth = newW;
+    };
+    const onUp = () => {
+      handle.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
+      // Refresh spectrogram after resize
+      if (this.spectrogram) {
+        this.spectrogram._updateCanvasSize();
+        this.spectrogram._tileCache.clear();
+        this.spectrogram.render();
+      }
+    };
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = sidebar.offsetWidth;
+      handle.classList.add('dragging');
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    handle.addEventListener('touchstart', (e) => {
+      startX = e.touches[0].clientX;
+      startW = sidebar.offsetWidth;
+      handle.classList.add('dragging');
+      document.addEventListener('touchmove', onMove);
+      document.addEventListener('touchend', onUp);
+    });
+  }
+
+  _toggleSpectrumFullscreen() {
+    const sidebar = document.getElementById('app-sidebar');
+    this._spectrumFullscreen = !this._spectrumFullscreen;
+    sidebar.classList.toggle('spectrum-fullscreen', this._spectrumFullscreen);
+
+    const btn = document.getElementById('btn-spectrum-fullscreen');
+    btn.title = this._spectrumFullscreen ? 'Exit fullscreen' : 'Toggle fullscreen';
+    btn.textContent = this._spectrumFullscreen ? '\u2716' : '\u26F6';
+
+    // Refresh spectrogram when exiting fullscreen
+    if (!this._spectrumFullscreen && this.spectrogram) {
+      setTimeout(() => {
+        this.spectrogram._updateCanvasSize();
+        this.spectrogram._tileCache.clear();
+        this.spectrogram.render();
+      }, 50);
+    }
+  }
+
+  _exportSpectrumPNG() {
+    const canvas = document.getElementById('spectrum-canvas');
+    if (!canvas) return;
+
+    // Determine dimensions for the export canvas
+    const srcW = canvas.width;
+    const srcH = canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+
+    const lines = this._spectrumSavedLines;
+    const legendLineH = 22;
+    const legendPadding = 12;
+    const legendH = lines.length > 0 ? legendPadding + lines.length * legendLineH + legendPadding : 0;
+
+    // Create export canvas
+    const exp = document.createElement('canvas');
+    exp.width = srcW;
+    exp.height = srcH + legendH * dpr;
+    const ctx = exp.getContext('2d');
+
+    // Draw spectrum canvas content
+    ctx.drawImage(canvas, 0, 0);
+
+    // Draw legend background
+    if (lines.length > 0) {
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const lw = srcW / dpr;
+      const ly = srcH / dpr;
+
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, ly, lw, legendH);
+      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, ly);
+      ctx.lineTo(lw, ly);
+      ctx.stroke();
+
+      ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textBaseline = 'middle';
+
+      lines.forEach((line, i) => {
+        const y = ly + legendPadding + i * legendLineH + legendLineH / 2;
+
+        // Color swatch
+        ctx.fillStyle = line.color;
+        ctx.fillRect(legendPadding, y - 6, 14, 12);
+
+        // Label
+        ctx.fillStyle = '#ccc';
+        ctx.textAlign = 'left';
+        ctx.fillText(line.label, legendPadding + 22, y);
+      });
+
+      ctx.restore();
+    }
+
+    // Export as PNG download
+    exp.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'spectrum.png';
+      a.click();
+      URL.revokeObjectURL(url);
+    }, 'image/png');
   }
 
   _toggleAnnotationsPanel(forceShow) {

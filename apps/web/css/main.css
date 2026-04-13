@@ -433,6 +433,7 @@ body.dark .toolbar-logo {
 
 /* ── Tabbed sidebar ──────────────────────────────────────────────── */
 .app-sidebar {
+  position: relative;
   width: 0;
   min-width: 0;
   background: var(--bg-secondary);
@@ -578,12 +579,84 @@ body.dark .toolbar-logo {
   padding: 6px 10px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+  align-items: center;
+}
+
+.spectrum-spacer {
+  flex: 1;
+}
+
+.spectrum-range {
+  display: flex;
+  gap: 4px;
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  align-items: center;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.spectrum-range-label {
+  font-weight: 600;
+  margin-right: 2px;
+}
+
+.spectrum-range-input {
+  width: 60px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 2px 4px;
+  font-size: 10px;
+  border-radius: 3px;
+  font-family: inherit;
+}
+
+.spectrum-range-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.spectrum-range-sep {
+  color: var(--text-secondary);
+}
+
+.spectrum-range-unit {
+  color: var(--text-secondary);
 }
 
 .spectrum-lines-list {
   overflow-y: auto;
   max-height: 140px;
   flex-shrink: 0;
+}
+
+/* Sidebar resize handle */
+.sidebar-resize-handle {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.dragging {
+  background: var(--accent);
+  opacity: 0.4;
+}
+
+/* Spectrum fullscreen mode */
+.app-sidebar.spectrum-fullscreen {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  min-width: 100% !important;
+  z-index: 10;
+  border-left: none;
 }
 
 .spectrum-line-item {
