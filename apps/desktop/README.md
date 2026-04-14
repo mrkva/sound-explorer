@@ -98,6 +98,10 @@ Multi-channel files are downmixed to mono for spectrogram computation. Playback 
 
 ## Installation
 
+### From source (all platforms)
+
+Requires [Node.js](https://nodejs.org/) 18 or later.
+
 ```bash
 git clone https://github.com/mrkva/sound-explorer.git
 cd sound-explorer/apps/desktop
@@ -105,7 +109,9 @@ npm install
 npm start
 ```
 
-### Building distributable packages
+### Building installable packages
+
+Build a distributable package for your platform:
 
 ```bash
 npm run dist          # Build for current platform (cleans dist/ first)
@@ -113,15 +119,46 @@ npm run pack          # Build unpacked (for testing)
 npm run clean         # Remove dist/ folder
 ```
 
-Platform-specific builds:
+#### Windows
 
 ```bash
-npx electron-builder --mac     # .dmg
-npx electron-builder --win     # .exe (NSIS) + portable
-npx electron-builder --linux   # .AppImage + .deb
+npx electron-builder --win
 ```
 
-Output goes to the `dist/` folder.
+This produces two outputs in the `dist/` folder:
+- **NSIS installer** (`Sound Explorer Setup *.exe`) — standard Windows installer with Start Menu shortcut, file associations for `.wav`, and uninstaller
+- **Portable** (`Sound Explorer *.exe`) — single executable, no installation required, runs from any folder or USB drive
+
+To install: run the Setup `.exe` and follow the prompts. To use portable: just double-click the portable `.exe`.
+
+#### Linux
+
+```bash
+npx electron-builder --linux
+```
+
+This produces two outputs in the `dist/` folder:
+- **AppImage** (`Sound-Explorer-*.AppImage`) — portable single-file executable, works on most distributions without installation
+- **deb** (`sound-explorer_*.deb`) — Debian/Ubuntu package
+
+To use the AppImage:
+```bash
+chmod +x Sound-Explorer-*.AppImage
+./Sound-Explorer-*.AppImage
+```
+
+To install the `.deb` package:
+```bash
+sudo dpkg -i sound-explorer_*.deb
+```
+
+#### macOS
+
+```bash
+npx electron-builder --mac
+```
+
+This produces a `.dmg` in the `dist/` folder. Open it and drag Sound Explorer to Applications.
 
 ## Configuration
 
