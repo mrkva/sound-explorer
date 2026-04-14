@@ -37,7 +37,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build (${{ matrix.platform }})
         run: npx electron-builder --${{ matrix.platform }} --publish never
@@ -49,10 +49,10 @@ jobs:
         with:
           name: desktop-${{ matrix.platform }}
           path: |
-            apps/desktop/dist/*.dmg
-            apps/desktop/dist/*.exe
-            apps/desktop/dist/*.AppImage
-            apps/desktop/dist/*.deb
+            apps/desktop/dist/**/*.dmg
+            apps/desktop/dist/**/*.exe
+            apps/desktop/dist/**/*.AppImage
+            apps/desktop/dist/**/*.deb
           if-no-files-found: ignore
 
   release:
@@ -100,7 +100,7 @@ jobs:
             ### Web app
 
             The web version is always available at **[mrkva.github.io/sound-explorer](https://mrkva.github.io/sound-explorer/)** — no install needed.
-          files: release-assets/*
+          files: release-assets/**/*
           draft: false
           prerelease: false
         env:
