@@ -1,6 +1,6 @@
 {
   "name": "sound-explorer",
-  "version": "0.3.0",
+  "version": "0.8.3",
   "description": "Spectrogram viewer and audio explorer for field recordings and ultrasonics",
   "main": "main.js",
   "scripts": {

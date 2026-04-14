@@ -9,6 +9,7 @@ import { Session } from './session.js';
 import { parseFRM, serializeFRM, autoPopulateFromSession, annotationsToFRM, annotationsFromFRM } from './frm.js';
 import { buildIXML, parseIXML, formDataToIXML, ixmlToFormData, syncPointsToAnnotations } from './ixml.js';
 import { LiveCapture } from './live-capture.js';
+import { VERSION } from './version.js';
 
 class App {
   constructor() {
@@ -110,6 +111,12 @@ class App {
     this._startVUMeter();
     this._populateAudioOutputDevices();
     this._setupFRM();
+    this._applyVersion();
+  }
+
+  _applyVersion() {
+    const v = `v${VERSION}`;
+    document.title = `Sound Explorer ${v}`;
   }
 
   _setupCanvas() {

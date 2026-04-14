@@ -52,7 +52,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'Sound Explorer v0.3.0',
+    title: 'Sound Explorer',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
