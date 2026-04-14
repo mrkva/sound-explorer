@@ -240,8 +240,13 @@ class App {
     this.btnOpenFile.addEventListener('click', () => this._openFiles());
 
     // Live input
-    document.getElementById('btn-live-input').addEventListener('click', () => this._startLive());
-    document.getElementById('btn-live-stop').addEventListener('click', () => this._stopLive());
+    document.getElementById('btn-live-input').addEventListener('click', () => {
+      if (this._liveCapture && this._liveCapture.isCapturing) {
+        this._stopLive();
+      } else {
+        this._startLive();
+      }
+    });
     document.getElementById('btn-live-record').addEventListener('click', () => this._toggleLiveRecord());
     document.getElementById('btn-live-save').addEventListener('click', () => this._saveLiveRecording());
     document.getElementById('select-input-device').addEventListener('change', (e) => {
@@ -911,6 +916,9 @@ class App {
     this._setStatus(this._readyStatusMessage());
     this._updateTimeDisplays(0);
 
+    // Show file-dependent toolbar buttons
+    document.getElementById('btn-export-png').style.display = '';
+
     // Compute waveform overview in background
     this.spectrogram.computeOverview();
 
@@ -1256,6 +1264,8 @@ class App {
     const dur = end - start;
     this.selectionInfo.textContent = this._formatTimePrecise(dur);
     this.selectionActions.style.display = 'flex';
+    document.getElementById('btn-export-selection').style.display = '';
+    document.getElementById('btn-trim-selection').style.display = '';
     this._updateExportSlowedButton();
 
     // Populate precise time inputs
@@ -1275,6 +1285,9 @@ class App {
   _onSelectionCleared() {
     this._pendingSelection = null;
     this.selectionActions.style.display = 'none';
+    document.getElementById('btn-export-selection').style.display = 'none';
+    document.getElementById('btn-trim-selection').style.display = 'none';
+    document.getElementById('btn-export-slowed').style.display = 'none';
     this.annotationDialog.style.display = 'none';
     this.engine.clearLoop();
   }
@@ -3624,13 +3637,17 @@ class App {
 
       // Show live controls, hide file controls
       document.getElementById('live-controls').style.display = '';
-      document.getElementById('btn-live-input').classList.add('live-active');
+      const liveBtn = document.getElementById('btn-live-input');
+      liveBtn.classList.add('live-active');
+      liveBtn.textContent = 'Stop Live';
+      document.getElementById('btn-live-record').style.display = '';
       this.btnPlay.style.display = 'none';
       this.btnStop.style.display = 'none';
       // Hide file-only toolbar controls
       for (const id of ['btn-open-folder', 'btn-open-file', 'output-samplerate',
+          'btn-export-selection', 'btn-export-slowed', 'btn-export-png',
           'btn-zoom-in', 'btn-zoom-out', 'btn-zoom-fit', 'btn-zoom-sel',
-          'btn-untrim', 'btn-annotations', 'btn-session-meta',
+          'btn-trim-selection', 'btn-untrim', 'btn-annotations', 'btn-session-meta',
           'goto-mode', 'time-input', 'btn-goto', 'date-input', 'date-label']) {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
@@ -3672,12 +3689,16 @@ class App {
     }
 
     document.getElementById('live-controls').style.display = 'none';
-    document.getElementById('btn-live-input').classList.remove('live-active');
+    const liveBtn = document.getElementById('btn-live-input');
+    liveBtn.classList.remove('live-active');
+    liveBtn.textContent = 'Live Input';
+    document.getElementById('btn-live-record').style.display = 'none';
     document.getElementById('btn-live-save').style.display = 'none';
     this.btnPlay.style.display = '';
     this.btnStop.style.display = '';
     // Restore file-only toolbar controls
     for (const id of ['btn-open-folder', 'btn-open-file', 'output-samplerate',
+        'btn-export-png',
         'btn-zoom-in', 'btn-zoom-out', 'btn-zoom-fit', 'btn-zoom-sel',
         'btn-annotations', 'btn-session-meta',
         'goto-mode', 'time-input', 'btn-goto']) {
