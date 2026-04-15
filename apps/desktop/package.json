@@ -11,6 +11,10 @@
     "dist": "electron-builder"
   },
   "homepage": "https://mrkva.github.io/sound-explorer/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mrkva/sound-explorer.git"
+  },
   "author": {
     "name": "mrkva",
     "email": "mrkva@users.noreply.github.com"
