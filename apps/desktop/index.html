@@ -20,8 +20,9 @@
       <button id="btn-live-save" class="btn-save" title="Save recording as WAV" style="display:none">Save WAV</button>
     </div>
 
-    <!-- File I/O group (Open + Export together) -->
+    <!-- File I/O group (Open + Browse + Export together) -->
     <div class="toolbar-group">
+      <button id="btn-browse" title="Browse and organize WAV files">Browse</button>
       <button id="btn-open-folder" class="primary" title="Open a folder of WAV files">Open Folder</button>
       <button id="btn-open-file" title="Open individual WAV file(s)">Open File(s)</button>
       <button id="btn-export-selection" class="btn-save" title="Export selection as WAV" style="display:none">&#x2913; WAV</button>
@@ -194,8 +195,31 @@
     </span>
   </div>
 
-  <!-- Main content area: spectrogram + sidebar -->
+  <!-- Main content area: browser / spectrogram + sidebar -->
   <div class="main-content">
+    <!-- File browser sidebar (left, collapsible) -->
+    <div class="browser-panel" id="browser-panel">
+      <div class="browser-toolbar">
+        <button id="browser-up" class="browser-nav-btn" title="Go to parent folder">&#x2191; Up</button>
+        <div class="browser-breadcrumb" id="browser-breadcrumb"></div>
+        <span style="flex:1"></span>
+        <button id="browser-refresh" class="browser-nav-btn" title="Refresh">&#x21BB;</button>
+        <button id="browser-close" class="browser-nav-btn" title="Close browser">&times;</button>
+      </div>
+      <div class="browser-list-header">
+        <span class="browser-col-name">Name</span>
+        <span class="browser-col-dur">Duration</span>
+        <span class="browser-col-sr">Rate</span>
+        <span class="browser-col-ch">Ch</span>
+        <span class="browser-col-bits">Bits</span>
+        <span class="browser-col-meta">Meta</span>
+        <span class="browser-col-size">Size</span>
+        <span class="browser-col-date">Modified</span>
+      </div>
+      <div class="browser-list" id="browser-list"></div>
+      <div class="browser-status" id="browser-status"></div>
+    </div>
+
     <!-- Spectrogram area -->
     <div class="spectrogram-container">
       <canvas id="spectrogram"></canvas>
@@ -542,6 +566,7 @@
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">T</td><td>Trim to selection</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">U</td><td>Untrim (restore full session)</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">G</td><td>Go to time input</td></tr>
+        <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">B</td><td>Toggle file browser</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">Esc</td><td>Clear selection</td></tr>
       </table>
       <hr style="border:none; border-top:1px solid var(--border); margin:12px 0 8px;">

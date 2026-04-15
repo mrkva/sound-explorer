@@ -22,6 +22,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setupAudioServer: (files, outputRate) => ipcRenderer.invoke('setup-audio-server', files, outputRate),
   onOpenFiles: (callback) => ipcRenderer.on('open-files', (_event, filePaths) => callback(filePaths)),
 
+  // File browser
+  listDirectory: (dirPath) => ipcRenderer.invoke('list-directory', dirPath),
+  renameFile: (oldPath, newName) => ipcRenderer.invoke('rename-file', oldPath, newName),
+
   // iXML metadata
   readIXML: (filePath) => ipcRenderer.invoke('read-ixml', filePath),
   writeIXML: (filePath, ixmlString) => ipcRenderer.invoke('write-ixml', filePath, ixmlString),

@@ -111,6 +111,7 @@ class App {
     this._startVUMeter();
     this._populateAudioOutputDevices();
     this._setupFRM();
+    this._setupBrowser();
     this._applyVersion();
   }
 
@@ -649,6 +650,14 @@ class App {
         case 'KeyU':
           e.preventDefault();
           if (this.spectrogram.trimStart != null) this._untrimSession();
+          break;
+        case 'KeyB':
+          e.preventDefault();
+          if (this._browserPanel.classList.contains('open')) {
+            this._closeBrowser();
+          } else if (this._browserPath) {
+            this._backToBrowser();
+          }
           break;
         case 'Escape':
           e.preventDefault();
@@ -3802,6 +3811,293 @@ class App {
     this.durationDisplay.textContent = rec ? `REC ${this._formatTime(totalSec)}` : this._formatTime(totalSec);
 
     requestAnimationFrame(() => this._updateLiveStatus());
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // File Browser Mode
+  // ══════════════════════════════════════════════════════════════════════
+
+  _setupBrowser() {
+    this._browserPath = null;       // current directory being browsed
+    this._browserFiles = [];        // cached file list from last listDirectory
+    this._browserFolders = [];
+    this._browserSelectedFile = null; // path of currently selected file
+
+    this._browserPanel = document.getElementById('browser-panel');
+
+    document.getElementById('btn-browse').addEventListener('click', () => {
+      if (this._browserPanel.classList.contains('open')) {
+        this._closeBrowser();
+      } else if (this._browserPath) {
+        this._backToBrowser();
+      } else {
+        this._enterBrowser();
+      }
+    });
+    document.getElementById('browser-up').addEventListener('click', () => this._browserGoUp());
+    document.getElementById('browser-refresh').addEventListener('click', () => this._browserRefresh());
+    document.getElementById('browser-close').addEventListener('click', () => this._closeBrowser());
+
+    // Resize handle for browser sidebar
+    const handle = document.createElement('div');
+    handle.className = 'browser-resize-handle';
+    this._browserPanel.appendChild(handle);
+    let startX, startW;
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = this._browserPanel.offsetWidth;
+      handle.classList.add('dragging');
+      const onMove = (ev) => {
+        const w = Math.max(280, Math.min(800, startW + (ev.clientX - startX)));
+        this._browserPanel.style.width = w + 'px';
+        this._browserPanel.style.minWidth = w + 'px';
+      };
+      const onUp = () => {
+        handle.classList.remove('dragging');
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+  }
+
+  async _enterBrowser(dirPath) {
+    if (!dirPath) {
+      const folder = await window.electronAPI.openFolderDialog();
+      if (!folder) return;
+      dirPath = folder;
+    }
+    this._browserPanel.classList.add('open');
+    await this._browserNavigate(dirPath);
+  }
+
+  _closeBrowser() {
+    this._browserPanel.classList.remove('open');
+  }
+
+  async _browserNavigate(dirPath) {
+    this._browserPath = dirPath;
+    this._setStatus(`Scanning ${dirPath}...`);
+    try {
+      const result = await window.electronAPI.listDirectory(dirPath);
+      this._browserFolders = result.folders;
+      this._browserFiles = result.files;
+      this._browserRender();
+      this._browserUpdateBreadcrumb();
+      const fileCount = result.files.length;
+      const folderCount = result.folders.length;
+      const statusParts = [];
+      if (folderCount > 0) statusParts.push(`${folderCount} folder${folderCount !== 1 ? 's' : ''}`);
+      if (fileCount > 0) statusParts.push(`${fileCount} WAV file${fileCount !== 1 ? 's' : ''}`);
+      document.getElementById('browser-status').textContent = statusParts.join(', ') || 'Empty folder';
+      this._setStatus('Ready');
+    } catch (err) {
+      this._setStatus('Error: ' + err.message);
+      console.error(err);
+    }
+  }
+
+  _browserUpdateBreadcrumb() {
+    const container = document.getElementById('browser-breadcrumb');
+    container.innerHTML = '';
+    const parts = this._browserPath.split(/[/\\]/).filter(Boolean);
+    // On Windows, drive letter is first part; on Unix, '' is before first /
+    let accumulated = this._browserPath.startsWith('/') ? '/' : '';
+    for (let i = 0; i < parts.length; i++) {
+      accumulated += (i > 0 || !accumulated.endsWith('/') ? '/' : '') + parts[i];
+      const isLast = i === parts.length - 1;
+      if (!isLast) {
+        const crumb = document.createElement('span');
+        crumb.className = 'crumb';
+        crumb.textContent = parts[i];
+        const target = accumulated;
+        crumb.addEventListener('click', () => this._browserNavigate(target));
+        container.appendChild(crumb);
+        const sep = document.createElement('span');
+        sep.className = 'crumb-sep';
+        sep.textContent = '/';
+        container.appendChild(sep);
+      } else {
+        const crumb = document.createElement('span');
+        crumb.className = 'crumb-current';
+        crumb.textContent = parts[i];
+        container.appendChild(crumb);
+      }
+    }
+  }
+
+  _browserRender() {
+    const list = document.getElementById('browser-list');
+    list.innerHTML = '';
+
+    // Folders first
+    for (const folder of this._browserFolders) {
+      const row = document.createElement('div');
+      row.className = 'browser-row folder';
+      row.innerHTML = `
+        <span class="browser-col-name">${this._escapeHtml(folder.name)}</span>
+        <span class="browser-col-dur"></span>
+        <span class="browser-col-sr"></span>
+        <span class="browser-col-ch"></span>
+        <span class="browser-col-bits"></span>
+        <span class="browser-col-meta"></span>
+        <span class="browser-col-size"></span>
+        <span class="browser-col-date"></span>
+      `;
+      row.addEventListener('dblclick', () => this._browserNavigate(folder.path));
+      list.appendChild(row);
+    }
+
+    // WAV files
+    for (const file of this._browserFiles) {
+      const row = document.createElement('div');
+      row.className = 'browser-row file';
+      row.dataset.path = file.path;
+
+      const durStr = file.duration > 0 ? this._formatDuration(file.duration) : '';
+      const srStr = file.sampleRate > 0 ? (file.sampleRate >= 1000 ? `${(file.sampleRate / 1000).toFixed(file.sampleRate % 1000 ? 1 : 0)}k` : file.sampleRate) : '';
+      const chStr = file.channels > 0 ? file.channels : '';
+      const bitsStr = file.bitsPerSample > 0 ? file.bitsPerSample : '';
+      const sizeStr = this._formatFileSize(file.size);
+      const dateStr = file.modified ? new Date(file.modified).toLocaleDateString() : '';
+      let metaStr = '';
+      if (file.hasBext) metaStr += '<span class="meta-badge bext">BWF</span>';
+      if (file.hasIxml) metaStr += '<span class="meta-badge ixml">iXML</span>';
+
+      row.innerHTML = `
+        <span class="browser-col-name">${this._escapeHtml(file.name)}</span>
+        <span class="browser-col-dur">${durStr}</span>
+        <span class="browser-col-sr">${srStr}</span>
+        <span class="browser-col-ch">${chStr}</span>
+        <span class="browser-col-bits">${bitsStr}</span>
+        <span class="browser-col-meta">${metaStr}</span>
+        <span class="browser-col-size">${sizeStr}</span>
+        <span class="browser-col-date">${dateStr}</span>
+      `;
+
+      // Single click: select and load file
+      row.addEventListener('click', () => this._browserSelectFile(file, row));
+
+      // Double click on name: inline rename
+      row.querySelector('.browser-col-name').addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        this._browserStartRename(file, row);
+      });
+
+      list.appendChild(row);
+    }
+  }
+
+  async _browserSelectFile(file, row) {
+    // Highlight row
+    const prev = document.querySelector('.browser-row.active');
+    if (prev) prev.classList.remove('active');
+    row.classList.add('active');
+    this._browserSelectedFile = file.path;
+
+    // Load the file while keeping browser sidebar open for easy file-hopping
+    try {
+      this._setStatus(`Loading ${file.name}...`);
+      this.session = new Session();
+      await this.session.loadFile(file.path);
+      this._openedAsFolder = false;
+      this._sessionFolderPath = this._browserPath;
+      await this._initSession();
+
+      // Open metadata sidebar automatically for labeling workflow
+      this._openSidebarTab('metadata');
+    } catch (err) {
+      this._setStatus('Error: ' + err.message);
+      console.error(err);
+    }
+  }
+
+  _openSidebarTab(tabName) {
+    const sidebar = document.getElementById('app-sidebar');
+    sidebar.classList.add('open');
+    // Activate the tab
+    sidebar.querySelectorAll('.sidebar-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
+    sidebar.querySelectorAll('.sidebar-pane').forEach(p => p.classList.toggle('active', p.dataset.tab === tabName));
+  }
+
+  _browserStartRename(file, row) {
+    const nameSpan = row.querySelector('.browser-col-name');
+    const currentName = file.name;
+    const baseName = currentName.replace(/\.(wav|wave|bwf)$/i, '');
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'browser-rename-input';
+    input.value = baseName;
+
+    nameSpan.textContent = '';
+    nameSpan.appendChild(input);
+    input.focus();
+    input.select();
+
+    const finish = async (save) => {
+      if (save && input.value.trim() && input.value.trim() !== baseName) {
+        try {
+          const result = await window.electronAPI.renameFile(file.path, input.value.trim());
+          file.name = result.newName;
+          file.path = result.newPath;
+          row.dataset.path = result.newPath;
+          nameSpan.textContent = result.newName;
+          this._setStatus(`Renamed to ${result.newName}`);
+        } catch (err) {
+          nameSpan.textContent = currentName;
+          this._setStatus('Rename failed: ' + err.message);
+        }
+      } else {
+        nameSpan.textContent = currentName;
+      }
+    };
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+  }
+
+  _browserGoUp() {
+    if (!this._browserPath) return;
+    const parent = this._browserPath.replace(/[/\\][^/\\]+$/, '');
+    if (parent && parent !== this._browserPath) {
+      this._browserNavigate(parent);
+    }
+  }
+
+  _browserRefresh() {
+    if (this._browserPath) {
+      this._browserNavigate(this._browserPath);
+    }
+  }
+
+  _formatDuration(seconds) {
+    if (seconds < 60) return seconds.toFixed(1) + 's';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    if (m < 60) return `${m}:${String(s).padStart(2, '0')}`;
+    const h = Math.floor(m / 60);
+    return `${h}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
+  _formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  }
+
+  // Toggle browser sidebar open (keyboard shortcut: B)
+  _backToBrowser() {
+    if (!this._browserPath) return;
+    this._browserPanel.classList.add('open');
+    // Re-render to reflect any renames or metadata changes
+    this._browserRefresh();
   }
 }
 

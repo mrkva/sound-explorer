@@ -943,6 +943,111 @@ ipcMain.handle('read-ixml-from-folder', async (event, folderPath) => {
   return null;
 });
 
+// ── File browser IPC handlers ───────────────────────────────────────────
+
+/**
+ * List directory contents: subfolders and WAV files with stats.
+ * Returns { folders: [{name, path}], files: [{name, path, size, modified, ...wavHeader}] }
+ */
+ipcMain.handle('list-directory', async (event, dirPath) => {
+  const resolved = path.resolve(dirPath);
+  const entries = await fs.promises.readdir(resolved, { withFileTypes: true });
+
+  const folders = [];
+  const files = [];
+
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue; // skip hidden
+    const fullPath = path.join(resolved, entry.name);
+
+    if (entry.isDirectory()) {
+      folders.push({ name: entry.name, path: fullPath });
+    } else if (/\.(wav|wave|bwf)$/i.test(entry.name)) {
+      try {
+        const stat = await fs.promises.stat(fullPath);
+        let wavInfo = {};
+        try {
+          wavInfo = await readWavHeader(fullPath);
+        } catch { /* not a valid WAV, include with basic info */ }
+        files.push({
+          name: entry.name,
+          path: fullPath,
+          size: stat.size,
+          modified: stat.mtimeMs,
+          sampleRate: wavInfo.sampleRate || 0,
+          channels: wavInfo.channels || 0,
+          bitsPerSample: wavInfo.bitsPerSample || 0,
+          duration: wavInfo.dataSize && wavInfo.sampleRate
+            ? wavInfo.dataSize / (wavInfo.channels * (wavInfo.bitsPerSample / 8) * wavInfo.sampleRate)
+            : 0,
+          hasIxml: false, // populated below
+          hasBext: !!(wavInfo.bext),
+          originationDate: wavInfo.originationDate || null,
+          originationTime: wavInfo.originationTime || null,
+        });
+      } catch (err) {
+        console.warn(`Skipping ${fullPath}: ${err.message}`);
+      }
+    }
+  }
+
+  // Check for iXML in files (fast: only read chunk IDs, not full parse)
+  for (const file of files) {
+    try {
+      const xml = await readIXMLFromFile(file.path);
+      file.hasIxml = !!(xml && xml.length > 0);
+    } catch { /* ignore */ }
+  }
+
+  folders.sort((a, b) => a.name.localeCompare(b.name));
+  files.sort((a, b) => a.name.localeCompare(b.name));
+
+  return { folders, files, dirPath: resolved };
+});
+
+/**
+ * Rename a file. Validates: same directory, preserves extension, no path traversal.
+ */
+ipcMain.handle('rename-file', async (event, oldPath, newName) => {
+  const resolved = path.resolve(oldPath);
+  const dir = path.dirname(resolved);
+  const oldExt = path.extname(resolved).toLowerCase();
+
+  // Sanitize new name: strip path separators, must keep same extension
+  const sanitized = newName.replace(/[/\\]/g, '');
+  if (!sanitized || sanitized.startsWith('.')) {
+    throw new Error('Invalid file name');
+  }
+
+  // Ensure extension is preserved
+  let finalName = sanitized;
+  if (path.extname(sanitized).toLowerCase() !== oldExt) {
+    finalName = sanitized + oldExt;
+  }
+
+  const newPath = path.join(dir, finalName);
+
+  // Safety: must stay in same directory
+  if (path.dirname(newPath) !== dir) {
+    throw new Error('File must remain in the same directory');
+  }
+
+  // Check target doesn't already exist
+  try {
+    await fs.promises.access(newPath);
+    throw new Error(`File "${finalName}" already exists`);
+  } catch (err) {
+    if (err.message.includes('already exists')) throw err;
+    // ENOENT is expected — target doesn't exist, safe to rename
+  }
+
+  // Close any cached FD for the old path
+  closeCachedFd(resolved);
+
+  await fs.promises.rename(resolved, newPath);
+  return { oldPath: resolved, newPath, newName: finalName };
+});
+
 /**
  * Write iXML to all WAV files in a folder.
  */
