@@ -1,6 +1,7 @@
 node_modules/
 dist/
 build/
+package-lock.json
 *.log
 .DS_Store
 Thumbs.db
