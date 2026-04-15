@@ -28,6 +28,7 @@
     "appId": "com.soundexplorer.app",
     "productName": "Sound Explorer",
     "icon": "icon.png",
+    "afterPack": "./scripts/afterPack.js",
     "files": [
       "main.js",
       "preload.js",
