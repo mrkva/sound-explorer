@@ -10,7 +10,11 @@
     "predist": "npm run clean",
     "dist": "electron-builder"
   },
-  "author": "",
+  "homepage": "https://mrkva.github.io/sound-explorer/",
+  "author": {
+    "name": "mrkva",
+    "email": "mrkva@users.noreply.github.com"
+  },
   "license": "MIT",
   "devDependencies": {
     "electron": "^33.0.0",
