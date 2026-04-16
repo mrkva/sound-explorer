@@ -3904,6 +3904,7 @@ class App {
         handle.classList.remove('dragging');
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
+        this._resizeCanvas();
       };
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
@@ -3943,11 +3944,16 @@ class App {
       dirPath = folder;
     }
     this._browserPanel.classList.add('open');
+    this._resizeCanvas();
+    setTimeout(() => this._resizeCanvas(), 220);
     await this._browserNavigate(dirPath);
   }
 
   _closeBrowser() {
     this._browserPanel.classList.remove('open');
+    // Resize after the CSS transition completes (200ms)
+    this._resizeCanvas();
+    setTimeout(() => this._resizeCanvas(), 220);
   }
 
   async _browserNavigate(dirPath) {
@@ -4269,6 +4275,8 @@ class App {
   _backToBrowser() {
     if (!this._browserPath) return;
     this._browserPanel.classList.add('open');
+    this._resizeCanvas();
+    setTimeout(() => this._resizeCanvas(), 220);
     // Re-render to reflect any renames or metadata changes
     this._browserRefresh();
   }
