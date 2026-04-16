@@ -75,6 +75,10 @@ class App {
     this._spectrumFullscreen = false;
     this._sidebarWidth = 420;
 
+    // Preload logo for PNG exports
+    this._logoImg = new Image();
+    this._logoImg.src = 'img/logo_white.png';
+
     // Annotations
     this.annotations = [];
     this.annotationDialog = document.getElementById('annotation-dialog');
@@ -111,7 +115,9 @@ class App {
     this._startVUMeter();
     this._populateAudioOutputDevices();
     this._setupFRM();
+    this._setupBrowser();
     this._applyVersion();
+    this._showDisclaimer();
   }
 
   _applyVersion() {
@@ -119,25 +125,53 @@ class App {
     document.title = `Sound Explorer ${v}`;
   }
 
+  _showDisclaimer() {
+    const key = 'disclaimer-accepted-v1';
+    if (localStorage.getItem(key)) return;
+    const modal = document.getElementById('disclaimer-modal');
+    modal.style.display = 'flex';
+    document.getElementById('btn-accept-disclaimer').addEventListener('click', () => {
+      localStorage.setItem(key, '1');
+      modal.style.display = 'none';
+    });
+  }
+
   _setupCanvas() {
-    let resizeTimer = null;
-    const resize = () => {
-      const container = this.canvas.parentElement;
-      this.canvas.width = container.clientWidth;
-      this.canvas.height = container.clientHeight;
+    const container = this.canvas.parentElement;
+    this._canvasResizeTimer = null;
+
+    // ResizeObserver detects all container size changes: window resize,
+    // sidebar open/close CSS transitions, drag-resize handles, etc.
+    // Canvas dimensions are synced immediately for visual responsiveness,
+    // but the expensive spectrogram recompute is debounced until the size
+    // has settled (e.g. after a CSS transition completes).
+    new ResizeObserver(() => {
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w <= 0 || h <= 0) return;
+      const dw = Math.abs(this.canvas.width - w);
+      const dh = Math.abs(this.canvas.height - h);
+      if (dw === 0 && dh === 0) return;
+      this.canvas.width = w;
+      this.canvas.height = h;
       if (this.spectrogram && this.session) {
-        // Immediate redraw (stretches existing image to new size)
         this.spectrogram.draw(this.engine.getCurrentTime());
-        // Debounced recompute so the spectrogram re-renders at correct resolution
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
-          this.spectrogram.tileCache.clear();
-          this.spectrogram.computeVisible();
-        }, 200);
+        // Only recompute if the change is significant (> 3px).
+        // Tiny shifts from toolbar/info-strip rewrapping don't warrant
+        // a full FFT recompute — the 1-2px bitmap mismatch is invisible.
+        if (dw > 3 || dh > 3) {
+          clearTimeout(this._canvasResizeTimer);
+          this._canvasResizeTimer = setTimeout(() => {
+            this.spectrogram.tileCache.clear();
+            this.spectrogram.computeVisible();
+          }, 250);
+        }
       }
-    };
-    window.addEventListener('resize', resize);
-    resize();
+    }).observe(container);
+
+    // Initial sizing
+    this.canvas.width = container.clientWidth;
+    this.canvas.height = container.clientHeight;
   }
 
   _setupSpectrogram() {
@@ -204,7 +238,11 @@ class App {
     this.spectrogram.onProgress = (phase, percent) => {
       if (phase === 'done' || phase === 'error') {
         this.computingOverlay.style.display = 'none';
-        this._setStatus(phase === 'done' ? this._readyStatusMessage() : 'Spectrogram computation error');
+        const msg = phase === 'done' ? this._readyStatusMessage() : 'Spectrogram computation error';
+        // Append overview status if it's still loading
+        this._setStatus(this._overviewLoading
+          ? msg.replace('Ready', 'Loading waveform overview...')
+          : msg);
       } else {
         this.computingOverlay.style.display = 'flex';
         const label = phase === 'reading' ? 'Reading audio data...' :
@@ -212,7 +250,18 @@ class App {
         this.computingLabel.textContent = label;
         this.computingBarFill.style.width = percent + '%';
         this.computingPercent.textContent = percent + '%';
-        // Don't duplicate overlay info in status bar
+      }
+    };
+
+    this._overviewLoading = false;
+    this.spectrogram.onOverviewProgress = (percent) => {
+      if (percent === null) {
+        this._overviewLoading = false;
+        this._setStatus(this._readyStatusMessage());
+      } else {
+        this._overviewLoading = true;
+        // Show overview progress in status bar (not the overlay)
+        this._setStatus(`Loading waveform overview... ${percent}%`);
       }
     };
   }
@@ -519,8 +568,6 @@ class App {
         this.annotationsSidebar.classList.remove('spectrum-fullscreen');
       }
       this._stopSpectrumAnalyser();
-      this._resizeCanvas();
-      setTimeout(() => this._resizeCanvas(), 220);
     });
 
     // Tab switching
@@ -649,6 +696,14 @@ class App {
         case 'KeyU':
           e.preventDefault();
           if (this.spectrogram.trimStart != null) this._untrimSession();
+          break;
+        case 'KeyB':
+          e.preventDefault();
+          if (this._browserPanel.classList.contains('open')) {
+            this._closeBrowser();
+          } else if (this._browserPath) {
+            this._backToBrowser();
+          }
           break;
         case 'Escape':
           e.preventDefault();
@@ -2155,8 +2210,6 @@ class App {
       }
       this._switchSidebarTab(tab);
     }
-    this._resizeCanvas();
-    setTimeout(() => this._resizeCanvas(), 220);
   }
 
   _switchSidebarTab(tab) {
@@ -2167,6 +2220,18 @@ class App {
     sidebar.querySelectorAll('.sidebar-pane').forEach(p => {
       p.classList.toggle('active', p.dataset.tab === tab);
     });
+    if (tab === 'metadata' && this.session) {
+      if (!this._frmData) {
+        this._frmData = autoPopulateFromSession(this.session);
+      }
+      this._populateFRMForm(this._frmData);
+      this._applyDefaults();
+      this._populateLocationPresets();
+      let statusText = 'Auto-populated from BWF metadata';
+      if (this._ixmlSource === 'ixml') statusText = 'Loaded from iXML chunk';
+      else if (this._ixmlSource === 'frm') statusText = 'Loaded from session.frm.txt';
+      document.getElementById('frm-status').textContent = statusText;
+    }
     if (tab === 'spectrum') {
       this._startSpectrumAnalyser();
     } else {
@@ -2392,7 +2457,6 @@ class App {
       handle.classList.remove('dragging');
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
-      this._resizeCanvas();
     };
     handle.addEventListener('mousedown', (e) => {
       e.preventDefault();
@@ -2412,10 +2476,6 @@ class App {
     const btn = document.getElementById('btn-spectrum-fullscreen');
     btn.title = this._spectrumFullscreen ? 'Exit fullscreen' : 'Toggle fullscreen';
     btn.textContent = this._spectrumFullscreen ? '\u2716' : '\u26F6';
-
-    if (!this._spectrumFullscreen) {
-      this._resizeCanvas();
-    }
   }
 
   _exportSpectrumPNG() {
@@ -2517,26 +2577,43 @@ class App {
       }
     }
 
-    const by = totalH - brandH;
-    ctx.fillStyle = 'rgba(255,255,255,0.04)';
-    ctx.fillRect(0, by, totalW, brandH);
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    ctx.fillText('\u223F Sound Explorer', pad.left, by + brandH / 2);
-    ctx.textAlign = 'right';
-    const dateStr = new Date().toISOString().slice(0, 10);
-    ctx.fillText(`${sampleRate} Hz \u00B7 ${dateStr}`, pad.left + plotW, by + brandH / 2);
+    {
+      const by = totalH - brandH;
+      ctx.fillStyle = 'rgba(255,255,255,0.04)';
+      ctx.fillRect(0, by, totalW, brandH);
+      const logoPad = 12;
+      const logoSize = 20;
+      const logoX = logoPad;
+      const logoY = by + (brandH - logoSize) / 2;
+      let textOffsetX = logoPad;
+      if (this._logoImg && this._logoImg.complete && this._logoImg.naturalWidth > 0) {
+        ctx.drawImage(this._logoImg, logoX, logoY, logoSize, logoSize);
+        textOffsetX = logoPad + logoSize + 6;
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.fillText('Sound Explorer', textOffsetX, by + brandH / 2);
+      ctx.textAlign = 'right';
+      const dateStr = new Date().toISOString().slice(0, 10);
+      ctx.fillText(`${sampleRate} Hz \u00B7 ${dateStr}`, pad.left + plotW, by + brandH / 2);
+    }
 
-    exp.toBlob((blob) => {
+    exp.toBlob(async (blob) => {
       if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'spectrum.png';
-      a.click();
-      URL.revokeObjectURL(url);
+      const baseName = this.session?.files?.[0]?.fileName?.replace(/\.wav$/i, '') || 'spectrum';
+      const sourceDir = this.session?.files?.[0]?.filePath?.replace(/[/\\][^/\\]+$/, '') || '';
+      const defaultPath = sourceDir ? `${sourceDir}/${baseName}_spectrum.png` : `${baseName}_spectrum.png`;
+      const savePath = await window.electronAPI.saveFileDialog({
+        title: 'Export Spectrum PNG',
+        defaultPath,
+        filters: [{ name: 'PNG Image', extensions: ['png'] }]
+      });
+      if (!savePath) return;
+      const arrayBuf = await blob.arrayBuffer();
+      await window.electronAPI.writeBinaryFile(savePath, new Uint8Array(arrayBuf));
+      this._setStatus(`Spectrum PNG exported to ${savePath.split(/[/\\]/).pop()}`);
     }, 'image/png');
   }
 
@@ -2551,7 +2628,7 @@ class App {
     const scale = 2;
     const hasWallClock = this.session.sessionStartTime !== null;
     const marginL = 60, marginT = 10, marginR = 10;
-    const marginB = hasWallClock ? 66 : 50;
+    const marginB = hasWallClock ? 56 : 42;
     const brandH = 28;
     const plotW = this.canvas.width - 50;
     const plotH = this.canvas.height - 40; // desktop uses fixed 40px bottom axis
@@ -2641,11 +2718,20 @@ class App {
     const by = totalH - brandH;
     ctx.fillStyle = 'rgba(255,255,255,0.04)';
     ctx.fillRect(0, by, totalW, brandH);
+    const logoPad = 12;
+    const logoSize = 20;
+    const logoX = logoPad;
+    const logoY = by + (brandH - logoSize) / 2;
+    let textOffsetX = logoPad;
+    if (this._logoImg && this._logoImg.complete && this._logoImg.naturalWidth > 0) {
+      ctx.drawImage(this._logoImg, logoX, logoY, logoSize, logoSize);
+      textOffsetX = logoPad + logoSize + 6;
+    }
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.fillText('\u223F Sound Explorer', marginL, by + brandH / 2);
+    ctx.fillText('Sound Explorer', textOffsetX, by + brandH / 2);
 
     const sr = this.session.sampleRate;
     const fftLabel = `FFT ${sg.fftSize}`;
@@ -2655,16 +2741,20 @@ class App {
     ctx.textAlign = 'right';
     ctx.fillText(`${sr} Hz \u00B7 ${fftLabel} \u00B7 ${windowLabel} \u00B7 ${rangeLabel} \u00B7 ${dateStr}`, marginL + plotW, by + brandH / 2);
 
-    exp.toBlob((blob) => {
+    exp.toBlob(async (blob) => {
       if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const baseName = this.session?.files?.[0]?.name?.replace(/\.wav$/i, '') || 'spectrogram';
-      a.download = `${baseName}_spectrogram.png`;
-      a.click();
-      URL.revokeObjectURL(url);
-      this.statusDisplay.textContent = 'Spectrogram PNG exported';
+      const baseName = this.session?.files?.[0]?.fileName?.replace(/\.wav$/i, '') || 'spectrogram';
+      const sourceDir = this.session?.files?.[0]?.filePath?.replace(/[/\\][^/\\]+$/, '') || '';
+      const defaultPath = sourceDir ? `${sourceDir}/${baseName}_spectrogram.png` : `${baseName}_spectrogram.png`;
+      const savePath = await window.electronAPI.saveFileDialog({
+        title: 'Export Spectrogram PNG',
+        defaultPath,
+        filters: [{ name: 'PNG Image', extensions: ['png'] }]
+      });
+      if (!savePath) return;
+      const arrayBuf = await blob.arrayBuffer();
+      await window.electronAPI.writeBinaryFile(savePath, new Uint8Array(arrayBuf));
+      this.statusDisplay.textContent = `Spectrogram PNG exported to ${savePath.split(/[/\\]/).pop()}`;
     }, 'image/png');
   }
 
@@ -2674,8 +2764,6 @@ class App {
     this.canvas.height = container.clientHeight;
     if (this.spectrogram && this.session) {
       this.spectrogram.draw(this.engine.getCurrentTime());
-      this.spectrogram.tileCache.clear();
-      this.spectrogram.computeVisible();
     }
   }
 
@@ -2914,25 +3002,8 @@ class App {
       return;
     }
 
-    // If no FRM data yet, auto-populate from session
-    if (!this._frmData) {
-      this._frmData = autoPopulateFromSession(this.session);
-    }
-
-    this._populateFRMForm(this._frmData);
-
-    // Apply sticky defaults to empty fields
-    this._applyDefaults();
-
-    // Populate location presets dropdown
-    this._populateLocationPresets();
-
+    // _switchSidebarTab('metadata') handles form population
     this._toggleSidebar('metadata');
-
-    let statusText = 'Auto-populated from BWF metadata';
-    if (this._ixmlSource === 'ixml') statusText = 'Loaded from iXML chunk';
-    else if (this._ixmlSource === 'frm') statusText = 'Loaded from session.frm.txt';
-    document.getElementById('frm-status').textContent = statusText;
 
     // "Save to WAV(s)" — only visible when opened as a folder
     const saveIxmlBtn = document.getElementById('frm-save-ixml');
@@ -3802,6 +3873,477 @@ class App {
     this.durationDisplay.textContent = rec ? `REC ${this._formatTime(totalSec)}` : this._formatTime(totalSec);
 
     requestAnimationFrame(() => this._updateLiveStatus());
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // File Browser Mode
+  // ══════════════════════════════════════════════════════════════════════
+
+  _setupBrowser() {
+    this._browserPath = null;       // current directory being browsed
+    this._browserFiles = [];        // cached file list from last listDirectory
+    this._browserFolders = [];
+    this._browserSelectedFile = null; // path of currently selected file
+    this._browserSelectedRow = null;  // DOM row of selected file
+    this._browserRenameHistory = [];  // undo stack: [{oldPath, oldName, newPath, newName}]
+
+    this._browserPanel = document.getElementById('browser-panel');
+    this._browserRenameBtn = document.getElementById('browser-rename');
+    this._browserNormalizeBtn = document.getElementById('browser-normalize');
+
+    // Column visibility — default all visible
+    this._browserColumns = { dur: true, sr: true, ch: true, bits: true, meta: true, size: true, date: true };
+    try {
+      const saved = localStorage.getItem('browser-columns');
+      if (saved) Object.assign(this._browserColumns, JSON.parse(saved));
+    } catch (_) {}
+    this._applyColumnVisibility();
+    this._buildColumnsDropdown();
+
+    document.getElementById('btn-browse').addEventListener('click', () => {
+      if (this._browserPanel.classList.contains('open')) {
+        this._closeBrowser();
+      } else if (this._browserPath) {
+        this._backToBrowser();
+      } else {
+        this._enterBrowser();
+      }
+    });
+    document.getElementById('browser-up').addEventListener('click', () => this._browserGoUp());
+    document.getElementById('browser-refresh').addEventListener('click', () => this._browserRefresh());
+    document.getElementById('browser-close').addEventListener('click', () => this._closeBrowser());
+
+    // Rename button
+    this._browserRenameBtn.addEventListener('click', () => {
+      if (this._browserSelectedRow && this._browserSelectedFile) {
+        const file = this._browserFiles.find(f => f.path === this._browserSelectedFile);
+        if (file) this._browserStartRename(file, this._browserSelectedRow);
+      }
+    });
+
+    // Normalize button
+    this._browserNormalizeBtn.addEventListener('click', () => {
+      if (this._browserSelectedFile) {
+        this._browserNormalizeFile(this._browserSelectedFile);
+      }
+    });
+
+    // Columns dropdown toggle
+    const colsBtn = document.getElementById('browser-columns-btn');
+    const colsDropdown = document.getElementById('browser-columns-dropdown');
+    colsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      colsDropdown.classList.toggle('open');
+    });
+    document.addEventListener('click', () => colsDropdown.classList.remove('open'));
+    colsDropdown.addEventListener('click', (e) => e.stopPropagation());
+
+    // F2 to rename, Ctrl/Cmd+Z to undo rename (when browser is focused)
+    document.addEventListener('keydown', (e) => {
+      if (!this._browserPanel.classList.contains('open')) return;
+      if (e.key === 'F2' && this._browserSelectedRow) {
+        e.preventDefault();
+        const file = this._browserFiles.find(f => f.path === this._browserSelectedFile);
+        if (file) this._browserStartRename(file, this._browserSelectedRow);
+      }
+      if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey && this._browserRenameHistory.length > 0) {
+        e.preventDefault();
+        this._browserUndoRename();
+      }
+    });
+
+    // Resize handle for browser sidebar
+    const handle = document.createElement('div');
+    handle.className = 'browser-resize-handle';
+    this._browserPanel.appendChild(handle);
+    let startX, startW;
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = this._browserPanel.offsetWidth;
+      handle.classList.add('dragging');
+      const onMove = (ev) => {
+        const w = Math.max(280, Math.min(800, startW + (ev.clientX - startX)));
+        this._browserPanel.style.width = w + 'px';
+        this._browserPanel.style.minWidth = w + 'px';
+      };
+      const onUp = () => {
+        handle.classList.remove('dragging');
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+  }
+
+  _buildColumnsDropdown() {
+    const dropdown = document.getElementById('browser-columns-dropdown');
+    const labels = { dur: 'Duration', sr: 'Sample Rate', ch: 'Channels', bits: 'Bit Depth', meta: 'Metadata', size: 'Size', date: 'Modified' };
+    dropdown.innerHTML = '';
+    for (const [key, label] of Object.entries(labels)) {
+      const lbl = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = this._browserColumns[key];
+      cb.addEventListener('change', () => {
+        this._browserColumns[key] = cb.checked;
+        this._applyColumnVisibility();
+        try { localStorage.setItem('browser-columns', JSON.stringify(this._browserColumns)); } catch (_) {}
+      });
+      lbl.appendChild(cb);
+      lbl.appendChild(document.createTextNode(' ' + label));
+      dropdown.appendChild(lbl);
+    }
+  }
+
+  _applyColumnVisibility() {
+    for (const [key, visible] of Object.entries(this._browserColumns)) {
+      this._browserPanel.classList.toggle('hide-col-' + key, !visible);
+    }
+  }
+
+  async _enterBrowser(dirPath) {
+    if (!dirPath) {
+      const folder = await window.electronAPI.openFolderDialog();
+      if (!folder) return;
+      dirPath = folder;
+    }
+    this._browserPanel.classList.add('open');
+    await this._browserNavigate(dirPath);
+  }
+
+  _closeBrowser() {
+    this._browserPanel.classList.remove('open');
+  }
+
+  async _browserNavigate(dirPath) {
+    this._browserPath = dirPath;
+    this._setStatus(`Scanning ${dirPath}...`);
+    try {
+      const result = await window.electronAPI.listDirectory(dirPath);
+      this._browserFolders = result.folders;
+      this._browserFiles = result.files;
+      this._browserRender();
+      this._browserUpdateBreadcrumb();
+      const fileCount = result.files.length;
+      const folderCount = result.folders.length;
+      const statusParts = [];
+      if (folderCount > 0) statusParts.push(`${folderCount} folder${folderCount !== 1 ? 's' : ''}`);
+      if (fileCount > 0) statusParts.push(`${fileCount} WAV file${fileCount !== 1 ? 's' : ''}`);
+      document.getElementById('browser-status').textContent = statusParts.join(', ') || 'Empty folder';
+      this._setStatus('Ready');
+    } catch (err) {
+      this._setStatus('Error: ' + err.message);
+      console.error(err);
+    }
+  }
+
+  _browserUpdateBreadcrumb() {
+    const container = document.getElementById('browser-breadcrumb');
+    container.innerHTML = '';
+    const parts = this._browserPath.split(/[/\\]/).filter(Boolean);
+    // On Windows, drive letter is first part; on Unix, '' is before first /
+    let accumulated = this._browserPath.startsWith('/') ? '/' : '';
+    for (let i = 0; i < parts.length; i++) {
+      accumulated += (i > 0 || !accumulated.endsWith('/') ? '/' : '') + parts[i];
+      const isLast = i === parts.length - 1;
+      if (!isLast) {
+        const crumb = document.createElement('span');
+        crumb.className = 'crumb';
+        crumb.textContent = parts[i];
+        const target = accumulated;
+        crumb.addEventListener('click', () => this._browserNavigate(target));
+        container.appendChild(crumb);
+        const sep = document.createElement('span');
+        sep.className = 'crumb-sep';
+        sep.textContent = '/';
+        container.appendChild(sep);
+      } else {
+        const crumb = document.createElement('span');
+        crumb.className = 'crumb-current';
+        crumb.textContent = parts[i];
+        container.appendChild(crumb);
+      }
+    }
+    // Scroll to show the end (current folder) when path is long
+    container.scrollLeft = container.scrollWidth;
+  }
+
+  _browserRender() {
+    const list = document.getElementById('browser-list');
+    list.innerHTML = '';
+    this._browserSelectedRow = null;
+    this._browserRenameBtn.disabled = true;
+    this._browserNormalizeBtn.disabled = true;
+
+    // Folders first
+    for (const folder of this._browserFolders) {
+      const row = document.createElement('div');
+      row.className = 'browser-row folder';
+      row.innerHTML = `
+        <span class="browser-col-name">${this._escapeHtml(folder.name)}</span>
+        <span class="browser-col-dur"></span>
+        <span class="browser-col-sr"></span>
+        <span class="browser-col-ch"></span>
+        <span class="browser-col-bits"></span>
+        <span class="browser-col-meta"></span>
+        <span class="browser-col-size"></span>
+        <span class="browser-col-date"></span>
+      `;
+      row.addEventListener('dblclick', () => this._browserNavigate(folder.path));
+      list.appendChild(row);
+    }
+
+    // WAV files
+    for (const file of this._browserFiles) {
+      const row = document.createElement('div');
+      row.className = 'browser-row file';
+      row.dataset.path = file.path;
+
+      const durStr = file.duration > 0 ? this._formatDuration(file.duration) : '';
+      const srStr = file.sampleRate > 0 ? (file.sampleRate >= 1000 ? `${(file.sampleRate / 1000).toFixed(file.sampleRate % 1000 ? 1 : 0)}k` : file.sampleRate) : '';
+      const chStr = file.channels > 0 ? file.channels : '';
+      const bitsStr = file.bitsPerSample > 0 ? file.bitsPerSample : '';
+      const sizeStr = this._formatFileSize(file.size);
+      const dateStr = file.modified ? new Date(file.modified).toLocaleDateString() : '';
+      let metaStr = '';
+      if (file.hasBext) metaStr += '<span class="meta-badge bext">BWF</span>';
+      if (file.hasIxml) metaStr += '<span class="meta-badge ixml">iXML</span>';
+
+      row.innerHTML = `
+        <span class="browser-col-name">${this._escapeHtml(file.name)}</span>
+        <span class="browser-col-dur">${durStr}</span>
+        <span class="browser-col-sr">${srStr}</span>
+        <span class="browser-col-ch">${chStr}</span>
+        <span class="browser-col-bits">${bitsStr}</span>
+        <span class="browser-col-meta">${metaStr}</span>
+        <span class="browser-col-size">${sizeStr}</span>
+        <span class="browser-col-date">${dateStr}</span>
+      `;
+
+      // Single click: select and load file
+      row.addEventListener('click', () => this._browserSelectFile(file, row));
+
+      // Double click on name: inline rename
+      row.querySelector('.browser-col-name').addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        this._browserStartRename(file, row);
+      });
+
+      // Re-highlight if this was the previously selected file
+      if (file.path === this._browserSelectedFile) {
+        row.classList.add('active');
+        this._browserSelectedRow = row;
+        this._browserRenameBtn.disabled = false;
+        this._browserNormalizeBtn.disabled = false;
+      }
+
+      list.appendChild(row);
+    }
+  }
+
+  async _browserSelectFile(file, row) {
+    // Highlight row
+    const prev = document.querySelector('.browser-row.active');
+    if (prev) prev.classList.remove('active');
+    row.classList.add('active');
+    this._browserSelectedFile = file.path;
+    this._browserSelectedRow = row;
+    this._browserRenameBtn.disabled = false;
+    this._browserNormalizeBtn.disabled = false;
+
+    // Load the file while keeping browser sidebar open for easy file-hopping
+    try {
+      this._setStatus(`Loading ${file.name}...`);
+      this.session = new Session();
+      await this.session.loadFile(file.path);
+      this._openedAsFolder = false;
+      this._sessionFolderPath = this._browserPath;
+      await this._initSession();
+
+      // Populate and show metadata sidebar (always open, no toggle)
+      this._showMetadataForFile();
+    } catch (err) {
+      this._setStatus('Error: ' + err.message);
+      console.error(err);
+    }
+  }
+
+  _openSidebarTab(tabName) {
+    const sidebar = document.getElementById('app-sidebar');
+    sidebar.classList.add('open');
+    this._switchSidebarTab(tabName);
+  }
+
+  // Open metadata sidebar without toggling — for browser file selection
+  _showMetadataForFile() {
+    if (!this.session) return;
+    this._openSidebarTab('metadata');
+
+    // Single file from browser — show "Save to File" only
+    const saveIxmlBtn = document.getElementById('frm-save-ixml');
+    saveIxmlBtn.style.display = 'none';
+    const saveIxmlFileBtn = document.getElementById('frm-save-ixml-file');
+    if (this.session.files.length > 0) {
+      const fname = this.session.files[0].filePath.split(/[/\\]/).pop();
+      saveIxmlFileBtn.disabled = false;
+      saveIxmlFileBtn.title = `Embed iXML into ${fname}`;
+    }
+  }
+
+  _browserStartRename(file, row) {
+    if (row.classList.contains('renaming')) return;
+    const nameSpan = row.querySelector('.browser-col-name');
+    const currentName = file.name;
+    const extMatch = currentName.match(/(\.[^.]+)$/);
+    const ext = extMatch ? extMatch[1] : '';
+    const baseName = ext ? currentName.slice(0, -ext.length) : currentName;
+
+    row.classList.add('renaming');
+
+    const wrap = document.createElement('span');
+    wrap.className = 'browser-rename-wrap';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'browser-rename-input';
+    input.value = baseName;
+
+    const extLabel = document.createElement('span');
+    extLabel.className = 'browser-rename-ext';
+    extLabel.textContent = ext;
+
+    wrap.appendChild(input);
+    wrap.appendChild(extLabel);
+    nameSpan.textContent = '';
+    nameSpan.appendChild(wrap);
+    input.focus();
+    input.select();
+
+    let done = false;
+    const finish = async (save) => {
+      if (done) return;
+      done = true;
+      row.classList.remove('renaming');
+      if (save && input.value.trim() && input.value.trim() !== baseName) {
+        try {
+          const result = await window.electronAPI.renameFile(file.path, input.value.trim());
+          const oldPath = file.path;
+          const oldName = currentName;
+          file.name = result.newName;
+          file.path = result.newPath;
+          row.dataset.path = result.newPath;
+          this._browserSelectedFile = result.newPath;
+          nameSpan.textContent = result.newName;
+          this._setStatus(`Renamed to ${result.newName}`);
+          // Push to undo stack
+          this._browserRenameHistory.push({ oldPath: result.newPath, oldName: result.newName, newName: oldName, newPath: oldPath });
+        } catch (err) {
+          nameSpan.textContent = currentName;
+          this._setStatus('Rename failed: ' + err.message);
+        }
+      } else {
+        nameSpan.textContent = currentName;
+      }
+    };
+
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+  }
+
+  async _browserUndoRename() {
+    if (this._browserRenameHistory.length === 0) return;
+    const entry = this._browserRenameHistory.pop();
+    try {
+      // entry stores the reverse rename: oldPath is the current path, newName is what to restore
+      const baseName = entry.newName.replace(/\.[^.]+$/, '');
+      const result = await window.electronAPI.renameFile(entry.oldPath, baseName);
+      this._setStatus(`Undo: restored ${result.newName}`);
+      // Update the in-memory file entry
+      const file = this._browserFiles.find(f => f.path === entry.oldPath);
+      if (file) {
+        file.name = result.newName;
+        file.path = result.newPath;
+      }
+      if (this._browserSelectedFile === entry.oldPath) {
+        this._browserSelectedFile = result.newPath;
+      }
+      this._browserRender();
+    } catch (err) {
+      this._setStatus('Undo failed: ' + err.message);
+    }
+  }
+
+  async _browserNormalizeFile(filePath) {
+    const fileName = filePath.split(/[/\\]/).pop();
+    const ok = confirm(
+      `Normalize "${fileName}" to \u20133 dBFS?\n\n` +
+      `This will modify the file permanently and cannot be undone.\n` +
+      `Make sure you have a backup before proceeding.`
+    );
+    if (!ok) return;
+    this._browserNormalizeBtn.disabled = true;
+    this._setStatus(`Normalizing ${fileName}...`);
+    try {
+      const result = await window.electronAPI.normalizeWav(filePath, -3);
+      if (result.skipped) {
+        this._setStatus(`${fileName}: already at target level (peak ${result.peakDb.toFixed(1)} dBFS)`);
+      } else {
+        this._setStatus(`${fileName}: normalized ${result.gainDb > 0 ? '+' : ''}${result.gainDb.toFixed(1)} dB (peak was ${result.peakDb.toFixed(1)} dBFS, now ${result.newPeakDb.toFixed(1)} dBFS)`);
+      }
+      // If this file is currently loaded, reload it
+      if (this.session && this.session.files.length > 0 && this.session.files[0].filePath === filePath) {
+        this.session = new Session();
+        await this.session.loadFile(filePath);
+        await this._initSession();
+      }
+    } catch (err) {
+      this._setStatus(`Normalize failed: ${err.message}`);
+    }
+    this._browserNormalizeBtn.disabled = false;
+  }
+
+  _browserGoUp() {
+    if (!this._browserPath) return;
+    const parent = this._browserPath.replace(/[/\\][^/\\]+$/, '');
+    if (parent && parent !== this._browserPath) {
+      this._browserNavigate(parent);
+    }
+  }
+
+  _browserRefresh() {
+    if (this._browserPath) {
+      this._browserNavigate(this._browserPath);
+    }
+  }
+
+  _formatDuration(seconds) {
+    if (seconds < 60) return seconds.toFixed(1) + 's';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    if (m < 60) return `${m}:${String(s).padStart(2, '0')}`;
+    const h = Math.floor(m / 60);
+    return `${h}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
+  _formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  }
+
+  // Toggle browser sidebar open (keyboard shortcut: B)
+  _backToBrowser() {
+    if (!this._browserPath) return;
+    this._browserPanel.classList.add('open');
+    // Re-render to reflect any renames or metadata changes
+    this._browserRefresh();
   }
 }
 

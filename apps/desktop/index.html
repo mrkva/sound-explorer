@@ -20,8 +20,9 @@
       <button id="btn-live-save" class="btn-save" title="Save recording as WAV" style="display:none">Save WAV</button>
     </div>
 
-    <!-- File I/O group (Open + Export together) -->
+    <!-- File I/O group (Open + Browse + Export together) -->
     <div class="toolbar-group">
+      <button id="btn-browse" title="Browse and organize WAV files">Browse</button>
       <button id="btn-open-folder" class="primary" title="Open a folder of WAV files">Open Folder</button>
       <button id="btn-open-file" title="Open individual WAV file(s)">Open File(s)</button>
       <button id="btn-export-selection" class="btn-save" title="Export selection as WAV" style="display:none">&#x2913; WAV</button>
@@ -194,8 +195,37 @@
     </span>
   </div>
 
-  <!-- Main content area: spectrogram + sidebar -->
+  <!-- Main content area: browser / spectrogram + sidebar -->
   <div class="main-content">
+    <!-- File browser sidebar (left, collapsible) -->
+    <div class="browser-panel" id="browser-panel">
+      <div class="browser-toolbar">
+        <button id="browser-up" class="browser-nav-btn" title="Go to parent folder">&#x2191; Up</button>
+        <button id="browser-rename" class="browser-nav-btn" title="Rename selected file (F2)" disabled>Rename</button>
+        <button id="browser-normalize" class="browser-nav-btn" title="Normalize selected file to -3 dBFS" disabled>Normalize</button>
+        <div class="browser-breadcrumb" id="browser-breadcrumb"></div>
+        <span style="flex:1"></span>
+        <div class="browser-columns-menu" id="browser-columns-menu">
+          <button id="browser-columns-btn" class="browser-nav-btn" title="Show/hide columns">Columns &#x25BE;</button>
+          <div class="browser-columns-dropdown" id="browser-columns-dropdown"></div>
+        </div>
+        <button id="browser-refresh" class="browser-nav-btn" title="Refresh">&#x21BB;</button>
+        <button id="browser-close" class="browser-nav-btn" title="Close browser">&times;</button>
+      </div>
+      <div class="browser-list-header" id="browser-list-header">
+        <span class="browser-col-name">Name</span>
+        <span class="browser-col-dur" data-col="dur">Duration</span>
+        <span class="browser-col-sr" data-col="sr">Rate</span>
+        <span class="browser-col-ch" data-col="ch">Ch</span>
+        <span class="browser-col-bits" data-col="bits">Bits</span>
+        <span class="browser-col-meta" data-col="meta">Meta</span>
+        <span class="browser-col-size" data-col="size">Size</span>
+        <span class="browser-col-date" data-col="date">Modified</span>
+      </div>
+      <div class="browser-list" id="browser-list"></div>
+      <div class="browser-status" id="browser-status"></div>
+    </div>
+
     <!-- Spectrogram area -->
     <div class="spectrogram-container">
       <canvas id="spectrogram"></canvas>
@@ -523,6 +553,25 @@
     <div class="file-list-body" id="file-list-body"></div>
   </div>
 
+  <!-- Disclaimer dialog (shown once on first launch) -->
+  <div id="disclaimer-modal" style="display:none; position:fixed; inset:0; z-index:2000; background:rgba(0,0,0,0.6); justify-content:center; align-items:center;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:24px 32px; max-width:480px; color:var(--text-primary); font-size:13px; box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+      <h2 style="margin:0 0 12px 0; font-size:16px;">Experimental Software</h2>
+      <p style="margin:0 0 10px 0; line-height:1.5;">
+        Sound Explorer is experimental software provided as-is, without warranty of any kind.
+      </p>
+      <p style="margin:0 0 10px 0; line-height:1.5;">
+        Some features (such as normalization and metadata editing) <strong>modify files permanently</strong> and cannot be undone.
+      </p>
+      <p style="margin:0 0 16px 0; line-height:1.5; font-weight:600;">
+        We do not recommend using this software on sensitive files that are not backed up. By continuing, you accept that you are using it at your own risk.
+      </p>
+      <div style="text-align:right;">
+        <button id="btn-accept-disclaimer" class="primary" style="padding:8px 24px; font-size:13px;">I Understand &amp; Accept</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Keyboard shortcuts modal -->
   <div id="shortcuts-modal" style="display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.5); justify-content:center; align-items:center;">
     <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:20px 28px; max-width:460px; color:var(--text-primary); font-size:13px; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
@@ -542,6 +591,8 @@
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">T</td><td>Trim to selection</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">U</td><td>Untrim (restore full session)</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">G</td><td>Go to time input</td></tr>
+        <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">B</td><td>Toggle file browser</td></tr>
+        <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">F2</td><td>Rename selected file</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">Esc</td><td>Clear selection</td></tr>
       </table>
       <hr style="border:none; border-top:1px solid var(--border); margin:12px 0 8px;">

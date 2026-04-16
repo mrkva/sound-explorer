@@ -943,6 +943,204 @@ ipcMain.handle('read-ixml-from-folder', async (event, folderPath) => {
   return null;
 });
 
+// ── Normalize WAV file ──────────────────────────────────────────────────
+
+/**
+ * Normalize a WAV file in place to a target peak level (dBFS).
+ * Preserves all metadata chunks (bext, iXML, etc).
+ * Supports 16-bit, 24-bit, 32-bit int, and 32-bit float.
+ * For 32-bit float files, peaks above 0dBFS are valid and get scaled down.
+ */
+ipcMain.handle('normalize-wav', async (event, filePath, targetDbfs) => {
+  const header = await readWavHeader(filePath);
+  const { format, sampleRate, channels, bitsPerSample, dataOffset, dataSize } = header;
+  const isFloat = (format === 3);
+  const bytesPerSample = bitsPerSample / 8;
+  const blockAlign = channels * bytesPerSample;
+  const totalSamples = Math.floor(dataSize / blockAlign);
+
+  if (totalSamples === 0) throw new Error('No audio data in file');
+
+  // Close any cached FD for this file
+  closeCachedFd(filePath);
+
+  // Pass 1: scan for peak amplitude
+  const fd = await fs.promises.open(filePath, 'r');
+  const CHUNK_SAMPLES = 1024 * 1024; // ~1M samples per read
+  const chunkBytes = CHUNK_SAMPLES * blockAlign;
+  let peakAbs = 0;
+
+  for (let offset = 0; offset < dataSize; offset += chunkBytes) {
+    const readLen = Math.min(chunkBytes, dataSize - offset);
+    const buf = Buffer.alloc(readLen);
+    await fd.read(buf, 0, readLen, dataOffset + offset);
+    const samplesInChunk = Math.floor(readLen / bytesPerSample);
+    for (let i = 0; i < samplesInChunk; i++) {
+      const val = Math.abs(readSampleFloat(buf, i * bytesPerSample, bitsPerSample, isFloat));
+      if (val > peakAbs) peakAbs = val;
+    }
+  }
+  await fd.close();
+
+  if (peakAbs === 0) throw new Error('File is silent — cannot normalize');
+
+  const currentPeakDb = 20 * Math.log10(peakAbs);
+  const gainDb = targetDbfs - currentPeakDb;
+  const gainLinear = Math.pow(10, gainDb / 20);
+
+  // Skip if already within 0.1 dB of target
+  if (Math.abs(gainDb) < 0.1) {
+    return { peakDb: currentPeakDb, gainDb: 0, skipped: true };
+  }
+
+  // Pass 2: read entire file, apply gain to data chunk, write to temp file
+  const fileData = await fs.promises.readFile(filePath);
+
+  // Apply gain in-place on the data portion of the buffer
+  for (let offset = 0; offset < dataSize; offset += blockAlign) {
+    for (let ch = 0; ch < channels; ch++) {
+      const pos = dataOffset + offset + ch * bytesPerSample;
+      if (pos + bytesPerSample > fileData.length) break;
+      const sample = readSampleFloat(fileData, pos, bitsPerSample, isFloat);
+      const gained = sample * gainLinear;
+      writeSampleToBuffer(fileData, pos, gained, bitsPerSample, isFloat);
+    }
+  }
+
+  // Atomic write via temp file
+  const tmpPath = filePath + '.normalize.tmp';
+  await fs.promises.writeFile(tmpPath, fileData);
+  await fs.promises.rename(tmpPath, filePath);
+
+  return { peakDb: currentPeakDb, gainDb, newPeakDb: targetDbfs, skipped: false };
+});
+
+/**
+ * Write a float sample back to a buffer in the source format.
+ */
+function writeSampleToBuffer(buf, offset, sample, bits, isFloat) {
+  if (bits === 16) {
+    const clamped = Math.max(-32768, Math.min(32767, Math.round(sample * 32768)));
+    buf.writeInt16LE(clamped, offset);
+  } else if (bits === 24) {
+    const clamped = Math.max(-8388608, Math.min(8388607, Math.round(sample * 8388608)));
+    const val = clamped < 0 ? clamped + 0x1000000 : clamped;
+    buf[offset] = val & 0xFF;
+    buf[offset + 1] = (val >> 8) & 0xFF;
+    buf[offset + 2] = (val >> 16) & 0xFF;
+  } else if (bits === 32 && isFloat) {
+    buf.writeFloatLE(sample, offset);
+  } else if (bits === 32) {
+    const clamped = Math.max(-2147483648, Math.min(2147483647, Math.round(sample * 2147483648)));
+    buf.writeInt32LE(clamped, offset);
+  }
+}
+
+// ── File browser IPC handlers ───────────────────────────────────────────
+
+/**
+ * List directory contents: subfolders and WAV files with stats.
+ * Returns { folders: [{name, path}], files: [{name, path, size, modified, ...wavHeader}] }
+ */
+ipcMain.handle('list-directory', async (event, dirPath) => {
+  const resolved = path.resolve(dirPath);
+  const entries = await fs.promises.readdir(resolved, { withFileTypes: true });
+
+  const folders = [];
+  const files = [];
+
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue; // skip hidden
+    const fullPath = path.join(resolved, entry.name);
+
+    if (entry.isDirectory()) {
+      folders.push({ name: entry.name, path: fullPath });
+    } else if (/\.(wav|wave|bwf)$/i.test(entry.name)) {
+      try {
+        const stat = await fs.promises.stat(fullPath);
+        let wavInfo = {};
+        try {
+          wavInfo = await readWavHeader(fullPath);
+        } catch { /* not a valid WAV, include with basic info */ }
+        files.push({
+          name: entry.name,
+          path: fullPath,
+          size: stat.size,
+          modified: stat.mtimeMs,
+          sampleRate: wavInfo.sampleRate || 0,
+          channels: wavInfo.channels || 0,
+          bitsPerSample: wavInfo.bitsPerSample || 0,
+          duration: wavInfo.dataSize && wavInfo.sampleRate
+            ? wavInfo.dataSize / (wavInfo.channels * (wavInfo.bitsPerSample / 8) * wavInfo.sampleRate)
+            : 0,
+          hasIxml: false, // populated below
+          hasBext: !!(wavInfo.bext),
+          originationDate: wavInfo.originationDate || null,
+          originationTime: wavInfo.originationTime || null,
+        });
+      } catch (err) {
+        console.warn(`Skipping ${fullPath}: ${err.message}`);
+      }
+    }
+  }
+
+  // Check for iXML in files (fast: only read chunk IDs, not full parse)
+  for (const file of files) {
+    try {
+      const xml = await readIXMLFromFile(file.path);
+      file.hasIxml = !!(xml && xml.length > 0);
+    } catch { /* ignore */ }
+  }
+
+  folders.sort((a, b) => a.name.localeCompare(b.name));
+  files.sort((a, b) => a.name.localeCompare(b.name));
+
+  return { folders, files, dirPath: resolved };
+});
+
+/**
+ * Rename a file. Validates: same directory, preserves extension, no path traversal.
+ */
+ipcMain.handle('rename-file', async (event, oldPath, newName) => {
+  const resolved = path.resolve(oldPath);
+  const dir = path.dirname(resolved);
+  const oldExt = path.extname(resolved).toLowerCase();
+
+  // Sanitize new name: strip path separators, must keep same extension
+  const sanitized = newName.replace(/[/\\]/g, '');
+  if (!sanitized || sanitized.startsWith('.')) {
+    throw new Error('Invalid file name');
+  }
+
+  // Ensure extension is preserved
+  let finalName = sanitized;
+  if (path.extname(sanitized).toLowerCase() !== oldExt) {
+    finalName = sanitized + oldExt;
+  }
+
+  const newPath = path.join(dir, finalName);
+
+  // Safety: must stay in same directory
+  if (path.dirname(newPath) !== dir) {
+    throw new Error('File must remain in the same directory');
+  }
+
+  // Check target doesn't already exist
+  try {
+    await fs.promises.access(newPath);
+    throw new Error(`File "${finalName}" already exists`);
+  } catch (err) {
+    if (err.message.includes('already exists')) throw err;
+    // ENOENT is expected — target doesn't exist, safe to rename
+  }
+
+  // Close any cached FD for the old path
+  closeCachedFd(resolved);
+
+  await fs.promises.rename(resolved, newPath);
+  return { oldPath: resolved, newPath, newName: finalName };
+});
+
 /**
  * Write iXML to all WAV files in a folder.
  */

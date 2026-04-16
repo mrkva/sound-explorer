@@ -38,12 +38,17 @@ class App {
     this._livePeakDb = -100;
     this._liveRmsDb = -100;
 
+    // Preload logo for PNG exports
+    this._logoImg = new Image();
+    this._logoImg.src = 'img/logo_white.png';
+
     this._initUI();
     this._initDragDrop();
     this._initKeyboard();
     this._initAudioCallbacks();
     this._applyVersion();
     this._initFullscreen();
+    this._showDisclaimer();
   }
 
   _applyVersion() {
@@ -53,6 +58,18 @@ class App {
     });
     document.title = `Sound Explorer ${v}`;
     console.log(`Sound Explorer ${v}`);
+  }
+
+  _showDisclaimer() {
+    const key = 'disclaimer-accepted-v1';
+    if (localStorage.getItem(key)) return;
+    const modal = document.getElementById('disclaimer-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    document.getElementById('btn-accept-disclaimer').addEventListener('click', () => {
+      localStorage.setItem(key, '1');
+      modal.style.display = 'none';
+    });
   }
 
   _updateUI() {
@@ -646,6 +663,13 @@ class App {
       this._showComputing(false);
 
       // Compute waveform overview in background
+      this.spectrogram.onOverviewProgress = (pct) => {
+        if (pct === null) {
+          this._setStatus(`Loaded ${files.length} file(s)`);
+        } else {
+          this._setStatus(`Loading waveform overview... ${pct}%`);
+        }
+      };
       this.spectrogram.computeOverview();
 
       // Load first file for audio
@@ -1059,7 +1083,7 @@ class App {
     const scale = 2;
     const hasWallClock = !!sg.wallClockFn;
     const marginL = 60, marginT = 10, marginR = 10;
-    const marginB = hasWallClock ? 66 : 50;
+    const marginB = hasWallClock ? 56 : 42;
     const brandH = 28;
     const plotW = srcCanvas.width - 50; // original MARGIN_LEFT = 50
     const plotH = srcCanvas.height - sg._marginBottom;
@@ -1157,11 +1181,21 @@ class App {
     const by = totalH - brandH;
     ctx.fillStyle = 'rgba(255,255,255,0.04)';
     ctx.fillRect(0, by, totalW, brandH);
+    // Logo
+    const logoPad = 12;
+    const logoSize = 20;
+    const logoX = logoPad;
+    const logoY = by + (brandH - logoSize) / 2;
+    let textOffsetX = logoPad;
+    if (this._logoImg && this._logoImg.complete && this._logoImg.naturalWidth > 0) {
+      ctx.drawImage(this._logoImg, logoX, logoY, logoSize, logoSize);
+      textOffsetX = logoPad + logoSize + 6;
+    }
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.fillText('\u223F Sound Explorer', marginL, by + brandH / 2);
+    ctx.fillText('Sound Explorer', textOffsetX, by + brandH / 2);
 
     // File info and settings on the right side of branding bar
     const info = sg.wavInfo;
@@ -1180,7 +1214,7 @@ class App {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const baseName = this.wavInfos[0]?._file?.name?.replace(/\.wav$/i, '') || 'spectrogram';
+      const baseName = this.wavInfos[0]?.fileName?.replace(/\.wav$/i, '') || 'spectrogram';
       a.download = `${baseName}_spectrogram.png`;
       a.click();
       URL.revokeObjectURL(url);
@@ -1724,18 +1758,29 @@ class App {
     }
 
     // Branding bar at bottom
-    const by = totalH - brandH;
-    ctx.fillStyle = 'rgba(255,255,255,0.04)';
-    ctx.fillRect(0, by, totalW, brandH);
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    ctx.fillText('\u223F Sound Explorer', pad.left, by + brandH / 2);
-    ctx.textAlign = 'right';
-    const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10);
-    ctx.fillText(`${sampleRate} Hz \u00B7 ${dateStr}`, pad.left + plotW, by + brandH / 2);
+    {
+      const by = totalH - brandH;
+      ctx.fillStyle = 'rgba(255,255,255,0.04)';
+      ctx.fillRect(0, by, totalW, brandH);
+      const logoPad = 12;
+      const logoSize = 20;
+      const logoX = logoPad;
+      const logoY = by + (brandH - logoSize) / 2;
+      let textOffsetX = logoPad;
+      if (this._logoImg && this._logoImg.complete && this._logoImg.naturalWidth > 0) {
+        ctx.drawImage(this._logoImg, logoX, logoY, logoSize, logoSize);
+        textOffsetX = logoPad + logoSize + 6;
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.fillText('Sound Explorer', textOffsetX, by + brandH / 2);
+      ctx.textAlign = 'right';
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10);
+      ctx.fillText(`${sampleRate} Hz \u00B7 ${dateStr}`, pad.left + plotW, by + brandH / 2);
+    }
 
     // Download
     exp.toBlob((blob) => {
@@ -1743,7 +1788,8 @@ class App {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'spectrum.png';
+      const specBaseName = this.wavInfos[0]?.fileName?.replace(/\.wav$/i, '') || 'spectrum';
+      a.download = `${specBaseName}_spectrum.png`;
       a.click();
       URL.revokeObjectURL(url);
     }, 'image/png');
