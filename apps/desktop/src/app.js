@@ -75,6 +75,10 @@ class App {
     this._spectrumFullscreen = false;
     this._sidebarWidth = 420;
 
+    // Preload logo for PNG exports
+    this._logoImg = new Image();
+    this._logoImg.src = 'img/logo_white.png';
+
     // Annotations
     this.annotations = [];
     this.annotationDialog = document.getElementById('annotation-dialog');
@@ -2573,17 +2577,27 @@ class App {
       }
     }
 
-    const by = totalH - brandH;
-    ctx.fillStyle = 'rgba(255,255,255,0.04)';
-    ctx.fillRect(0, by, totalW, brandH);
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    ctx.fillText('\u223F Sound Explorer', pad.left, by + brandH / 2);
-    ctx.textAlign = 'right';
-    const dateStr = new Date().toISOString().slice(0, 10);
-    ctx.fillText(`${sampleRate} Hz \u00B7 ${dateStr}`, pad.left + plotW, by + brandH / 2);
+    {
+      const by = totalH - brandH;
+      ctx.fillStyle = 'rgba(255,255,255,0.04)';
+      ctx.fillRect(0, by, totalW, brandH);
+      const logoSize = 20;
+      const logoX = pad.left;
+      const logoY = by + (brandH - logoSize) / 2;
+      let textOffsetX = pad.left;
+      if (this._logoImg && this._logoImg.complete && this._logoImg.naturalWidth > 0) {
+        ctx.drawImage(this._logoImg, logoX, logoY, logoSize, logoSize);
+        textOffsetX = pad.left + logoSize + 6;
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.fillText('Sound Explorer', textOffsetX, by + brandH / 2);
+      ctx.textAlign = 'right';
+      const dateStr = new Date().toISOString().slice(0, 10);
+      ctx.fillText(`${sampleRate} Hz \u00B7 ${dateStr}`, pad.left + plotW, by + brandH / 2);
+    }
 
     exp.toBlob(async (blob) => {
       if (!blob) return;
@@ -2703,11 +2717,19 @@ class App {
     const by = totalH - brandH;
     ctx.fillStyle = 'rgba(255,255,255,0.04)';
     ctx.fillRect(0, by, totalW, brandH);
+    const logoSize = 20;
+    const logoX = marginL;
+    const logoY = by + (brandH - logoSize) / 2;
+    let textOffsetX = marginL;
+    if (this._logoImg && this._logoImg.complete && this._logoImg.naturalWidth > 0) {
+      ctx.drawImage(this._logoImg, logoX, logoY, logoSize, logoSize);
+      textOffsetX = marginL + logoSize + 6;
+    }
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.fillText('\u223F Sound Explorer', marginL, by + brandH / 2);
+    ctx.fillText('Sound Explorer', textOffsetX, by + brandH / 2);
 
     const sr = this.session.sampleRate;
     const fftLabel = `FFT ${sg.fftSize}`;
