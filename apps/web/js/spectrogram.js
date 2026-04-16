@@ -105,6 +105,14 @@ export class SpectrogramRenderer {
 
     this._renderWorker = new Worker(`js/render-worker.js${cacheBust}`, { type: 'module' });
     this._renderWorker.onmessage = (e) => this._onRenderResult(e.data);
+    this._renderWorker.onerror = (e) => {
+      console.error('Render worker error:', e.message);
+      // Reject all pending render promises so they don't hang forever
+      for (const [id, resolve] of this._pendingRender) {
+        resolve({ id, bitmap: null, error: true });
+      }
+      this._pendingRender.clear();
+    };
   }
 
   _initInteraction() {
@@ -383,19 +391,31 @@ export class SpectrogramRenderer {
       if (this._lastBitmap) this._drawStretched();
     });
 
-    // Resize observer
+    // Resize observer — sync canvas dimensions immediately, debounce expensive recompute
     this._resizeTimer = null;
     this._resizeObserver = new ResizeObserver(() => {
-      if (this._resizeTimer) clearTimeout(this._resizeTimer);
+      const container = this.canvas.parentElement;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w <= 0 || h <= 0) return;
+      const dw = Math.abs(this.canvas.width - w);
+      const dh = Math.abs(this.canvas.height - h);
+      if (dw === 0 && dh === 0) return;
+      this.canvas.width = w;
+      this.canvas.height = h;
       // Immediately stretch old image
       if (this._lastBitmap) {
         this._drawStretched();
       }
-      this._resizeTimer = setTimeout(() => {
-        this._updateCanvasSize();
-        this._tileCache.clear();
-        this.render();
-      }, 200);
+      // Only recompute for significant size changes (>3px) to avoid toolbar rewrap jitter
+      if (dw > 3 || dh > 3) {
+        if (this._resizeTimer) clearTimeout(this._resizeTimer);
+        this._resizeTimer = setTimeout(() => {
+          this._updateCanvasSize();
+          this._tileCache.clear();
+          this.render();
+        }, 250);
+      }
     });
     this._resizeObserver.observe(this.canvas.parentElement);
     this._updateCanvasSize();
@@ -1359,14 +1379,20 @@ export class SpectrogramRenderer {
     const blocksPerPixel = Math.max(1, Math.floor(this.totalSamples / w));
     const data = new Float32Array(w);
 
-    // Read in chunks for efficiency
-    const chunkPixels = 200;
+    // Read in small chunks with yields to avoid starving audio playback
+    const chunkPixels = 50;
     const chunkSamples = chunkPixels * blocksPerPixel;
 
     for (let px = 0; px < w; px += chunkPixels) {
       const startSample = px * blocksPerPixel;
       const count = Math.min(chunkSamples, this.totalSamples - startSample);
       if (count <= 0) break;
+
+      await new Promise(r => setTimeout(r, 20));
+
+      if (this.onOverviewProgress) {
+        this.onOverviewProgress(Math.round((px / w) * 100));
+      }
 
       try {
         const samples = await this._readSamplesRange(startSample, startSample + count, 'mix');

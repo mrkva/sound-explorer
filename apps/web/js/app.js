@@ -44,6 +44,7 @@ class App {
     this._initAudioCallbacks();
     this._applyVersion();
     this._initFullscreen();
+    this._showDisclaimer();
   }
 
   _applyVersion() {
@@ -53,6 +54,18 @@ class App {
     });
     document.title = `Sound Explorer ${v}`;
     console.log(`Sound Explorer ${v}`);
+  }
+
+  _showDisclaimer() {
+    const key = 'disclaimer-accepted-v1';
+    if (localStorage.getItem(key)) return;
+    const modal = document.getElementById('disclaimer-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    document.getElementById('btn-accept-disclaimer').addEventListener('click', () => {
+      localStorage.setItem(key, '1');
+      modal.style.display = 'none';
+    });
   }
 
   _updateUI() {
@@ -646,6 +659,13 @@ class App {
       this._showComputing(false);
 
       // Compute waveform overview in background
+      this.spectrogram.onOverviewProgress = (pct) => {
+        if (pct === null) {
+          this._setStatus(`Loaded ${files.length} file(s)`);
+        } else {
+          this._setStatus(`Loading waveform overview... ${pct}%`);
+        }
+      };
       this.spectrogram.computeOverview();
 
       // Load first file for audio
@@ -1180,7 +1200,7 @@ class App {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const baseName = this.wavInfos[0]?._file?.name?.replace(/\.wav$/i, '') || 'spectrogram';
+      const baseName = this.wavInfos[0]?.fileName?.replace(/\.wav$/i, '') || 'spectrogram';
       a.download = `${baseName}_spectrogram.png`;
       a.click();
       URL.revokeObjectURL(url);
@@ -1743,7 +1763,8 @@ class App {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'spectrum.png';
+      const specBaseName = this.wavInfos[0]?.fileName?.replace(/\.wav$/i, '') || 'spectrum';
+      a.download = `${specBaseName}_spectrum.png`;
       a.click();
       URL.revokeObjectURL(url);
     }, 'image/png');
