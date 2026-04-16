@@ -2176,6 +2176,18 @@ class App {
     sidebar.querySelectorAll('.sidebar-pane').forEach(p => {
       p.classList.toggle('active', p.dataset.tab === tab);
     });
+    if (tab === 'metadata' && this.session) {
+      if (!this._frmData) {
+        this._frmData = autoPopulateFromSession(this.session);
+      }
+      this._populateFRMForm(this._frmData);
+      this._applyDefaults();
+      this._populateLocationPresets();
+      let statusText = 'Auto-populated from BWF metadata';
+      if (this._ixmlSource === 'ixml') statusText = 'Loaded from iXML chunk';
+      else if (this._ixmlSource === 'frm') statusText = 'Loaded from session.frm.txt';
+      document.getElementById('frm-status').textContent = statusText;
+    }
     if (tab === 'spectrum') {
       this._startSpectrumAnalyser();
     } else {
@@ -2923,25 +2935,8 @@ class App {
       return;
     }
 
-    // If no FRM data yet, auto-populate from session
-    if (!this._frmData) {
-      this._frmData = autoPopulateFromSession(this.session);
-    }
-
-    this._populateFRMForm(this._frmData);
-
-    // Apply sticky defaults to empty fields
-    this._applyDefaults();
-
-    // Populate location presets dropdown
-    this._populateLocationPresets();
-
+    // _switchSidebarTab('metadata') handles form population
     this._toggleSidebar('metadata');
-
-    let statusText = 'Auto-populated from BWF metadata';
-    if (this._ixmlSource === 'ixml') statusText = 'Loaded from iXML chunk';
-    else if (this._ixmlSource === 'frm') statusText = 'Loaded from session.frm.txt';
-    document.getElementById('frm-status').textContent = statusText;
 
     // "Save to WAV(s)" — only visible when opened as a folder
     const saveIxmlBtn = document.getElementById('frm-save-ixml');
@@ -4087,8 +4082,8 @@ class App {
       this._sessionFolderPath = this._browserPath;
       await this._initSession();
 
-      // Open metadata sidebar automatically for labeling workflow
-      this._openSidebarTab('metadata');
+      // Populate and show metadata sidebar (always open, no toggle)
+      this._showMetadataForFile();
     } catch (err) {
       this._setStatus('Error: ' + err.message);
       console.error(err);
@@ -4098,9 +4093,23 @@ class App {
   _openSidebarTab(tabName) {
     const sidebar = document.getElementById('app-sidebar');
     sidebar.classList.add('open');
-    // Activate the tab
-    sidebar.querySelectorAll('.sidebar-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
-    sidebar.querySelectorAll('.sidebar-pane').forEach(p => p.classList.toggle('active', p.dataset.tab === tabName));
+    this._switchSidebarTab(tabName);
+  }
+
+  // Open metadata sidebar without toggling — for browser file selection
+  _showMetadataForFile() {
+    if (!this.session) return;
+    this._openSidebarTab('metadata');
+
+    // Single file from browser — show "Save to File" only
+    const saveIxmlBtn = document.getElementById('frm-save-ixml');
+    saveIxmlBtn.style.display = 'none';
+    const saveIxmlFileBtn = document.getElementById('frm-save-ixml-file');
+    if (this.session.files.length > 0) {
+      const fname = this.session.files[0].filePath.split(/[/\\]/).pop();
+      saveIxmlFileBtn.disabled = false;
+      saveIxmlFileBtn.title = `Embed iXML into ${fname}`;
+    }
   }
 
   _browserStartRename(file, row) {
