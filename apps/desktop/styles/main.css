@@ -469,11 +469,11 @@ button.danger {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  width: 40px;
+  width: 36px;
   flex-shrink: 0;
   background: var(--bg-secondary);
-  padding: 6px 0;
-  gap: 2px;
+  padding: 4px 0;
+  gap: 1px;
 }
 
 .side-strip-left {
@@ -489,40 +489,64 @@ button.danger {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: 6px 2px;
-  margin: 0 2px;
+  gap: 1px;
+  padding: 7px 0;
+  margin: 0;
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: var(--text-primary);
+  border: none;
+  border-radius: 0;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 9px;
-  line-height: 1.1;
-  min-height: 40px;
+  line-height: 1;
+  min-height: 42px;
+  position: relative;
 }
 
 .side-strip-btn:hover {
+  color: var(--text-primary);
   background: var(--bg-tertiary);
-  border-color: var(--border);
 }
 
 .side-strip-btn.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+  color: var(--highlight);
+  background: rgba(138, 180, 214, 0.1);
+}
+
+.side-strip-left .side-strip-btn.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--highlight);
+  border-radius: 0 1px 1px 0;
+}
+
+.side-strip-right .side-strip-btn.active::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--highlight);
+  border-radius: 1px 0 0 1px;
 }
 
 .side-strip-icon {
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1;
 }
 
 .side-strip-label {
-  font-size: 9px;
+  font-size: 8px;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  opacity: 0.85;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 100%;
 }
 
 /* ── Bottom bar actions (theme + help, aligned right) ─────────────── */
