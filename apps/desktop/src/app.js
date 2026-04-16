@@ -122,11 +122,12 @@ class App {
   }
 
   _showDisclaimer() {
-    if (localStorage.getItem('disclaimer-accepted')) return;
+    const key = 'disclaimer-accepted-v1';
+    if (localStorage.getItem(key)) return;
     const modal = document.getElementById('disclaimer-modal');
     modal.style.display = 'flex';
     document.getElementById('btn-accept-disclaimer').addEventListener('click', () => {
-      localStorage.setItem('disclaimer-accepted', '1');
+      localStorage.setItem(key, '1');
       modal.style.display = 'none';
     });
   }
@@ -2586,7 +2587,7 @@ class App {
 
     exp.toBlob(async (blob) => {
       if (!blob) return;
-      const baseName = this.session?.files?.[0]?.name?.replace(/\.wav$/i, '') || 'spectrum';
+      const baseName = this.session?.files?.[0]?.fileName?.replace(/\.wav$/i, '') || 'spectrum';
       const sourceDir = this.session?.files?.[0]?.filePath?.replace(/[/\\][^/\\]+$/, '') || '';
       const defaultPath = sourceDir ? `${sourceDir}/${baseName}_spectrum.png` : `${baseName}_spectrum.png`;
       const savePath = await window.electronAPI.saveFileDialog({
@@ -2596,7 +2597,7 @@ class App {
       });
       if (!savePath) return;
       const arrayBuf = await blob.arrayBuffer();
-      await window.electronAPI.writeBinaryFile(savePath, arrayBuf);
+      await window.electronAPI.writeBinaryFile(savePath, new Uint8Array(arrayBuf));
       this._setStatus(`Spectrum PNG exported to ${savePath.split(/[/\\]/).pop()}`);
     }, 'image/png');
   }
@@ -2718,7 +2719,7 @@ class App {
 
     exp.toBlob(async (blob) => {
       if (!blob) return;
-      const baseName = this.session?.files?.[0]?.name?.replace(/\.wav$/i, '') || 'spectrogram';
+      const baseName = this.session?.files?.[0]?.fileName?.replace(/\.wav$/i, '') || 'spectrogram';
       const sourceDir = this.session?.files?.[0]?.filePath?.replace(/[/\\][^/\\]+$/, '') || '';
       const defaultPath = sourceDir ? `${sourceDir}/${baseName}_spectrogram.png` : `${baseName}_spectrogram.png`;
       const savePath = await window.electronAPI.saveFileDialog({
@@ -2728,7 +2729,7 @@ class App {
       });
       if (!savePath) return;
       const arrayBuf = await blob.arrayBuffer();
-      await window.electronAPI.writeBinaryFile(savePath, arrayBuf);
+      await window.electronAPI.writeBinaryFile(savePath, new Uint8Array(arrayBuf));
       this.statusDisplay.textContent = `Spectrogram PNG exported to ${savePath.split(/[/\\]/).pop()}`;
     }, 'image/png');
   }
