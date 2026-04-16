@@ -133,18 +133,23 @@ class App {
       const w = container.clientWidth;
       const h = container.clientHeight;
       if (w <= 0 || h <= 0) return;
-      // Skip if dimensions haven't actually changed (avoids clearing canvas
-      // and re-computing when ResizeObserver fires without a real size change)
-      if (this.canvas.width === w && this.canvas.height === h) return;
+      const dw = Math.abs(this.canvas.width - w);
+      const dh = Math.abs(this.canvas.height - h);
+      if (dw === 0 && dh === 0) return;
       this.canvas.width = w;
       this.canvas.height = h;
       if (this.spectrogram && this.session) {
         this.spectrogram.draw(this.engine.getCurrentTime());
-        clearTimeout(this._canvasResizeTimer);
-        this._canvasResizeTimer = setTimeout(() => {
-          this.spectrogram.tileCache.clear();
-          this.spectrogram.computeVisible();
-        }, 250);
+        // Only recompute if the change is significant (> 3px).
+        // Tiny shifts from toolbar/info-strip rewrapping don't warrant
+        // a full FFT recompute — the 1-2px bitmap mismatch is invisible.
+        if (dw > 3 || dh > 3) {
+          clearTimeout(this._canvasResizeTimer);
+          this._canvasResizeTimer = setTimeout(() => {
+            this.spectrogram.tileCache.clear();
+            this.spectrogram.computeVisible();
+          }, 250);
+        }
       }
     }).observe(container);
 
@@ -217,7 +222,11 @@ class App {
     this.spectrogram.onProgress = (phase, percent) => {
       if (phase === 'done' || phase === 'error') {
         this.computingOverlay.style.display = 'none';
-        this._setStatus(phase === 'done' ? this._readyStatusMessage() : 'Spectrogram computation error');
+        const msg = phase === 'done' ? this._readyStatusMessage() : 'Spectrogram computation error';
+        // Append overview status if it's still loading
+        this._setStatus(this._overviewLoading
+          ? msg.replace('Ready', 'Loading waveform overview...')
+          : msg);
       } else {
         this.computingOverlay.style.display = 'flex';
         const label = phase === 'reading' ? 'Reading audio data...' :
@@ -225,7 +234,18 @@ class App {
         this.computingLabel.textContent = label;
         this.computingBarFill.style.width = percent + '%';
         this.computingPercent.textContent = percent + '%';
-        // Don't duplicate overlay info in status bar
+      }
+    };
+
+    this._overviewLoading = false;
+    this.spectrogram.onOverviewProgress = (percent) => {
+      if (percent === null) {
+        this._overviewLoading = false;
+        this._setStatus(this._readyStatusMessage());
+      } else {
+        this._overviewLoading = true;
+        // Show overview progress in status bar (not the overlay)
+        this._setStatus(`Loading waveform overview... ${percent}%`);
       }
     };
   }

@@ -148,6 +148,9 @@ export class SpectrogramRenderer {
   // phase: 'reading' | 'computing' | 'rendering'
   onProgress = null;
 
+  // Overview progress callback: (percent) => void  (0..100, null = done)
+  onOverviewProgress = null;
+
   /**
    * Compute and render the spectrogram for the current view.
    */
@@ -1868,6 +1871,10 @@ export class SpectrogramRenderer {
       // Yield to let the audio HTTP server handle playback requests
       await new Promise(r => setTimeout(r, 20));
 
+      if (this.onOverviewProgress) {
+        this.onOverviewProgress(Math.round((px / w) * 100));
+      }
+
       try {
         const samples = await this._readPCMRange(startSample, count, true);
         for (let p = 0; p < chunkPixels && (px + p) < w; p++) {
@@ -1883,6 +1890,10 @@ export class SpectrogramRenderer {
       } catch (e) {
         // Skip on error
       }
+    }
+
+    if (this.onOverviewProgress) {
+      this.onOverviewProgress(null); // done
     }
 
     this._overviewData = data;
