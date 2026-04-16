@@ -298,14 +298,23 @@ class App {
   _setupEngineCallbacks() {
     this.engine.onTimeUpdate = (time) => {
       this._updateTimeDisplays(time);
-      // Auto-scroll: when cursor reaches right 10% of the view, advance the view
+      // Auto-scroll: when cursor reaches right 10% of the view, advance the view.
+      // Skip if the view already reaches the end of the file — otherwise we'd
+      // keep triggering computeVisible() as the cursor crosses 90% on the last
+      // page, causing a full re-render just before playback ends.
       if (this.engine.isPlaying && this.spectrogram && !this.engine.loopStart) {
         const viewDuration = this.spectrogram.viewEnd - this.spectrogram.viewStart;
         const threshold = this.spectrogram.viewStart + viewDuration * 0.9;
-        if (time > threshold && time < this.spectrogram.totalDuration) {
-          // Scroll forward, keeping cursor at left 10%
-          const newStart = time - viewDuration * 0.1;
-          this.spectrogram.setView(newStart, newStart + viewDuration);
+        const canScrollRight = this.spectrogram.viewEnd < this.spectrogram.totalDuration - 1e-6;
+        if (time > threshold && canScrollRight) {
+          // Scroll forward, keeping cursor at left 10%, but clamp to end of file
+          let newStart = time - viewDuration * 0.1;
+          let newEnd = newStart + viewDuration;
+          if (newEnd > this.spectrogram.totalDuration) {
+            newEnd = this.spectrogram.totalDuration;
+            newStart = Math.max(0, newEnd - viewDuration);
+          }
+          this.spectrogram.setView(newStart, newEnd);
           this.spectrogram.computeVisible();
         }
       }
