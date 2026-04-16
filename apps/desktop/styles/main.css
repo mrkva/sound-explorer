@@ -393,6 +393,40 @@ button.danger {
   outline: none;
 }
 
+/* Edit badge and save/discard controls */
+.edit-controls {
+  gap: 6px;
+  opacity: 1;
+}
+.edit-indicator {
+  color: #F59E0B;
+  font-weight: 600;
+  font-size: 11px;
+}
+.edit-btn {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 10px;
+  font-family: inherit;
+  cursor: pointer;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+.edit-btn:hover {
+  background: var(--bg-secondary);
+}
+.edit-btn-save {
+  border-color: var(--green);
+  color: var(--green);
+}
+.edit-btn-save:hover {
+  background: rgba(122, 186, 138, 0.15);
+}
+.edit-btn-discard {
+  color: var(--text-secondary);
+}
+
 /* Date selector sits alongside WALL cell (multi-day sessions only) */
 .wall-time-block #date-input {
   background: var(--bg-tertiary);

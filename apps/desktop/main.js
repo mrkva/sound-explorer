@@ -1162,3 +1162,35 @@ ipcMain.handle('write-ixml-to-folder', async (event, folderPath, ixmlString) => 
   }
   return results;
 });
+
+// ── Working-copy (non-destructive edit) IPC handlers ──────────────────────
+
+ipcMain.handle('create-working-copy', async (event, filePath) => {
+  const editPath = filePath.replace(/\.(wav|wave|bwf)$/i, '.edit.wav');
+  closeCachedFd(filePath);
+  await fs.promises.copyFile(filePath, editPath);
+  return editPath;
+});
+
+ipcMain.handle('save-working-copy', async (event, editPath, originalPath) => {
+  closeCachedFd(originalPath);
+  closeCachedFd(editPath);
+  await fs.promises.rename(editPath, originalPath);
+});
+
+ipcMain.handle('discard-working-copy', async (event, editPath) => {
+  closeCachedFd(editPath);
+  try { await fs.promises.unlink(editPath); } catch(e) {}
+});
+
+ipcMain.handle('detect-working-copies', async (event, filePaths) => {
+  const results = {};
+  for (const fp of filePaths) {
+    const editPath = fp.replace(/\.(wav|wave|bwf)$/i, '.edit.wav');
+    try {
+      await fs.promises.access(editPath);
+      results[fp] = editPath;
+    } catch(e) {}
+  }
+  return results;
+});

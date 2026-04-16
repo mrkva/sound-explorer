@@ -19,6 +19,9 @@ class App {
     this._liveCapture = null;
     this._liveRecordingBlob = null;
 
+    // Working-copy edit state: originalPath → editPath
+    this._workingCopies = new Map();
+
     // DOM elements
     this.canvas = document.getElementById('spectrogram');
     this.btnOpenFolder = document.getElementById('btn-open-folder');
@@ -113,6 +116,7 @@ class App {
     this._setupFRM();
     this._setupBrowser();
     this._setupStripButtonStates();
+    this._setupEditControls();
     this._applyVersion();
     this._showDisclaimer();
   }
@@ -872,6 +876,7 @@ class App {
 
   async _openFolder() {
     try {
+      if (!await this._confirmDiscardEdits()) return;
       const folderPath = await window.electronAPI.openFolderDialog();
       if (!folderPath) return;
 
@@ -888,6 +893,7 @@ class App {
 
   async _openFiles() {
     try {
+      if (!await this._confirmDiscardEdits()) return;
       const filePaths = await window.electronAPI.openFileDialog();
       if (!filePaths) return;
 
@@ -1017,6 +1023,37 @@ class App {
 
     // Try to auto-load session.frm.txt first, then fall back to annotations.json
     await this._autoloadSessionData();
+
+    // Detect leftover working copies from a previous crash
+    await this._detectWorkingCopies();
+  }
+
+  async _detectWorkingCopies() {
+    if (!this.session || this.session.files.length === 0) return;
+    // Skip detection if we already have tracked working copies (e.g., during reload)
+    if (this._workingCopies.size > 0) return;
+    const filePaths = this.session.files.map(f => f.filePath);
+    const found = await window.electronAPI.detectWorkingCopies(filePaths);
+    const entries = Object.entries(found);
+    if (entries.length === 0) return;
+
+    const names = entries.map(([p]) => p.split(/[/\\]/).pop()).join(', ');
+    const resume = confirm(
+      `Found unsaved edits for: ${names}\n\n` +
+      'Resume editing from where you left off?\n' +
+      'Click Cancel to discard and use the original files.'
+    );
+    if (resume) {
+      for (const [orig, edit] of entries) {
+        this._workingCopies.set(orig, edit);
+      }
+      this._updateEditBadge();
+      await this._reloadSessionWithWorkingCopies();
+    } else {
+      for (const [, edit] of entries) {
+        await window.electronAPI.discardWorkingCopy(edit);
+      }
+    }
   }
 
   _buildFileList() {
@@ -4347,31 +4384,180 @@ class App {
 
   async _browserNormalizeFile(filePath) {
     const fileName = filePath.split(/[/\\]/).pop();
-    const ok = confirm(
-      `Normalize "${fileName}" to \u20133 dBFS?\n\n` +
-      `This will modify the file permanently and cannot be undone.\n` +
-      `Make sure you have a backup before proceeding.`
-    );
-    if (!ok) return;
+    const loaded = this._isFileLoaded(filePath);
+
+    if (!loaded) {
+      const ok = confirm(
+        `Normalize "${fileName}" to \u20133 dBFS?\n\n` +
+        `This will modify the file permanently and cannot be undone.\n` +
+        `Make sure you have a backup before proceeding.`
+      );
+      if (!ok) return;
+    }
+
     this._browserNormalizeBtn.disabled = true;
     this._setStatus(`Normalizing ${fileName}...`);
     try {
-      const result = await window.electronAPI.normalizeWav(filePath, -3);
-      if (result.skipped) {
-        this._setStatus(`${fileName}: already at target level (peak ${result.peakDb.toFixed(1)} dBFS)`);
+      if (loaded) {
+        let editPath = this._workingCopies.get(filePath);
+        if (!editPath) {
+          this._setStatus(`Creating working copy of ${fileName}...`);
+          editPath = await window.electronAPI.createWorkingCopy(filePath);
+          this._workingCopies.set(filePath, editPath);
+        }
+        const result = await window.electronAPI.normalizeWav(editPath, -3);
+        if (result.skipped) {
+          await window.electronAPI.discardWorkingCopy(editPath);
+          this._workingCopies.delete(filePath);
+          this._setStatus(`${fileName}: already at target level (peak ${result.peakDb.toFixed(1)} dBFS)`);
+        } else {
+          this._setStatus(`${fileName}: normalized ${result.gainDb > 0 ? '+' : ''}${result.gainDb.toFixed(1)} dB (peak was ${result.peakDb.toFixed(1)} dBFS, now ${result.newPeakDb.toFixed(1)} dBFS)`);
+          this._updateEditBadge();
+          await this._reloadSessionWithWorkingCopies();
+        }
       } else {
-        this._setStatus(`${fileName}: normalized ${result.gainDb > 0 ? '+' : ''}${result.gainDb.toFixed(1)} dB (peak was ${result.peakDb.toFixed(1)} dBFS, now ${result.newPeakDb.toFixed(1)} dBFS)`);
-      }
-      // If this file is currently loaded, reload it
-      if (this.session && this.session.files.length > 0 && this.session.files[0].filePath === filePath) {
-        this.session = new Session();
-        await this.session.loadFile(filePath);
-        await this._initSession();
+        const result = await window.electronAPI.normalizeWav(filePath, -3);
+        if (result.skipped) {
+          this._setStatus(`${fileName}: already at target level (peak ${result.peakDb.toFixed(1)} dBFS)`);
+        } else {
+          this._setStatus(`${fileName}: normalized ${result.gainDb > 0 ? '+' : ''}${result.gainDb.toFixed(1)} dB (peak was ${result.peakDb.toFixed(1)} dBFS, now ${result.newPeakDb.toFixed(1)} dBFS)`);
+        }
       }
     } catch (err) {
       this._setStatus(`Normalize failed: ${err.message}`);
     }
     this._browserNormalizeBtn.disabled = false;
+  }
+
+  _isFileLoaded(filePath) {
+    if (!this.session) return false;
+    return this.session.files.some(f => f.filePath === filePath ||
+      this._workingCopies.get(filePath) === f.filePath);
+  }
+
+  async _reloadSessionWithWorkingCopies() {
+    if (!this.session) return;
+    const originalPaths = this.session.files.map(f => {
+      for (const [orig, edit] of this._workingCopies) {
+        if (edit === f.filePath) return orig;
+      }
+      return f.filePath;
+    });
+    const effectivePaths = originalPaths.map(p => this._workingCopies.get(p) || p);
+
+    const currentTime = this.engine.getCurrentTime();
+    const wasPlaying = this.engine.isPlaying;
+    if (wasPlaying) this.engine.pause();
+
+    this.session = new Session();
+    if (effectivePaths.length === 1) {
+      await this.session.loadFile(effectivePaths[0]);
+    } else {
+      await this.session.loadFiles(effectivePaths);
+    }
+    await this._initSession();
+    this.engine.seek(currentTime);
+    if (wasPlaying) this.engine.play();
+  }
+
+  _getOriginalPaths() {
+    if (!this.session) return [];
+    return this.session.files.map(f => {
+      for (const [orig, edit] of this._workingCopies) {
+        if (edit === f.filePath) return orig;
+      }
+      return f.filePath;
+    });
+  }
+
+  async _saveWorkingCopies() {
+    if (this._workingCopies.size === 0) return;
+    const allOriginals = this._getOriginalPaths();
+    const entries = [...this._workingCopies.entries()];
+    for (const [originalPath, editPath] of entries) {
+      this._setStatus(`Saving ${originalPath.split(/[/\\]/).pop()}...`);
+      await window.electronAPI.saveWorkingCopy(editPath, originalPath);
+      this._workingCopies.delete(originalPath);
+    }
+    this._updateEditBadge();
+    await this._reloadFromPaths(allOriginals);
+    this._setStatus('Changes saved');
+  }
+
+  async _discardWorkingCopies() {
+    if (this._workingCopies.size === 0) return;
+    const allOriginals = this._getOriginalPaths();
+    const entries = [...this._workingCopies.entries()];
+    for (const [originalPath, editPath] of entries) {
+      await window.electronAPI.discardWorkingCopy(editPath);
+      this._workingCopies.delete(originalPath);
+    }
+    this._updateEditBadge();
+    await this._reloadFromPaths(allOriginals);
+    this._setStatus('Changes discarded');
+  }
+
+  async _reloadFromPaths(filePaths) {
+    const currentTime = this.engine.getCurrentTime();
+    const wasPlaying = this.engine.isPlaying;
+    if (wasPlaying) this.engine.pause();
+
+    this.session = new Session();
+    if (filePaths.length === 1) {
+      await this.session.loadFile(filePaths[0]);
+    } else {
+      await this.session.loadFiles(filePaths);
+    }
+    await this._initSession();
+    this.engine.seek(currentTime);
+    if (wasPlaying) this.engine.play();
+  }
+
+  _updateEditBadge() {
+    const badge = document.getElementById('edit-badge');
+    const saveBtn = document.getElementById('btn-save-edits');
+    const discardBtn = document.getElementById('btn-discard-edits');
+    if (!badge) return;
+    const hasEdits = this._workingCopies.size > 0;
+    badge.style.display = hasEdits ? '' : 'none';
+    if (saveBtn) saveBtn.style.display = hasEdits ? '' : 'none';
+    if (discardBtn) discardBtn.style.display = hasEdits ? '' : 'none';
+  }
+
+  async _confirmDiscardEdits() {
+    if (this._workingCopies.size === 0) return true;
+    const ok = confirm('You have unsaved edits. Discard them and open a new session?');
+    if (ok) await this._discardWorkingCopies();
+    return ok;
+  }
+
+  _setupEditControls() {
+    const saveBtn = document.getElementById('btn-save-edits');
+    const discardBtn = document.getElementById('btn-discard-edits');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        if (this._workingCopies.size === 0) return;
+        const ok = confirm(
+          'Save changes to the original file(s)?\n\n' +
+          'This will overwrite the originals and cannot be undone.'
+        );
+        if (ok) await this._saveWorkingCopies();
+      });
+    }
+    if (discardBtn) {
+      discardBtn.addEventListener('click', async () => {
+        if (this._workingCopies.size === 0) return;
+        const ok = confirm('Discard all unsaved edits and revert to original files?');
+        if (ok) await this._discardWorkingCopies();
+      });
+    }
+
+    window.addEventListener('beforeunload', (e) => {
+      if (this._workingCopies.size > 0) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
   }
 
   _browserGoUp() {
