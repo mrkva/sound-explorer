@@ -237,11 +237,12 @@ button.danger {
   font-family: 'SF Mono', 'Consolas', monospace;
 }
 
-/* Transport buttons - slightly larger */
+/* Transport buttons - fixed width prevents toolbar reflow when Play<->Pause label changes */
 .transport-btn {
-  min-width: 72px;
+  width: 82px;
   height: 28px;
   font-weight: 600;
+  padding: 5px 8px;
 }
 
 /* Annotations toggle - distinctive */
