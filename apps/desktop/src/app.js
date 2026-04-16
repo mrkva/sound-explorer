@@ -1053,9 +1053,13 @@ class App {
     const timeStr = (rawTimeStr || '').trim();
     if (!timeStr) return;
 
-    let targetSeconds = BWFParser.parseTimeString(timeStr);
-    if (targetSeconds === null) {
-      // Also try flexible format (M:SS, plain seconds)
+    // Position mode: parse as M:SS(.cc), H:MM:SS(.cc), or plain seconds.
+    // Wall-clock mode: try HH:MM(:SS) first (seconds-from-midnight), then flexible.
+    let targetSeconds;
+    if (mode === 'wall') {
+      targetSeconds = BWFParser.parseTimeString(timeStr);
+      if (targetSeconds === null) targetSeconds = this._parseFlexibleTime(timeStr);
+    } else {
       targetSeconds = this._parseFlexibleTime(timeStr);
     }
     if (targetSeconds === null) {
@@ -1221,12 +1225,15 @@ class App {
       const dt = (now - lastTime) / 1000;
       lastTime = now;
 
-      if (this.engine.isPlaying) {
+      const isLive = this._liveCapture && this._liveCapture.isCapturing;
+      const active = this.engine.isPlaying || isLive;
+
+      if (active) {
         wasPlaying = true;
         const bigRows = this._bigVURows;
 
         if (bigRows.length > 0 && this._bigVUVisible) {
-          const channels = this.engine.getChannelLevels();
+          const channels = isLive ? this._liveLevels : this.engine.getChannelLevels();
           const updateText = (now - lastTextUpdate) > 150;
           if (updateText) lastTextUpdate = now;
 
@@ -3739,6 +3746,15 @@ class App {
       if (deviceId) sel.value = deviceId;
 
       await this._liveCapture.start(deviceId || sel.value || null);
+
+      // Hook up VU meter to live capture (mono)
+      this._liveLevels = [{ peak: -100, rms: -100 }];
+      this._liveCapture.onLevelUpdate = (peak, rms) => {
+        this._liveLevels[0].peak = peak > 0 ? 20 * Math.log10(peak) : -100;
+        this._liveLevels[0].rms = rms > 0 ? 20 * Math.log10(rms) : -100;
+      };
+      this._buildBigVUMeter(1);
+      this._startVUMeter();
 
       // Hide welcome overlay
       const welcome = document.getElementById('welcome');
