@@ -3822,6 +3822,7 @@ class App {
 
     this._browserPanel = document.getElementById('browser-panel');
     this._browserRenameBtn = document.getElementById('browser-rename');
+    this._browserNormalizeBtn = document.getElementById('browser-normalize');
 
     // Column visibility — default all visible
     this._browserColumns = { dur: true, sr: true, ch: true, bits: true, meta: true, size: true, date: true };
@@ -3850,6 +3851,13 @@ class App {
       if (this._browserSelectedRow && this._browserSelectedFile) {
         const file = this._browserFiles.find(f => f.path === this._browserSelectedFile);
         if (file) this._browserStartRename(file, this._browserSelectedRow);
+      }
+    });
+
+    // Normalize button
+    this._browserNormalizeBtn.addEventListener('click', () => {
+      if (this._browserSelectedFile) {
+        this._browserNormalizeFile(this._browserSelectedFile);
       }
     });
 
@@ -3991,6 +3999,8 @@ class App {
         container.appendChild(crumb);
       }
     }
+    // Scroll to show the end (current folder) when path is long
+    container.scrollLeft = container.scrollWidth;
   }
 
   _browserRender() {
@@ -3998,6 +4008,7 @@ class App {
     list.innerHTML = '';
     this._browserSelectedRow = null;
     this._browserRenameBtn.disabled = true;
+    this._browserNormalizeBtn.disabled = true;
 
     // Folders first
     for (const folder of this._browserFolders) {
@@ -4058,6 +4069,7 @@ class App {
         row.classList.add('active');
         this._browserSelectedRow = row;
         this._browserRenameBtn.disabled = false;
+        this._browserNormalizeBtn.disabled = false;
       }
 
       list.appendChild(row);
@@ -4072,6 +4084,7 @@ class App {
     this._browserSelectedFile = file.path;
     this._browserSelectedRow = row;
     this._browserRenameBtn.disabled = false;
+    this._browserNormalizeBtn.disabled = false;
 
     // Load the file while keeping browser sidebar open for easy file-hopping
     try {
@@ -4197,6 +4210,29 @@ class App {
     } catch (err) {
       this._setStatus('Undo failed: ' + err.message);
     }
+  }
+
+  async _browserNormalizeFile(filePath) {
+    const fileName = filePath.split(/[/\\]/).pop();
+    this._browserNormalizeBtn.disabled = true;
+    this._setStatus(`Normalizing ${fileName}...`);
+    try {
+      const result = await window.electronAPI.normalizeWav(filePath, -3);
+      if (result.skipped) {
+        this._setStatus(`${fileName}: already at target level (peak ${result.peakDb.toFixed(1)} dBFS)`);
+      } else {
+        this._setStatus(`${fileName}: normalized ${result.gainDb > 0 ? '+' : ''}${result.gainDb.toFixed(1)} dB (peak was ${result.peakDb.toFixed(1)} dBFS, now ${result.newPeakDb.toFixed(1)} dBFS)`);
+      }
+      // If this file is currently loaded, reload it
+      if (this.session && this.session.files.length > 0 && this.session.files[0].filePath === filePath) {
+        this.session = new Session();
+        await this.session.loadFile(filePath);
+        await this._initSession();
+      }
+    } catch (err) {
+      this._setStatus(`Normalize failed: ${err.message}`);
+    }
+    this._browserNormalizeBtn.disabled = false;
   }
 
   _browserGoUp() {

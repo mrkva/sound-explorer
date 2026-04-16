@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // File browser
   listDirectory: (dirPath) => ipcRenderer.invoke('list-directory', dirPath),
   renameFile: (oldPath, newName) => ipcRenderer.invoke('rename-file', oldPath, newName),
+  normalizeWav: (filePath, targetDbfs) => ipcRenderer.invoke('normalize-wav', filePath, targetDbfs),
 
   // iXML metadata
   readIXML: (filePath) => ipcRenderer.invoke('read-ixml', filePath),

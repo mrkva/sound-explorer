@@ -943,6 +943,102 @@ ipcMain.handle('read-ixml-from-folder', async (event, folderPath) => {
   return null;
 });
 
+// ── Normalize WAV file ──────────────────────────────────────────────────
+
+/**
+ * Normalize a WAV file in place to a target peak level (dBFS).
+ * Preserves all metadata chunks (bext, iXML, etc).
+ * Supports 16-bit, 24-bit, 32-bit int, and 32-bit float.
+ * For 32-bit float files, peaks above 0dBFS are valid and get scaled down.
+ */
+ipcMain.handle('normalize-wav', async (event, filePath, targetDbfs) => {
+  const header = await readWavHeader(filePath);
+  const { format, sampleRate, channels, bitsPerSample, dataOffset, dataSize } = header;
+  const isFloat = (format === 3);
+  const bytesPerSample = bitsPerSample / 8;
+  const blockAlign = channels * bytesPerSample;
+  const totalSamples = Math.floor(dataSize / blockAlign);
+
+  if (totalSamples === 0) throw new Error('No audio data in file');
+
+  // Close any cached FD for this file
+  if (fdCache.has(filePath)) {
+    await fdCache.get(filePath).close();
+    fdCache.delete(filePath);
+  }
+
+  // Pass 1: scan for peak amplitude
+  const fd = await fs.promises.open(filePath, 'r');
+  const CHUNK_SAMPLES = 1024 * 1024; // ~1M samples per read
+  const chunkBytes = CHUNK_SAMPLES * blockAlign;
+  let peakAbs = 0;
+
+  for (let offset = 0; offset < dataSize; offset += chunkBytes) {
+    const readLen = Math.min(chunkBytes, dataSize - offset);
+    const buf = Buffer.alloc(readLen);
+    await fd.read(buf, 0, readLen, dataOffset + offset);
+    const samplesInChunk = Math.floor(readLen / bytesPerSample);
+    for (let i = 0; i < samplesInChunk; i++) {
+      const val = Math.abs(readSampleFloat(buf, i * bytesPerSample, bitsPerSample, isFloat));
+      if (val > peakAbs) peakAbs = val;
+    }
+  }
+  await fd.close();
+
+  if (peakAbs === 0) throw new Error('File is silent — cannot normalize');
+
+  const currentPeakDb = 20 * Math.log10(peakAbs);
+  const gainDb = targetDbfs - currentPeakDb;
+  const gainLinear = Math.pow(10, gainDb / 20);
+
+  // Skip if already within 0.1 dB of target
+  if (Math.abs(gainDb) < 0.1) {
+    return { peakDb: currentPeakDb, gainDb: 0, skipped: true };
+  }
+
+  // Pass 2: read entire file, apply gain to data chunk, write to temp file
+  const fileData = await fs.promises.readFile(filePath);
+
+  // Apply gain in-place on the data portion of the buffer
+  for (let offset = 0; offset < dataSize; offset += blockAlign) {
+    for (let ch = 0; ch < channels; ch++) {
+      const pos = dataOffset + offset + ch * bytesPerSample;
+      if (pos + bytesPerSample > fileData.length) break;
+      const sample = readSampleFloat(fileData, pos, bitsPerSample, isFloat);
+      const gained = sample * gainLinear;
+      writeSampleToBuffer(fileData, pos, gained, bitsPerSample, isFloat);
+    }
+  }
+
+  // Atomic write via temp file
+  const tmpPath = filePath + '.normalize.tmp';
+  await fs.promises.writeFile(tmpPath, fileData);
+  await fs.promises.rename(tmpPath, filePath);
+
+  return { peakDb: currentPeakDb, gainDb, newPeakDb: targetDbfs, skipped: false };
+});
+
+/**
+ * Write a float sample back to a buffer in the source format.
+ */
+function writeSampleToBuffer(buf, offset, sample, bits, isFloat) {
+  if (bits === 16) {
+    const clamped = Math.max(-32768, Math.min(32767, Math.round(sample * 32768)));
+    buf.writeInt16LE(clamped, offset);
+  } else if (bits === 24) {
+    const clamped = Math.max(-8388608, Math.min(8388607, Math.round(sample * 8388608)));
+    const val = clamped < 0 ? clamped + 0x1000000 : clamped;
+    buf[offset] = val & 0xFF;
+    buf[offset + 1] = (val >> 8) & 0xFF;
+    buf[offset + 2] = (val >> 16) & 0xFF;
+  } else if (bits === 32 && isFloat) {
+    buf.writeFloatLE(sample, offset);
+  } else if (bits === 32) {
+    const clamped = Math.max(-2147483648, Math.min(2147483647, Math.round(sample * 2147483648)));
+    buf.writeInt32LE(clamped, offset);
+  }
+}
+
 // ── File browser IPC handlers ───────────────────────────────────────────
 
 /**
