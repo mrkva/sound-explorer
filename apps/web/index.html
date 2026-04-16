@@ -327,13 +327,9 @@
       <div class="control-section">
         <span class="section-label">Audio</span>
         <div class="control-group">
-          <label class="ctrl-label" title="Pre-playback amplification — boosts quiet recordings">Gain</label>
-          <input id="input-gain" type="range" min="0" max="60" value="0" step="1" class="slider">
+          <label class="ctrl-label" title="Playback gain — boost quiet recordings or reduce to recover peaks in 32-bit float files">Gain</label>
+          <input id="input-gain" type="range" min="-60" max="60" value="0" step="1" class="slider">
           <span id="label-gain" class="ctrl-value">0 dB</span>
-        </div>
-        <div class="control-group">
-          <label class="ctrl-label" title="Playback volume">Vol</label>
-          <input id="input-volume" type="range" min="0" max="1" value="1" step="0.01" class="slider">
         </div>
         <div id="input-device-group" class="control-group" style="display:none">
           <label class="ctrl-label" title="Audio input device">Input</label>

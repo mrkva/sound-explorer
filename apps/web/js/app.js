@@ -133,10 +133,6 @@ class App {
     const deviceGroup = document.getElementById('input-device-group');
     if (deviceGroup) deviceGroup.style.display = isLive ? '' : 'none';
 
-    // Volume group (file mode only)
-    const volGroup = document.getElementById('input-volume')?.closest('.control-group');
-    if (volGroup) volGroup.style.display = hasFile ? '' : 'none';
-
     // Info strip: hide on mobile during active live
     const infoStrip = document.getElementById('info-strip');
     if (infoStrip) infoStrip.style.display = (isMobile && isLive) ? 'none' : '';
@@ -360,10 +356,6 @@ class App {
       this.audio.setGain(db);
       this.spectrogram.gainDB = db;
       document.getElementById('label-gain').textContent = `${db} dB`;
-    });
-
-    document.getElementById('input-volume').addEventListener('input', (e) => {
-      this.audio.setVolume(parseFloat(e.target.value));
     });
 
     document.getElementById('input-spec-gain').addEventListener('input', (e) => {

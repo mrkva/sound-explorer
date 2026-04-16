@@ -1260,8 +1260,75 @@ export class SpectrogramRenderer {
       this.ctx.fill();
     }
 
+    // Recording regions overlay (live mode)
+    this._drawRecordingRegions(width, height);
+
     // Update overview minimap
     this._drawOverview();
+  }
+
+  _drawRecordingRegions(width, height) {
+    if (!this._liveRecordRegions || this._liveRecordRegions.length === 0) return;
+    if (!this._liveSamplesPerCol || !this._liveTotalCols) return;
+
+    const plotH = height - 40;
+    const w = this._liveW;
+    const sampleToX = (s) => 50 + (s / this._liveSamplesPerCol) - this._liveTotalCols + w;
+
+    const ctx = this.ctx;
+    for (const region of this._liveRecordRegions) {
+      const x1 = sampleToX(region.startSample);
+      const endSample = region.endSample !== null
+        ? region.endSample
+        : (this._liveCapture ? this._liveCapture.totalSamples : region.startSample);
+      const x2 = sampleToX(endSample);
+      const rx1 = Math.max(50, x1);
+      const rx2 = Math.min(width - 10, x2);
+      if (rx2 <= rx1) continue;
+      const rw = rx2 - rx1;
+      const isActive = region.endSample === null;
+
+      // Red top/bottom border bars (3px)
+      ctx.fillStyle = isActive ? 'rgba(220, 40, 40, 0.85)' : 'rgba(220, 40, 40, 0.5)';
+      ctx.fillRect(rx1, 0, rw, 3);
+      ctx.fillRect(rx1, plotH - 3, rw, 3);
+
+      // Start edge line (solid)
+      if (x1 >= 50) {
+        ctx.strokeStyle = 'rgba(220, 40, 40, 0.8)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(x1, 0);
+        ctx.lineTo(x1, plotH);
+        ctx.stroke();
+      }
+
+      // End edge line
+      if (x2 >= 50 && x2 <= width - 10) {
+        ctx.strokeStyle = 'rgba(220, 40, 40, 0.6)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash(isActive ? [] : [4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x2, 0);
+        ctx.lineTo(x2, plotH);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // "REC" / "● REC" label at start edge
+      const labelX = Math.max(50 + 4, x1 + 4);
+      if (labelX < rx2 - 20) {
+        const label = isActive ? '\u25CF REC' : 'REC';
+        ctx.font = 'bold 11px monospace';
+        const tw = ctx.measureText(label).width;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(labelX - 2, 5, tw + 4, 14);
+        ctx.fillStyle = isActive ? '#ff4444' : 'rgba(220, 100, 100, 0.8)';
+        ctx.textAlign = 'left';
+        ctx.fillText(label, labelX, 16);
+      }
+    }
   }
 
   _drawFileBoundaries(canvasWidth, canvasHeight) {
@@ -2105,6 +2172,10 @@ export class SpectrogramRenderer {
   _liveColCache = null;
   _liveLastCol = 0;
   _liveWindowNormDB = 0;
+  _liveRecordRegions = []; // [{startSample, endSample|null}] for recording overlay
+  _liveSamplesPerCol = 0;
+  _liveTotalCols = 0;
+  _liveW = 0;
   _liveYBins = null;
   _liveYFracs = null;
   _liveYBinsKey = '';
@@ -2131,9 +2202,21 @@ export class SpectrogramRenderer {
     this._liveScrolling = true;
     this._liveLastCol = 0;
     this._liveColCache = null;
+    this._liveRecordRegions = [];
 
     this._ensureLiveWindow(this.fftSize);
     this._liveRenderLoop();
+  }
+
+  startRecordingRegion() {
+    const sample = this._liveCapture ? this._liveCapture.totalSamples : 0;
+    this._liveRecordRegions.push({ startSample: sample, endSample: null });
+  }
+
+  stopRecordingRegion() {
+    const sample = this._liveCapture ? this._liveCapture.totalSamples : 0;
+    const active = this._liveRecordRegions.find(r => r.endSample === null);
+    if (active) active.endSample = sample;
   }
 
   _liveRenderLoop() {
@@ -2158,6 +2241,11 @@ export class SpectrogramRenderer {
       const viewSamples = Math.floor(viewSec * sr);
       const samplesPerCol = viewSamples / w;
       const totalCols = Math.floor(total / samplesPerCol);
+
+      // Save for recording region overlay in draw()
+      this._liveSamplesPerCol = samplesPerCol;
+      this._liveTotalCols = totalCols;
+      this._liveW = w;
 
       if (!this._liveColCache || this._liveColCache.length !== w) {
         this._liveColCache = new Array(w).fill(null);
@@ -2372,6 +2460,9 @@ export class SpectrogramRenderer {
       cancelAnimationFrame(this._liveRAF);
       this._liveRAF = null;
     }
+    // Close any open recording region
+    const active = this._liveRecordRegions.find(r => r.endSample === null);
+    if (active && this._liveCapture) active.endSample = this._liveCapture.totalSamples;
     this._liveCapture = null;
     this._liveColCache = null;
     this._liveImage = null;

@@ -38,7 +38,6 @@ class App {
     this.durationDisplay = document.getElementById('duration');
     this.fileInfoDisplay = document.getElementById('file-info');
     this.statusDisplay = document.getElementById('status');
-    this.volumeSlider = document.getElementById('volume');
     this.audioGainSlider = document.getElementById('audio-gain');
     this.spectGainSlider = document.getElementById('spect-gain');
     this.dynamicRangeSlider = document.getElementById('dynamic-range');
@@ -365,16 +364,13 @@ class App {
     });
     this.gotoMode.addEventListener('change', () => this._updateGoToPlaceholder());
 
-    // Volume
-    this.volumeSlider.addEventListener('input', (e) => {
-      this.engine.setVolume(parseFloat(e.target.value));
-    });
-
-    // Audio gain (amplification)
+    // Audio gain (amplification or attenuation)
     this.audioGainSlider.addEventListener('input', (e) => {
       const db = parseFloat(e.target.value);
       this.engine.setGainDB(db);
       this.spectrogram.inputGainDB = db;
+      const valEl = document.getElementById('audio-gain-value');
+      if (valEl) valEl.textContent = `${db} dB`;
     });
 
     // Spectrogram gain (visual) - instant re-render, no FFT recompute
@@ -3822,6 +3818,7 @@ class App {
 
     if (this._liveCapture.isRecording) {
       this._liveRecordingBlob = this._liveCapture.stopRecording();
+      this.spectrogram.stopRecordingRegion();
       btn.classList.remove('recording');
       btn.id = 'btn-live-record';
       btn.innerHTML = '&#x23FA; Rec';
@@ -3831,6 +3828,7 @@ class App {
       }
     } else {
       this._liveCapture.startRecording();
+      this.spectrogram.startRecordingRegion();
       btn.classList.add('recording');
       btn.innerHTML = '&#x23F9; Stop Rec';
       document.getElementById('btn-live-save').style.display = 'none';
