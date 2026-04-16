@@ -3823,6 +3823,7 @@ class App {
     this._browserFolders = [];
     this._browserSelectedFile = null; // path of currently selected file
     this._browserSelectedRow = null;  // DOM row of selected file
+    this._browserRenameHistory = [];  // undo stack: [{oldPath, oldName, newPath, newName}]
 
     this._browserPanel = document.getElementById('browser-panel');
     this._browserRenameBtn = document.getElementById('browser-rename');
@@ -3867,12 +3868,17 @@ class App {
     document.addEventListener('click', () => colsDropdown.classList.remove('open'));
     colsDropdown.addEventListener('click', (e) => e.stopPropagation());
 
-    // F2 to rename selected file
+    // F2 to rename, Ctrl/Cmd+Z to undo rename (when browser is focused)
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'F2' && this._browserPanel.classList.contains('open') && this._browserSelectedRow) {
+      if (!this._browserPanel.classList.contains('open')) return;
+      if (e.key === 'F2' && this._browserSelectedRow) {
         e.preventDefault();
         const file = this._browserFiles.find(f => f.path === this._browserSelectedFile);
         if (file) this._browserStartRename(file, this._browserSelectedRow);
+      }
+      if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey && this._browserRenameHistory.length > 0) {
+        e.preventDefault();
+        this._browserUndoRename();
       }
     });
 
@@ -4098,29 +4104,52 @@ class App {
   }
 
   _browserStartRename(file, row) {
+    if (row.classList.contains('renaming')) return;
     const nameSpan = row.querySelector('.browser-col-name');
     const currentName = file.name;
-    const baseName = currentName.replace(/\.(wav|wave|bwf)$/i, '');
+    const extMatch = currentName.match(/(\.[^.]+)$/);
+    const ext = extMatch ? extMatch[1] : '';
+    const baseName = ext ? currentName.slice(0, -ext.length) : currentName;
+
+    row.classList.add('renaming');
+
+    const wrap = document.createElement('span');
+    wrap.className = 'browser-rename-wrap';
 
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'browser-rename-input';
     input.value = baseName;
 
+    const extLabel = document.createElement('span');
+    extLabel.className = 'browser-rename-ext';
+    extLabel.textContent = ext;
+
+    wrap.appendChild(input);
+    wrap.appendChild(extLabel);
     nameSpan.textContent = '';
-    nameSpan.appendChild(input);
+    nameSpan.appendChild(wrap);
     input.focus();
     input.select();
 
+    let done = false;
     const finish = async (save) => {
+      if (done) return;
+      done = true;
+      row.classList.remove('renaming');
       if (save && input.value.trim() && input.value.trim() !== baseName) {
         try {
           const result = await window.electronAPI.renameFile(file.path, input.value.trim());
+          const oldPath = file.path;
+          const oldName = currentName;
           file.name = result.newName;
           file.path = result.newPath;
           row.dataset.path = result.newPath;
+          this._browserSelectedFile = result.newPath;
           nameSpan.textContent = result.newName;
           this._setStatus(`Renamed to ${result.newName}`);
+          // Push to undo stack
+          this._browserRenameHistory.push({ oldPath: result.newPath, oldName: result.newName, newName: oldName, newPath: oldPath });
         } catch (err) {
           nameSpan.textContent = currentName;
           this._setStatus('Rename failed: ' + err.message);
@@ -4131,10 +4160,34 @@ class App {
     };
 
     input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
       if (e.key === 'Enter') { e.preventDefault(); finish(true); }
       if (e.key === 'Escape') { e.preventDefault(); finish(false); }
     });
     input.addEventListener('blur', () => finish(true));
+  }
+
+  async _browserUndoRename() {
+    if (this._browserRenameHistory.length === 0) return;
+    const entry = this._browserRenameHistory.pop();
+    try {
+      // entry stores the reverse rename: oldPath is the current path, newName is what to restore
+      const baseName = entry.newName.replace(/\.[^.]+$/, '');
+      const result = await window.electronAPI.renameFile(entry.oldPath, baseName);
+      this._setStatus(`Undo: restored ${result.newName}`);
+      // Update the in-memory file entry
+      const file = this._browserFiles.find(f => f.path === entry.oldPath);
+      if (file) {
+        file.name = result.newName;
+        file.path = result.newPath;
+      }
+      if (this._browserSelectedFile === entry.oldPath) {
+        this._browserSelectedFile = result.newPath;
+      }
+      this._browserRender();
+    } catch (err) {
+      this._setStatus('Undo failed: ' + err.message);
+    }
   }
 
   _browserGoUp() {
