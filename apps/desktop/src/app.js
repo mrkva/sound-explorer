@@ -133,6 +133,9 @@ class App {
       const w = container.clientWidth;
       const h = container.clientHeight;
       if (w <= 0 || h <= 0) return;
+      // Skip if dimensions haven't actually changed (avoids clearing canvas
+      // and re-computing when ResizeObserver fires without a real size change)
+      if (this.canvas.width === w && this.canvas.height === h) return;
       this.canvas.width = w;
       this.canvas.height = h;
       if (this.spectrogram && this.session) {

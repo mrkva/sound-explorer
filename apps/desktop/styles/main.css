@@ -1455,11 +1455,11 @@ button.danger {
   cursor: pointer;
   border-top: 1px solid var(--border);
   background: var(--bg-tertiary);
-  display: none;
+  visibility: hidden;
 }
 
 #overview-canvas.visible {
-  display: block;
+  visibility: visible;
 }
 
 /* --- Keyboard focus indicators --- */

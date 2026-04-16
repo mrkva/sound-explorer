@@ -1856,14 +1856,17 @@ export class SpectrogramRenderer {
     const blocksPerPixel = Math.max(1, Math.floor(totalSamples / w));
     const data = new Float32Array(w);
 
-    // Read in chunks
-    const chunkPixels = 200;
+    // Read in small chunks with yields to avoid starving the audio server
+    const chunkPixels = 50;
     const chunkSamples = chunkPixels * blocksPerPixel;
 
     for (let px = 0; px < w; px += chunkPixels) {
       const startSample = px * blocksPerPixel;
       const count = Math.min(chunkSamples, totalSamples - startSample);
       if (count <= 0) break;
+
+      // Yield to let the audio HTTP server handle playback requests
+      await new Promise(r => setTimeout(r, 20));
 
       try {
         const samples = await this._readPCMRange(startSample, count, true);
