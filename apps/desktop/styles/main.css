@@ -370,6 +370,41 @@ button.danger {
   border-right: none;
 }
 
+/* Editable POS/WALL cells — hint with subtle hover, double-click to edit */
+.info-cell-editable {
+  cursor: text;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+.info-cell-editable:hover {
+  background: var(--bg-tertiary);
+  opacity: 1;
+}
+.info-cell-editable .info-edit-input {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--highlight);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 11px;
+  width: 84px;
+  text-align: center;
+  outline: none;
+}
+
+/* Date selector sits alongside WALL cell (multi-day sessions only) */
+.wall-time-block #date-input {
+  background: var(--bg-tertiary);
+  color: var(--green);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 2px;
+  font-size: 10px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  margin-left: 4px;
+}
+
 .info-label {
   color: var(--text-secondary);
   font-size: 8px;

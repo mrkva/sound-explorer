@@ -63,20 +63,6 @@
 
     <div class="toolbar-separator"></div>
 
-    <!-- Go To group -->
-    <div class="time-nav">
-      <label for="date-input" id="date-label" style="display:none;">Date:</label>
-      <select id="date-input" style="display:none;" title="Recording date"></select>
-      <select id="goto-mode" title="Time reference">
-        <option value="wall">Wall clock</option>
-        <option value="position">Position</option>
-      </select>
-      <input type="text" id="time-input" placeholder="HH:MM:SS" title="Enter time and press Enter or Go">
-      <button id="btn-goto">Go</button>
-    </div>
-
-    <div class="toolbar-separator"></div>
-
     <!-- Selection controls (hidden until selection) -->
     <div class="toolbar-group selection-actions" id="selection-actions" style="display: none;">
       <div class="control-item">
@@ -128,13 +114,14 @@
 
   <!-- Info strip: compact status bar with fixed-width values -->
   <div class="info-strip">
-    <span class="info-cell" title="Playback position">
+    <span class="info-cell info-cell-editable" id="pos-cell" title="Playback position — double-click to jump">
       <span class="info-label">POS</span>
       <span class="info-val mono-fixed" id="current-time">0:00.00</span>
     </span>
-    <span class="info-cell wall-time-block" id="wall-time-group">
+    <span class="info-cell info-cell-editable wall-time-block" id="wall-time-group" title="Wall clock time — double-click to jump">
       <span class="info-label">WALL</span>
       <span class="info-val wall-val" id="wall-time">--:--:--</span>
+      <select id="date-input" style="display:none;" title="Recording date"></select>
     </span>
     <span class="info-cell" title="Total duration">
       <span class="info-label">DUR</span>
@@ -262,7 +249,7 @@
           <kbd>Drag</kbd> Select time range &nbsp;
           <kbd>Right-drag</kbd> Pan view &nbsp;
           <kbd>Esc</kbd> Clear selection<br>
-          <kbd>G</kbd> Focus time input &nbsp;
+          <kbd>G</kbd> Jump to time &nbsp;
           <kbd>&uarr;</kbd><kbd>&darr;</kbd> Adjust spectrogram gain
         </div>
         <p style="margin-top: 16px; font-size: 10px; opacity: 0.4;">
@@ -426,6 +413,9 @@
   <!-- Waveform overview / minimap -->
   <canvas id="overview-canvas" height="30"></canvas>
 
+  <!-- Per-channel VU Meter (shown/hidden by toggle, positioned under spectrogram) -->
+  <div id="vu-meter-big" class="vu-meter-big"></div>
+
   <!-- Bottom bar: spectrogram settings (scrollable) -->
   <div class="bottom-bar">
     <div class="controls-section">
@@ -536,9 +526,6 @@
     </div>
   </div>
 
-  <!-- Per-channel VU Meter (shown/hidden by toggle) -->
-  <div id="vu-meter-big" class="vu-meter-big"></div>
-
   <!-- Status bar -->
   <div class="status-bar">
     <span id="status">Ready</span>
@@ -605,7 +592,7 @@
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">S</td><td>Zoom to selection</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">T</td><td>Trim to selection</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">U</td><td>Untrim (restore full session)</td></tr>
-        <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">G</td><td>Go to time input</td></tr>
+        <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">G</td><td>Edit position / wall clock to jump</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">B</td><td>Toggle file browser</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">F2</td><td>Rename selected file</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">Esc</td><td>Clear selection</td></tr>

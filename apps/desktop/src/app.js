@@ -29,12 +29,10 @@ class App {
     this.btnZoomOut = document.getElementById('btn-zoom-out');
     this.btnZoomFit = document.getElementById('btn-zoom-fit');
     this.btnZoomSel = document.getElementById('btn-zoom-sel');
-    this.timeInput = document.getElementById('time-input');
-    this.gotoMode = document.getElementById('goto-mode');
-    this.btnGoTo = document.getElementById('btn-goto');
     this.currentTimeDisplay = document.getElementById('current-time');
     this.wallTimeDisplay = document.getElementById('wall-time');
     this.wallTimeGroup = document.getElementById('wall-time-group');
+    this.posCell = document.getElementById('pos-cell');
     this.durationDisplay = document.getElementById('duration');
     this.fileInfoDisplay = document.getElementById('file-info');
     this.statusDisplay = document.getElementById('status');
@@ -58,7 +56,6 @@ class App {
     this.fileListBody = document.getElementById('file-list-body');
     this.playbackFormatDisplay = document.getElementById('playback-format');
     this.dateInput = document.getElementById('date-input');
-    this.dateLabel = document.getElementById('date-label');
     this.tcOffsetSelect = document.getElementById('tc-offset');
     this._tcOffsetHours = 0;
 
@@ -396,12 +393,9 @@ class App {
 
     this.btnZoomSel.addEventListener('click', () => this._zoomToSelection());
 
-    // Go to time
-    this.btnGoTo.addEventListener('click', () => this._goToTime());
-    this.timeInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this._goToTime();
-    });
-    this.gotoMode.addEventListener('change', () => this._updateGoToPlaceholder());
+    // Go to time: double-click POS / WALL cells in info strip to jump
+    this._setupEditableTimeCell(this.posCell, 'position', () => this._formatTimePrecise(this.engine.getCurrentTime()));
+    this._setupEditableTimeCell(this.wallTimeGroup, 'wall', () => this.wallTimeDisplay.textContent);
 
     // Audio gain (amplification or attenuation)
     this.audioGainSlider.addEventListener('input', (e) => {
@@ -711,8 +705,13 @@ class App {
           break;
         case 'KeyG':
           e.preventDefault();
-          this.timeInput.focus();
-          this.timeInput.select();
+          // Open inline editor: wall clock cell if session has timecode, else position
+          {
+            const hasWall = this.session?.sessionStartTime !== null &&
+                            this.session?.sessionStartTime !== undefined;
+            const cell = hasWall ? this.wallTimeGroup : this.posCell;
+            cell.dispatchEvent(new MouseEvent('dblclick'));
+          }
           break;
         case 'Equal':
         case 'NumpadAdd':
@@ -1007,9 +1006,6 @@ class App {
     // Populate date picker if multi-date session
     this._populateDatePicker();
 
-    // Configure Go To mode and placeholder
-    this._updateGoToPlaceholder();
-
     this._setStatus(this._readyStatusMessage());
     this._updateTimeDisplays(0);
 
@@ -1053,10 +1049,9 @@ class App {
     }
   }
 
-  _goToTime() {
-    const timeStr = this.timeInput.value.trim();
+  _goToTime(rawTimeStr, mode) {
+    const timeStr = (rawTimeStr || '').trim();
     if (!timeStr) return;
-    const mode = this.gotoMode.value; // 'wall' or 'position'
 
     let targetSeconds = BWFParser.parseTimeString(timeStr);
     if (targetSeconds === null) {
@@ -2919,32 +2914,53 @@ class App {
     this.spectrogram.splitChannels = null;
   }
 
-  // ── Go To mode ──────────────────────────────────────────────────────
+  // ── Inline time editor (POS / WALL cells) ──────────────────────────
 
-  _updateGoToPlaceholder() {
-    const mode = this.gotoMode.value;
-    const hasWallClock = this.session?.sessionStartTime !== null && this.session?.sessionStartTime !== undefined;
-
-    if (mode === 'wall' && hasWallClock) {
-      const startStr = BWFParser.secondsToTimeString(this.session.sessionStartTime);
-      // Show start time as placeholder hint
-      this.timeInput.placeholder = startStr.slice(0, 5); // e.g. "22:35"
-      this.timeInput.title = `Wall clock time (${startStr} onwards)`;
-    } else {
-      // Position mode, or no wall clock available
-      if (mode === 'wall' && !hasWallClock) {
-        this.gotoMode.value = 'position'; // Auto-switch if no timecode
+  _setupEditableTimeCell(cellEl, mode, getCurrentText) {
+    if (!cellEl) return;
+    cellEl.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      if (cellEl._editing) return;
+      // Guard: WALL cell only makes sense if session has timecode
+      if (mode === 'wall') {
+        const hasWall = this.session?.sessionStartTime !== null &&
+                        this.session?.sessionStartTime !== undefined;
+        if (!hasWall) return;
       }
-      this.timeInput.placeholder = 'M:SS';
-      this.timeInput.title = 'File position (M:SS or seconds)';
-    }
+      cellEl._editing = true;
 
-    // Hide wall clock option if session has no timecode
-    const wallOption = this.gotoMode.querySelector('option[value="wall"]');
-    if (wallOption) {
-      wallOption.disabled = !hasWallClock;
-      if (!hasWallClock) this.gotoMode.value = 'position';
-    }
+      // Remember children to restore, then swap to input
+      const origChildren = [...cellEl.childNodes];
+      const label = cellEl.querySelector('.info-label');
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'info-edit-input';
+      input.value = getCurrentText();
+      input.placeholder = mode === 'wall' ? 'HH:MM:SS' : 'M:SS';
+
+      cellEl.innerHTML = '';
+      if (label) cellEl.appendChild(label);
+      cellEl.appendChild(input);
+      input.focus();
+      input.select();
+
+      const cleanup = () => {
+        cellEl.innerHTML = '';
+        for (const node of origChildren) cellEl.appendChild(node);
+        cellEl._editing = false;
+      };
+
+      input.addEventListener('keydown', (ke) => {
+        if (ke.key === 'Enter') {
+          const val = input.value;
+          cleanup();
+          this._goToTime(val, mode);
+        } else if (ke.key === 'Escape') {
+          cleanup();
+        }
+      });
+      input.addEventListener('blur', () => cleanup());
+    });
   }
 
   // ── Date picker for multi-date sessions ─────────────────────────────
@@ -2952,7 +2968,6 @@ class App {
   _populateDatePicker() {
     if (!this.session || this.session.files.length === 0) {
       this.dateInput.style.display = 'none';
-      this.dateLabel.style.display = 'none';
       return;
     }
 
@@ -2978,12 +2993,10 @@ class App {
 
     if (dates.size <= 1) {
       this.dateInput.style.display = 'none';
-      this.dateLabel.style.display = 'none';
       return;
     }
 
     // Show date picker
-    this.dateLabel.style.display = '';
     this.dateInput.style.display = '';
     this.dateInput.innerHTML = '';
 
@@ -3761,12 +3774,12 @@ class App {
           'btn-export-selection', 'btn-export-slowed', 'btn-export-png',
           'btn-zoom-in', 'btn-zoom-out', 'btn-zoom-fit', 'btn-zoom-sel',
           'btn-trim-selection', 'btn-untrim', 'btn-annotations', 'btn-session-meta',
-          'goto-mode', 'time-input', 'btn-goto', 'date-input', 'date-label']) {
+          'pos-cell', 'wall-time-group']) {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
       }
       // Hide toolbar groups that are file-only (separators, labels)
-      document.querySelectorAll('.toolbar-primary .toolbar-separator, .toolbar-primary .time-nav, .toolbar-primary label[for="output-samplerate"]').forEach(
+      document.querySelectorAll('.toolbar-primary .toolbar-separator, .toolbar-primary label[for="output-samplerate"]').forEach(
         el => el.style.display = 'none'
       );
 
@@ -3814,12 +3827,12 @@ class App {
         'btn-export-png',
         'btn-zoom-in', 'btn-zoom-out', 'btn-zoom-fit', 'btn-zoom-sel',
         'btn-annotations', 'btn-session-meta',
-        'goto-mode', 'time-input', 'btn-goto']) {
+        'pos-cell', 'wall-time-group']) {
       const el = document.getElementById(id);
       if (el) el.style.display = '';
     }
     // Restore toolbar groups
-    document.querySelectorAll('.toolbar-primary .toolbar-separator, .toolbar-primary .time-nav, .toolbar-primary label[for="output-samplerate"]').forEach(
+    document.querySelectorAll('.toolbar-primary .toolbar-separator, .toolbar-primary label[for="output-samplerate"]').forEach(
       el => el.style.display = ''
     );
 
