@@ -82,38 +82,7 @@ jobs:
           fi
 
       - name: Build release body
-        id: body
-        run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-          NOTES_FILE="RELEASE_NOTES.md"
-          if [ -f "$NOTES_FILE" ]; then
-            NOTES=$(cat "$NOTES_FILE")
-          else
-            NOTES=""
-          fi
-
-          # Build the downloads table (always appended)
-          DOWNLOADS=$(cat <<'TABLE'
-
-          ### Downloads
-
-          | Platform | File | Notes |
-          |----------|------|-------|
-          | **Windows** | `Sound Explorer Setup *.exe` | Installer with Start Menu shortcut and .wav file association |
-          | **Windows (portable)** | `Sound Explorer *.exe` | Single executable, no installation required |
-          | **macOS** | `Sound Explorer-*.dmg` | Drag to Applications |
-          | **Linux** | `Sound-Explorer-*.AppImage` | Portable — `chmod +x` and run |
-          | **Linux (Debian/Ubuntu)** | `sound-explorer_*.deb` | Install with `sudo dpkg -i` |
-
-          ### Web App
-
-          The web version is always available at **[mrkva.github.io/sound-explorer](https://mrkva.github.io/sound-explorer/)** — no install needed.
-          TABLE
-          )
-
-          BODY="${NOTES}${DOWNLOADS}"
-          # Write to file for multi-line support
-          echo "$BODY" > release-body.md
+        run: python3 .github/scripts/build-release-body.py > release-body.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
