@@ -1,0 +1,60 @@
+name: Update Release Notes
+
+on:
+  push:
+    branches: [main]
+    paths: ['RELEASE_NOTES.md']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get latest release
+        id: release
+        run: |
+          RELEASE=$(gh release view --json tagName,url 2>/dev/null || echo '{}')
+          TAG=$(echo "$RELEASE" | jq -r '.tagName // empty')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update release body
+        if: steps.release.outputs.tag != ''
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          NOTES=""
+          if [ -f RELEASE_NOTES.md ]; then
+            NOTES=$(cat RELEASE_NOTES.md)
+          fi
+
+          DOWNLOADS=$(cat <<'TABLE'
+
+---
+
+### Downloads
+
+| Platform | File | Notes |
+|----------|------|-------|
+| **Windows** | `Sound Explorer Setup *.exe` | Installer with Start Menu shortcut and .wav file association |
+| **Windows (portable)** | `Sound Explorer *.exe` | Single executable, no installation required |
+| **macOS** | `Sound Explorer-*.dmg` | Drag to Applications |
+| **Linux** | `Sound-Explorer-*.AppImage` | Portable — `chmod +x` and run |
+| **Linux (Debian/Ubuntu)** | `sound-explorer_*.deb` | Install with `sudo dpkg -i` |
+
+### Web App
+
+The web version is always available at **[mrkva.github.io/sound-explorer](https://mrkva.github.io/sound-explorer/)** — no install needed.
+TABLE
+          )
+
+          BODY="${NOTES}${DOWNLOADS}"
+          echo "$BODY" > /tmp/release-body.md
+          gh release edit "$TAG" --notes-file /tmp/release-body.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
