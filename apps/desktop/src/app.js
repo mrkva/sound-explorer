@@ -2581,13 +2581,14 @@ class App {
       const by = totalH - brandH;
       ctx.fillStyle = 'rgba(255,255,255,0.04)';
       ctx.fillRect(0, by, totalW, brandH);
+      const logoPad = 12;
       const logoSize = 20;
-      const logoX = pad.left;
+      const logoX = logoPad;
       const logoY = by + (brandH - logoSize) / 2;
-      let textOffsetX = pad.left;
+      let textOffsetX = logoPad;
       if (this._logoImg && this._logoImg.complete && this._logoImg.naturalWidth > 0) {
         ctx.drawImage(this._logoImg, logoX, logoY, logoSize, logoSize);
-        textOffsetX = pad.left + logoSize + 6;
+        textOffsetX = logoPad + logoSize + 6;
       }
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
@@ -2627,7 +2628,7 @@ class App {
     const scale = 2;
     const hasWallClock = this.session.sessionStartTime !== null;
     const marginL = 60, marginT = 10, marginR = 10;
-    const marginB = hasWallClock ? 66 : 50;
+    const marginB = hasWallClock ? 56 : 42;
     const brandH = 28;
     const plotW = this.canvas.width - 50;
     const plotH = this.canvas.height - 40; // desktop uses fixed 40px bottom axis
@@ -2717,13 +2718,14 @@ class App {
     const by = totalH - brandH;
     ctx.fillStyle = 'rgba(255,255,255,0.04)';
     ctx.fillRect(0, by, totalW, brandH);
+    const logoPad = 12;
     const logoSize = 20;
-    const logoX = marginL;
+    const logoX = logoPad;
     const logoY = by + (brandH - logoSize) / 2;
-    let textOffsetX = marginL;
+    let textOffsetX = logoPad;
     if (this._logoImg && this._logoImg.complete && this._logoImg.naturalWidth > 0) {
       ctx.drawImage(this._logoImg, logoX, logoY, logoSize, logoSize);
-      textOffsetX = marginL + logoSize + 6;
+      textOffsetX = logoPad + logoSize + 6;
     }
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
