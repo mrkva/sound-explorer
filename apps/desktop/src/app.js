@@ -113,11 +113,22 @@ class App {
     this._setupFRM();
     this._setupBrowser();
     this._applyVersion();
+    this._showDisclaimer();
   }
 
   _applyVersion() {
     const v = `v${VERSION}`;
     document.title = `Sound Explorer ${v}`;
+  }
+
+  _showDisclaimer() {
+    if (localStorage.getItem('disclaimer-accepted')) return;
+    const modal = document.getElementById('disclaimer-modal');
+    modal.style.display = 'flex';
+    document.getElementById('btn-accept-disclaimer').addEventListener('click', () => {
+      localStorage.setItem('disclaimer-accepted', '1');
+      modal.style.display = 'none';
+    });
   }
 
   _setupCanvas() {
@@ -4235,6 +4246,12 @@ class App {
 
   async _browserNormalizeFile(filePath) {
     const fileName = filePath.split(/[/\\]/).pop();
+    const ok = confirm(
+      `Normalize "${fileName}" to \u20133 dBFS?\n\n` +
+      `This will modify the file permanently and cannot be undone.\n` +
+      `Make sure you have a backup before proceeding.`
+    );
+    if (!ok) return;
     this._browserNormalizeBtn.disabled = true;
     this._setStatus(`Normalizing ${fileName}...`);
     try {

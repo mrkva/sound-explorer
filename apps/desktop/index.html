@@ -553,6 +553,25 @@
     <div class="file-list-body" id="file-list-body"></div>
   </div>
 
+  <!-- Disclaimer dialog (shown once on first launch) -->
+  <div id="disclaimer-modal" style="display:none; position:fixed; inset:0; z-index:2000; background:rgba(0,0,0,0.6); justify-content:center; align-items:center;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:24px 32px; max-width:480px; color:var(--text-primary); font-size:13px; box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+      <h2 style="margin:0 0 12px 0; font-size:16px;">Experimental Software</h2>
+      <p style="margin:0 0 10px 0; line-height:1.5;">
+        Sound Explorer is experimental software provided as-is, without warranty of any kind.
+      </p>
+      <p style="margin:0 0 10px 0; line-height:1.5;">
+        Some features (such as normalization and metadata editing) <strong>modify files permanently</strong> and cannot be undone.
+      </p>
+      <p style="margin:0 0 16px 0; line-height:1.5; font-weight:600;">
+        We do not recommend using this software on sensitive files that are not backed up. By continuing, you accept that you are using it at your own risk.
+      </p>
+      <div style="text-align:right;">
+        <button id="btn-accept-disclaimer" class="primary" style="padding:8px 24px; font-size:13px;">I Understand &amp; Accept</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Keyboard shortcuts modal -->
   <div id="shortcuts-modal" style="display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.5); justify-content:center; align-items:center;">
     <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:20px 28px; max-width:460px; color:var(--text-primary); font-size:13px; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
