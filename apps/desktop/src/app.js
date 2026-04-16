@@ -115,8 +115,38 @@ class App {
     this._populateAudioOutputDevices();
     this._setupFRM();
     this._setupBrowser();
+    this._setupStripButtonStates();
     this._applyVersion();
     this._showDisclaimer();
+  }
+
+  _setupStripButtonStates() {
+    const updateStrips = () => {
+      // Browse button active when browser panel is open
+      const browserOpen = this._browserPanel?.classList.contains('open');
+      document.getElementById('btn-browse')?.classList.toggle('active', !!browserOpen);
+
+      // Right strip buttons: only the active tab is highlighted, and only when sidebar is open
+      const sidebar = this.annotationsSidebar;
+      const sidebarOpen = sidebar?.classList.contains('open');
+      const activeTab = sidebar?.querySelector('.sidebar-tab.active')?.dataset.tab;
+      document.getElementById('btn-annotations')?.classList
+        .toggle('active', !!sidebarOpen && activeTab === 'annotations');
+      document.getElementById('btn-session-meta')?.classList
+        .toggle('active', !!sidebarOpen && activeTab === 'metadata');
+      document.getElementById('btn-spectrum')?.classList
+        .toggle('active', !!sidebarOpen && activeTab === 'spectrum');
+    };
+
+    const observer = new MutationObserver(updateStrips);
+    if (this._browserPanel) observer.observe(this._browserPanel, { attributes: true, attributeFilter: ['class'] });
+    if (this.annotationsSidebar) {
+      observer.observe(this.annotationsSidebar, { attributes: true, attributeFilter: ['class'] });
+      this.annotationsSidebar.querySelectorAll('.sidebar-tab').forEach(tab => {
+        observer.observe(tab, { attributes: true, attributeFilter: ['class'] });
+      });
+    }
+    updateStrips();
   }
 
   _applyVersion() {

@@ -20,9 +20,8 @@
       <button id="btn-live-save" class="btn-save" title="Save recording as WAV" style="display:none">Save WAV</button>
     </div>
 
-    <!-- File I/O group (Open + Browse + Export together) -->
+    <!-- File I/O group (Open + Export together) -->
     <div class="toolbar-group">
-      <button id="btn-browse" title="Browse and organize WAV files">Browse</button>
       <button id="btn-open-folder" class="primary" title="Open a folder of WAV files">Open Folder</button>
       <button id="btn-open-file" title="Open individual WAV file(s)">Open File(s)</button>
       <button id="btn-export-selection" class="btn-save" title="Export selection as WAV" style="display:none">&#x2913; WAV</button>
@@ -125,15 +124,6 @@
     </div>
 
     <span class="toolbar-spacer"></span>
-
-    <!-- Right-aligned group: sidebar buttons + theme + help -->
-    <div class="toolbar-group">
-      <button id="btn-annotations" class="annotations-btn">Annotations</button>
-      <button id="btn-session-meta" class="annotations-btn" title="Edit iXML / session metadata">Metadata</button>
-      <button id="btn-spectrum" class="annotations-btn" title="Spectrum analyser">&#x223F; Spectrum</button>
-      <button id="btn-theme" title="Toggle light/dark theme">&#9789;</button>
-      <button id="btn-shortcuts" title="Keyboard shortcuts" style="min-width: 28px; padding: 2px 6px; font-weight: bold;">?</button>
-    </div>
   </div>
 
   <!-- Info strip: compact status bar with fixed-width values -->
@@ -195,8 +185,16 @@
     </span>
   </div>
 
-  <!-- Main content area: browser / spectrogram + sidebar -->
+  <!-- Main content area: left strip / browser / spectrogram / sidebar / right strip -->
   <div class="main-content">
+    <!-- Left vertical strip: Browse -->
+    <div class="side-strip side-strip-left">
+      <button id="btn-browse" class="side-strip-btn" title="Browse and organize WAV files">
+        <span class="side-strip-icon">&#x1F4C1;</span>
+        <span class="side-strip-label">Browse</span>
+      </button>
+    </div>
+
     <!-- File browser sidebar (left, collapsible) -->
     <div class="browser-panel" id="browser-panel">
       <div class="browser-toolbar">
@@ -407,6 +405,22 @@
         <div id="spectrum-lines-list" class="spectrum-lines-list"></div>
       </div>
     </div>
+
+    <!-- Right vertical strip: Annotations / Metadata / Spectrum -->
+    <div class="side-strip side-strip-right">
+      <button id="btn-annotations" class="side-strip-btn" title="Annotations">
+        <span class="side-strip-icon">&#x2630;</span>
+        <span class="side-strip-label">Notes</span>
+      </button>
+      <button id="btn-session-meta" class="side-strip-btn" title="Edit iXML / session metadata">
+        <span class="side-strip-icon">&#x2139;</span>
+        <span class="side-strip-label">Meta</span>
+      </button>
+      <button id="btn-spectrum" class="side-strip-btn" title="Spectrum analyser">
+        <span class="side-strip-icon">&#x223F;</span>
+        <span class="side-strip-label">Spec</span>
+      </button>
+    </div>
   </div>
 
   <!-- Waveform overview / minimap -->
@@ -514,6 +528,11 @@
         <label for="log-freq" title="Logarithmic frequency scale — better matches human hearing">Log</label>
         <input type="checkbox" id="log-freq">
       </div>
+    </div>
+    <div class="bottom-bar-spacer"></div>
+    <div class="bottom-bar-actions">
+      <button id="btn-theme" class="bottom-bar-btn" title="Toggle light/dark theme">&#9789;</button>
+      <button id="btn-shortcuts" class="bottom-bar-btn" title="Keyboard shortcuts">?</button>
     </div>
   </div>
 
