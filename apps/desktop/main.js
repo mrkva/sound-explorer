@@ -962,10 +962,7 @@ ipcMain.handle('normalize-wav', async (event, filePath, targetDbfs) => {
   if (totalSamples === 0) throw new Error('No audio data in file');
 
   // Close any cached FD for this file
-  if (fdCache.has(filePath)) {
-    await fdCache.get(filePath).close();
-    fdCache.delete(filePath);
-  }
+  closeCachedFd(filePath);
 
   // Pass 1: scan for peak amplitude
   const fd = await fs.promises.open(filePath, 'r');
