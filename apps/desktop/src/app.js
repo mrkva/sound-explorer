@@ -2584,14 +2584,20 @@ class App {
     const dateStr = new Date().toISOString().slice(0, 10);
     ctx.fillText(`${sampleRate} Hz \u00B7 ${dateStr}`, pad.left + plotW, by + brandH / 2);
 
-    exp.toBlob((blob) => {
+    exp.toBlob(async (blob) => {
       if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'spectrum.png';
-      a.click();
-      URL.revokeObjectURL(url);
+      const baseName = this.session?.files?.[0]?.name?.replace(/\.wav$/i, '') || 'spectrum';
+      const sourceDir = this.session?.files?.[0]?.filePath?.replace(/[/\\][^/\\]+$/, '') || '';
+      const defaultPath = sourceDir ? `${sourceDir}/${baseName}_spectrum.png` : `${baseName}_spectrum.png`;
+      const savePath = await window.electronAPI.saveFileDialog({
+        title: 'Export Spectrum PNG',
+        defaultPath,
+        filters: [{ name: 'PNG Image', extensions: ['png'] }]
+      });
+      if (!savePath) return;
+      const arrayBuf = await blob.arrayBuffer();
+      await window.electronAPI.writeBinaryFile(savePath, arrayBuf);
+      this._setStatus(`Spectrum PNG exported to ${savePath.split(/[/\\]/).pop()}`);
     }, 'image/png');
   }
 
@@ -2710,16 +2716,20 @@ class App {
     ctx.textAlign = 'right';
     ctx.fillText(`${sr} Hz \u00B7 ${fftLabel} \u00B7 ${windowLabel} \u00B7 ${rangeLabel} \u00B7 ${dateStr}`, marginL + plotW, by + brandH / 2);
 
-    exp.toBlob((blob) => {
+    exp.toBlob(async (blob) => {
       if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
       const baseName = this.session?.files?.[0]?.name?.replace(/\.wav$/i, '') || 'spectrogram';
-      a.download = `${baseName}_spectrogram.png`;
-      a.click();
-      URL.revokeObjectURL(url);
-      this.statusDisplay.textContent = 'Spectrogram PNG exported';
+      const sourceDir = this.session?.files?.[0]?.filePath?.replace(/[/\\][^/\\]+$/, '') || '';
+      const defaultPath = sourceDir ? `${sourceDir}/${baseName}_spectrogram.png` : `${baseName}_spectrogram.png`;
+      const savePath = await window.electronAPI.saveFileDialog({
+        title: 'Export Spectrogram PNG',
+        defaultPath,
+        filters: [{ name: 'PNG Image', extensions: ['png'] }]
+      });
+      if (!savePath) return;
+      const arrayBuf = await blob.arrayBuffer();
+      await window.electronAPI.writeBinaryFile(savePath, arrayBuf);
+      this.statusDisplay.textContent = `Spectrogram PNG exported to ${savePath.split(/[/\\]/).pop()}`;
     }, 'image/png');
   }
 
