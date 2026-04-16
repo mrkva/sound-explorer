@@ -436,7 +436,10 @@ export class SpectrogramRenderer {
   }
 
   _reportProgress(phase, percent) {
-    if (this.onProgress && !this._suppressProgress) this.onProgress(phase, percent);
+    // Never suppress 'done' or 'error' — they hide the overlay and must always fire
+    if (this.onProgress && (!this._suppressProgress || phase === 'done' || phase === 'error')) {
+      this.onProgress(phase, percent);
+    }
   }
 
   // ── Web Worker Pool ─────────────────────────────────────────────────────
