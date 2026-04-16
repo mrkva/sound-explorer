@@ -1645,6 +1645,54 @@ input:focus-visible {
   border-top: 1px solid var(--border);
 }
 
+/* Column visibility — hide via CSS class */
+.browser-panel.hide-col-dur .browser-col-dur,
+.browser-panel.hide-col-sr .browser-col-sr,
+.browser-panel.hide-col-ch .browser-col-ch,
+.browser-panel.hide-col-bits .browser-col-bits,
+.browser-panel.hide-col-meta .browser-col-meta,
+.browser-panel.hide-col-size .browser-col-size,
+.browser-panel.hide-col-date .browser-col-date {
+  display: none !important;
+}
+
+/* Columns dropdown menu */
+.browser-columns-menu {
+  position: relative;
+}
+.browser-columns-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 20;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  padding: 4px 0;
+  min-width: 130px;
+}
+.browser-columns-dropdown.open {
+  display: block;
+}
+.browser-columns-dropdown label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.browser-columns-dropdown label:hover {
+  background: var(--bg-tertiary);
+}
+.browser-columns-dropdown input[type="checkbox"] {
+  accent-color: var(--highlight);
+}
+
 /* Browser sidebar resize handle */
 .browser-resize-handle {
   position: absolute;

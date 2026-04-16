@@ -201,20 +201,25 @@
     <div class="browser-panel" id="browser-panel">
       <div class="browser-toolbar">
         <button id="browser-up" class="browser-nav-btn" title="Go to parent folder">&#x2191; Up</button>
+        <button id="browser-rename" class="browser-nav-btn" title="Rename selected file (F2)" disabled>Rename</button>
         <div class="browser-breadcrumb" id="browser-breadcrumb"></div>
         <span style="flex:1"></span>
+        <div class="browser-columns-menu" id="browser-columns-menu">
+          <button id="browser-columns-btn" class="browser-nav-btn" title="Show/hide columns">Columns &#x25BE;</button>
+          <div class="browser-columns-dropdown" id="browser-columns-dropdown"></div>
+        </div>
         <button id="browser-refresh" class="browser-nav-btn" title="Refresh">&#x21BB;</button>
         <button id="browser-close" class="browser-nav-btn" title="Close browser">&times;</button>
       </div>
-      <div class="browser-list-header">
+      <div class="browser-list-header" id="browser-list-header">
         <span class="browser-col-name">Name</span>
-        <span class="browser-col-dur">Duration</span>
-        <span class="browser-col-sr">Rate</span>
-        <span class="browser-col-ch">Ch</span>
-        <span class="browser-col-bits">Bits</span>
-        <span class="browser-col-meta">Meta</span>
-        <span class="browser-col-size">Size</span>
-        <span class="browser-col-date">Modified</span>
+        <span class="browser-col-dur" data-col="dur">Duration</span>
+        <span class="browser-col-sr" data-col="sr">Rate</span>
+        <span class="browser-col-ch" data-col="ch">Ch</span>
+        <span class="browser-col-bits" data-col="bits">Bits</span>
+        <span class="browser-col-meta" data-col="meta">Meta</span>
+        <span class="browser-col-size" data-col="size">Size</span>
+        <span class="browser-col-date" data-col="date">Modified</span>
       </div>
       <div class="browser-list" id="browser-list"></div>
       <div class="browser-status" id="browser-status"></div>
@@ -567,6 +572,7 @@
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">U</td><td>Untrim (restore full session)</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">G</td><td>Go to time input</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">B</td><td>Toggle file browser</td></tr>
+        <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">F2</td><td>Rename selected file</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">Esc</td><td>Clear selection</td></tr>
       </table>
       <hr style="border:none; border-top:1px solid var(--border); margin:12px 0 8px;">

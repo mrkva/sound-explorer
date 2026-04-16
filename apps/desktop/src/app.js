@@ -3822,8 +3822,19 @@ class App {
     this._browserFiles = [];        // cached file list from last listDirectory
     this._browserFolders = [];
     this._browserSelectedFile = null; // path of currently selected file
+    this._browserSelectedRow = null;  // DOM row of selected file
 
     this._browserPanel = document.getElementById('browser-panel');
+    this._browserRenameBtn = document.getElementById('browser-rename');
+
+    // Column visibility — default all visible
+    this._browserColumns = { dur: true, sr: true, ch: true, bits: true, meta: true, size: true, date: true };
+    try {
+      const saved = localStorage.getItem('browser-columns');
+      if (saved) Object.assign(this._browserColumns, JSON.parse(saved));
+    } catch (_) {}
+    this._applyColumnVisibility();
+    this._buildColumnsDropdown();
 
     document.getElementById('btn-browse').addEventListener('click', () => {
       if (this._browserPanel.classList.contains('open')) {
@@ -3837,6 +3848,33 @@ class App {
     document.getElementById('browser-up').addEventListener('click', () => this._browserGoUp());
     document.getElementById('browser-refresh').addEventListener('click', () => this._browserRefresh());
     document.getElementById('browser-close').addEventListener('click', () => this._closeBrowser());
+
+    // Rename button
+    this._browserRenameBtn.addEventListener('click', () => {
+      if (this._browserSelectedRow && this._browserSelectedFile) {
+        const file = this._browserFiles.find(f => f.path === this._browserSelectedFile);
+        if (file) this._browserStartRename(file, this._browserSelectedRow);
+      }
+    });
+
+    // Columns dropdown toggle
+    const colsBtn = document.getElementById('browser-columns-btn');
+    const colsDropdown = document.getElementById('browser-columns-dropdown');
+    colsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      colsDropdown.classList.toggle('open');
+    });
+    document.addEventListener('click', () => colsDropdown.classList.remove('open'));
+    colsDropdown.addEventListener('click', (e) => e.stopPropagation());
+
+    // F2 to rename selected file
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'F2' && this._browserPanel.classList.contains('open') && this._browserSelectedRow) {
+        e.preventDefault();
+        const file = this._browserFiles.find(f => f.path === this._browserSelectedFile);
+        if (file) this._browserStartRename(file, this._browserSelectedRow);
+      }
+    });
 
     // Resize handle for browser sidebar
     const handle = document.createElement('div');
@@ -3861,6 +3899,32 @@ class App {
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     });
+  }
+
+  _buildColumnsDropdown() {
+    const dropdown = document.getElementById('browser-columns-dropdown');
+    const labels = { dur: 'Duration', sr: 'Sample Rate', ch: 'Channels', bits: 'Bit Depth', meta: 'Metadata', size: 'Size', date: 'Modified' };
+    dropdown.innerHTML = '';
+    for (const [key, label] of Object.entries(labels)) {
+      const lbl = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = this._browserColumns[key];
+      cb.addEventListener('change', () => {
+        this._browserColumns[key] = cb.checked;
+        this._applyColumnVisibility();
+        try { localStorage.setItem('browser-columns', JSON.stringify(this._browserColumns)); } catch (_) {}
+      });
+      lbl.appendChild(cb);
+      lbl.appendChild(document.createTextNode(' ' + label));
+      dropdown.appendChild(lbl);
+    }
+  }
+
+  _applyColumnVisibility() {
+    for (const [key, visible] of Object.entries(this._browserColumns)) {
+      this._browserPanel.classList.toggle('hide-col-' + key, !visible);
+    }
   }
 
   async _enterBrowser(dirPath) {
@@ -3931,6 +3995,8 @@ class App {
   _browserRender() {
     const list = document.getElementById('browser-list');
     list.innerHTML = '';
+    this._browserSelectedRow = null;
+    this._browserRenameBtn.disabled = true;
 
     // Folders first
     for (const folder of this._browserFolders) {
@@ -3986,6 +4052,13 @@ class App {
         this._browserStartRename(file, row);
       });
 
+      // Re-highlight if this was the previously selected file
+      if (file.path === this._browserSelectedFile) {
+        row.classList.add('active');
+        this._browserSelectedRow = row;
+        this._browserRenameBtn.disabled = false;
+      }
+
       list.appendChild(row);
     }
   }
@@ -3996,6 +4069,8 @@ class App {
     if (prev) prev.classList.remove('active');
     row.classList.add('active');
     this._browserSelectedFile = file.path;
+    this._browserSelectedRow = row;
+    this._browserRenameBtn.disabled = false;
 
     // Load the file while keeping browser sidebar open for easy file-hopping
     try {
