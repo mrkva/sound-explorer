@@ -1260,8 +1260,8 @@ export class SpectrogramRenderer {
       this.ctx.fill();
     }
 
-    // Recording regions overlay (live mode)
-    this._drawRecordingRegions(width, height);
+    // Recording regions overlay (live mode only)
+    if (this.isLive) this._drawRecordingRegions(width, height);
 
     // Update overview minimap
     this._drawOverview();
@@ -2468,6 +2468,7 @@ export class SpectrogramRenderer {
     this._liveImage = null;
     this._liveImageData = null;
     this._liveColorLUT = null;
+    this._liveRecordRegions = [];
   }
 
   get isLive() {
