@@ -121,24 +121,33 @@ class App {
   }
 
   _setupCanvas() {
-    let resizeTimer = null;
-    const resize = () => {
-      const container = this.canvas.parentElement;
-      this.canvas.width = container.clientWidth;
-      this.canvas.height = container.clientHeight;
+    const container = this.canvas.parentElement;
+    this._canvasResizeTimer = null;
+
+    // ResizeObserver detects all container size changes: window resize,
+    // sidebar open/close CSS transitions, drag-resize handles, etc.
+    // Canvas dimensions are synced immediately for visual responsiveness,
+    // but the expensive spectrogram recompute is debounced until the size
+    // has settled (e.g. after a CSS transition completes).
+    new ResizeObserver(() => {
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w <= 0 || h <= 0) return;
+      this.canvas.width = w;
+      this.canvas.height = h;
       if (this.spectrogram && this.session) {
-        // Immediate redraw (stretches existing image to new size)
         this.spectrogram.draw(this.engine.getCurrentTime());
-        // Debounced recompute so the spectrogram re-renders at correct resolution
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
+        clearTimeout(this._canvasResizeTimer);
+        this._canvasResizeTimer = setTimeout(() => {
           this.spectrogram.tileCache.clear();
           this.spectrogram.computeVisible();
-        }, 200);
+        }, 250);
       }
-    };
-    window.addEventListener('resize', resize);
-    resize();
+    }).observe(container);
+
+    // Initial sizing
+    this.canvas.width = container.clientWidth;
+    this.canvas.height = container.clientHeight;
   }
 
   _setupSpectrogram() {
@@ -520,8 +529,6 @@ class App {
         this.annotationsSidebar.classList.remove('spectrum-fullscreen');
       }
       this._stopSpectrumAnalyser();
-      this._resizeCanvas();
-      setTimeout(() => this._resizeCanvas(), 220);
     });
 
     // Tab switching
@@ -2164,8 +2171,6 @@ class App {
       }
       this._switchSidebarTab(tab);
     }
-    this._resizeCanvas();
-    setTimeout(() => this._resizeCanvas(), 220);
   }
 
   _switchSidebarTab(tab) {
@@ -2413,7 +2418,6 @@ class App {
       handle.classList.remove('dragging');
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
-      this._resizeCanvas();
     };
     handle.addEventListener('mousedown', (e) => {
       e.preventDefault();
@@ -2433,10 +2437,6 @@ class App {
     const btn = document.getElementById('btn-spectrum-fullscreen');
     btn.title = this._spectrumFullscreen ? 'Exit fullscreen' : 'Toggle fullscreen';
     btn.textContent = this._spectrumFullscreen ? '\u2716' : '\u26F6';
-
-    if (!this._spectrumFullscreen) {
-      this._resizeCanvas();
-    }
   }
 
   _exportSpectrumPNG() {
@@ -2695,8 +2695,6 @@ class App {
     this.canvas.height = container.clientHeight;
     if (this.spectrogram && this.session) {
       this.spectrogram.draw(this.engine.getCurrentTime());
-      this.spectrogram.tileCache.clear();
-      this.spectrogram.computeVisible();
     }
   }
 
@@ -3904,7 +3902,6 @@ class App {
         handle.classList.remove('dragging');
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
-        this._resizeCanvas();
       };
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
@@ -3944,16 +3941,11 @@ class App {
       dirPath = folder;
     }
     this._browserPanel.classList.add('open');
-    this._resizeCanvas();
-    setTimeout(() => this._resizeCanvas(), 220);
     await this._browserNavigate(dirPath);
   }
 
   _closeBrowser() {
     this._browserPanel.classList.remove('open');
-    // Resize after the CSS transition completes (200ms)
-    this._resizeCanvas();
-    setTimeout(() => this._resizeCanvas(), 220);
   }
 
   async _browserNavigate(dirPath) {
@@ -4275,8 +4267,6 @@ class App {
   _backToBrowser() {
     if (!this._browserPath) return;
     this._browserPanel.classList.add('open');
-    this._resizeCanvas();
-    setTimeout(() => this._resizeCanvas(), 220);
     // Re-render to reflect any renames or metadata changes
     this._browserRefresh();
   }

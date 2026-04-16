@@ -60,7 +60,6 @@ export class SpectrogramRenderer {
     // Currently computing
     this._computing = false;
     this._pendingCompute = false;
-    this._suppressProgress = false;
 
     // Interaction
     this.isDragging = false;
@@ -436,8 +435,7 @@ export class SpectrogramRenderer {
   }
 
   _reportProgress(phase, percent) {
-    // Never suppress 'done' or 'error' — they hide the overlay and must always fire
-    if (this.onProgress && (!this._suppressProgress || phase === 'done' || phase === 'error')) {
+    if (this.onProgress) {
       this.onProgress(phase, percent);
     }
   }
@@ -656,7 +654,7 @@ export class SpectrogramRenderer {
    * Read PCM samples from session files for the given sample range.
    * Issues parallel IPC reads (up to PARALLEL_READS concurrent) for throughput.
    */
-  async _readPCMRange(startSample, numSamples) {
+  async _readPCMRange(startSample, numSamples, silent = false) {
     const session = this.session;
     const blockAlign = session.blockAlign;
     const mono = new Float32Array(numSamples);
@@ -722,7 +720,7 @@ export class SpectrogramRenderer {
       }
 
       completed += batch.length;
-      this._reportProgress('reading', Math.round((completed / chunks.length) * 100));
+      if (!silent) this._reportProgress('reading', Math.round((completed / chunks.length) * 100));
     }
 
     return mono;
@@ -846,8 +844,16 @@ export class SpectrogramRenderer {
 
     if (this._renderWorker) {
       // Offload to render worker
-      const bitmap = await new Promise((resolve) => {
-        this._renderWorker.onmessage = (e) => resolve(e.data.bitmap);
+      const bitmap = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Render worker timeout')), 15000);
+        this._renderWorker.onmessage = (e) => {
+          clearTimeout(timeout);
+          resolve(e.data.bitmap);
+        };
+        this._renderWorker.onerror = (e) => {
+          clearTimeout(timeout);
+          reject(new Error('Render worker error: ' + e.message));
+        };
         this._renderWorker.postMessage({
           type: 'render',
           frames, freqBins, numFrames,
@@ -964,8 +970,16 @@ export class SpectrogramRenderer {
 
     if (this._renderWorker) {
       // Render both halves on the render worker sequentially
-      const renderHalf = (data, h) => new Promise((resolve) => {
-        this._renderWorker.onmessage = (e) => resolve(e.data.bitmap);
+      const renderHalf = (data, h) => new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Render worker timeout')), 15000);
+        this._renderWorker.onmessage = (e) => {
+          clearTimeout(timeout);
+          resolve(e.data.bitmap);
+        };
+        this._renderWorker.onerror = (e) => {
+          clearTimeout(timeout);
+          reject(new Error('Render worker error: ' + e.message));
+        };
         this._renderWorker.postMessage({
           type: 'render',
           frames: data.frames, freqBins: data.freqBins, numFrames: data.numFrames,
@@ -1835,7 +1849,6 @@ export class SpectrogramRenderer {
 
   async computeOverview() {
     if (!this.session || !this._overviewCanvas) return;
-    this._suppressProgress = true;
     const w = this._overviewCanvas.clientWidth || 800;
     if (w <= 0) return;
 
@@ -1853,7 +1866,7 @@ export class SpectrogramRenderer {
       if (count <= 0) break;
 
       try {
-        const samples = await this._readPCMRange(startSample, count);
+        const samples = await this._readPCMRange(startSample, count, true);
         for (let p = 0; p < chunkPixels && (px + p) < w; p++) {
           const from = p * blocksPerPixel;
           const to = Math.min(from + blocksPerPixel, samples.length);
@@ -1869,7 +1882,6 @@ export class SpectrogramRenderer {
       }
     }
 
-    this._suppressProgress = false;
     this._overviewData = data;
     this._overviewCanvas.classList.add('visible');
     this._overviewCanvas.width = Math.floor(this._overviewCanvas.clientWidth);
