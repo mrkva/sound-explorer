@@ -1024,6 +1024,9 @@ class App {
     // Try to auto-load session.frm.txt first, then fall back to annotations.json
     await this._autoloadSessionData();
 
+    // Enable normalize (and other edit buttons) now that a session is loaded
+    this._updateNormalizeButtonState();
+
     // Detect leftover working copies from a previous crash
     await this._detectWorkingCopies();
   }
@@ -4024,10 +4027,15 @@ class App {
       }
     });
 
-    // Normalize button
+    // Normalize button: acts on browser selection, or falls back to loaded file
     this._browserNormalizeBtn.addEventListener('click', () => {
-      if (this._browserSelectedFile) {
-        this._browserNormalizeFile(this._browserSelectedFile);
+      const target = this._browserSelectedFile ||
+        (this.session?.files?.length === 1 ? this.session.files[0].filePath : null) ||
+        this._getOriginalPaths()[0];
+      if (target) {
+        this._browserNormalizeFile(target);
+      } else {
+        this._setStatus('Normalize: load a file first');
       }
     });
 
@@ -4178,7 +4186,7 @@ class App {
     list.innerHTML = '';
     this._browserSelectedRow = null;
     this._browserRenameBtn.disabled = true;
-    this._browserNormalizeBtn.disabled = true;
+    this._updateNormalizeButtonState();
 
     // Folders first
     for (const folder of this._browserFolders) {
@@ -4239,7 +4247,6 @@ class App {
         row.classList.add('active');
         this._browserSelectedRow = row;
         this._browserRenameBtn.disabled = false;
-        this._browserNormalizeBtn.disabled = false;
       }
 
       list.appendChild(row);
@@ -4254,7 +4261,7 @@ class App {
     this._browserSelectedFile = file.path;
     this._browserSelectedRow = row;
     this._browserRenameBtn.disabled = false;
-    this._browserNormalizeBtn.disabled = false;
+    this._updateNormalizeButtonState();
 
     // Load the file while keeping browser sidebar open for easy file-hopping
     try {
@@ -4426,7 +4433,14 @@ class App {
     } catch (err) {
       this._setStatus(`Normalize failed: ${err.message}`);
     }
-    this._browserNormalizeBtn.disabled = false;
+    this._updateNormalizeButtonState();
+  }
+
+  _updateNormalizeButtonState() {
+    if (!this._browserNormalizeBtn) return;
+    const hasSession = this.session && this.session.files.length > 0;
+    const hasBrowserSel = !!this._browserSelectedFile;
+    this._browserNormalizeBtn.disabled = !(hasSession || hasBrowserSel);
   }
 
   _isFileLoaded(filePath) {

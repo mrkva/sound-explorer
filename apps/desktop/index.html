@@ -91,8 +91,6 @@
       <button id="btn-annotate-selection" class="annotations-btn">Annotate</button>
     </div>
 
-    <div class="toolbar-separator"></div>
-
     <!-- Live controls (visible during live mode) -->
     <div class="toolbar-group live-controls" id="live-controls" style="display: none;">
       <select id="select-input-device" title="Audio input device"></select>
@@ -179,11 +177,15 @@
 
   <!-- Main content area: left strip / browser / spectrogram / sidebar / right strip -->
   <div class="main-content">
-    <!-- Left vertical strip: Browse -->
+    <!-- Left vertical strip: Browse, Normalize -->
     <div class="side-strip side-strip-left">
       <button id="btn-browse" class="side-strip-btn" title="Browse and organize WAV files">
         <span class="side-strip-icon">&#x229E;</span>
         <span class="side-strip-label">Browse</span>
+      </button>
+      <button id="browser-normalize" class="side-strip-btn" title="Normalize file to -3 dBFS (loaded file, or selected in browser)" disabled>
+        <span class="side-strip-icon">&#x2195;</span>
+        <span class="side-strip-label">Normalize</span>
       </button>
     </div>
 
@@ -192,7 +194,6 @@
       <div class="browser-toolbar">
         <button id="browser-up" class="browser-nav-btn" title="Go to parent folder">&#x2191; Up</button>
         <button id="browser-rename" class="browser-nav-btn" title="Rename selected file (F2)" disabled>Rename</button>
-        <button id="browser-normalize" class="browser-nav-btn" title="Normalize selected file to -3 dBFS" disabled>Normalize</button>
         <div class="browser-breadcrumb" id="browser-breadcrumb"></div>
         <span style="flex:1"></span>
         <div class="browser-columns-menu" id="browser-columns-menu">
@@ -412,6 +413,10 @@
         <span class="side-strip-icon">&#x223F;</span>
         <span class="side-strip-label">Spec</span>
       </button>
+      <button id="btn-vu" class="side-strip-btn" title="Toggle VU meter">
+        <span class="side-strip-icon">&#x25AE;</span>
+        <span class="side-strip-label">VU</span>
+      </button>
     </div>
   </div>
 
@@ -429,9 +434,6 @@
         <label for="audio-gain" title="Playback gain — boost quiet recordings or reduce to recover peaks in 32-bit float files">Gain</label>
         <input type="range" id="audio-gain" min="-60" max="60" value="0" step="1">
         <span id="audio-gain-value" class="gain-value">0 dB</span>
-      </div>
-      <div class="control-item">
-        <button id="btn-vu" class="toolbar-btn" title="Toggle VU meter">VU Meter</button>
       </div>
       <div class="control-item">
         <label for="audio-output">Output</label>
