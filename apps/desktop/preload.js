@@ -27,6 +27,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   renameFile: (oldPath, newName) => ipcRenderer.invoke('rename-file', oldPath, newName),
   normalizeWav: (filePath, targetDbfs) => ipcRenderer.invoke('normalize-wav', filePath, targetDbfs),
 
+  // Working-copy (non-destructive edits)
+  createWorkingCopy: (filePath) => ipcRenderer.invoke('create-working-copy', filePath),
+  saveWorkingCopy: (editPath, originalPath) => ipcRenderer.invoke('save-working-copy', editPath, originalPath),
+  discardWorkingCopy: (editPath) => ipcRenderer.invoke('discard-working-copy', editPath),
+  detectWorkingCopies: (filePaths) => ipcRenderer.invoke('detect-working-copies', filePaths),
+
   // iXML metadata
   readIXML: (filePath) => ipcRenderer.invoke('read-ixml', filePath),
   writeIXML: (filePath, ixmlString) => ipcRenderer.invoke('write-ixml', filePath, ixmlString),

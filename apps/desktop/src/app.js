@@ -19,6 +19,9 @@ class App {
     this._liveCapture = null;
     this._liveRecordingBlob = null;
 
+    // Working-copy edit state: originalPath → editPath
+    this._workingCopies = new Map();
+
     // DOM elements
     this.canvas = document.getElementById('spectrogram');
     this.btnOpenFolder = document.getElementById('btn-open-folder');
@@ -29,16 +32,13 @@ class App {
     this.btnZoomOut = document.getElementById('btn-zoom-out');
     this.btnZoomFit = document.getElementById('btn-zoom-fit');
     this.btnZoomSel = document.getElementById('btn-zoom-sel');
-    this.timeInput = document.getElementById('time-input');
-    this.gotoMode = document.getElementById('goto-mode');
-    this.btnGoTo = document.getElementById('btn-goto');
     this.currentTimeDisplay = document.getElementById('current-time');
     this.wallTimeDisplay = document.getElementById('wall-time');
     this.wallTimeGroup = document.getElementById('wall-time-group');
+    this.posCell = document.getElementById('pos-cell');
     this.durationDisplay = document.getElementById('duration');
     this.fileInfoDisplay = document.getElementById('file-info');
     this.statusDisplay = document.getElementById('status');
-    this.volumeSlider = document.getElementById('volume');
     this.audioGainSlider = document.getElementById('audio-gain');
     this.spectGainSlider = document.getElementById('spect-gain');
     this.dynamicRangeSlider = document.getElementById('dynamic-range');
@@ -59,7 +59,6 @@ class App {
     this.fileListBody = document.getElementById('file-list-body');
     this.playbackFormatDisplay = document.getElementById('playback-format');
     this.dateInput = document.getElementById('date-input');
-    this.dateLabel = document.getElementById('date-label');
     this.tcOffsetSelect = document.getElementById('tc-offset');
     this._tcOffsetHours = 0;
 
@@ -116,8 +115,39 @@ class App {
     this._populateAudioOutputDevices();
     this._setupFRM();
     this._setupBrowser();
+    this._setupStripButtonStates();
+    this._setupEditControls();
     this._applyVersion();
     this._showDisclaimer();
+  }
+
+  _setupStripButtonStates() {
+    const updateStrips = () => {
+      // Browse button active when browser panel is open
+      const browserOpen = this._browserPanel?.classList.contains('open');
+      document.getElementById('btn-browse')?.classList.toggle('active', !!browserOpen);
+
+      // Right strip buttons: only the active tab is highlighted, and only when sidebar is open
+      const sidebar = this.annotationsSidebar;
+      const sidebarOpen = sidebar?.classList.contains('open');
+      const activeTab = sidebar?.querySelector('.sidebar-tab.active')?.dataset.tab;
+      document.getElementById('btn-annotations')?.classList
+        .toggle('active', !!sidebarOpen && activeTab === 'annotations');
+      document.getElementById('btn-session-meta')?.classList
+        .toggle('active', !!sidebarOpen && activeTab === 'metadata');
+      document.getElementById('btn-spectrum')?.classList
+        .toggle('active', !!sidebarOpen && activeTab === 'spectrum');
+    };
+
+    const observer = new MutationObserver(updateStrips);
+    if (this._browserPanel) observer.observe(this._browserPanel, { attributes: true, attributeFilter: ['class'] });
+    if (this.annotationsSidebar) {
+      observer.observe(this.annotationsSidebar, { attributes: true, attributeFilter: ['class'] });
+      this.annotationsSidebar.querySelectorAll('.sidebar-tab').forEach(tab => {
+        observer.observe(tab, { attributes: true, attributeFilter: ['class'] });
+      });
+    }
+    updateStrips();
   }
 
   _applyVersion() {
@@ -269,14 +299,23 @@ class App {
   _setupEngineCallbacks() {
     this.engine.onTimeUpdate = (time) => {
       this._updateTimeDisplays(time);
-      // Auto-scroll: when cursor reaches right 10% of the view, advance the view
+      // Auto-scroll: when cursor reaches right 10% of the view, advance the view.
+      // Skip if the view already reaches the end of the file — otherwise we'd
+      // keep triggering computeVisible() as the cursor crosses 90% on the last
+      // page, causing a full re-render just before playback ends.
       if (this.engine.isPlaying && this.spectrogram && !this.engine.loopStart) {
         const viewDuration = this.spectrogram.viewEnd - this.spectrogram.viewStart;
         const threshold = this.spectrogram.viewStart + viewDuration * 0.9;
-        if (time > threshold && time < this.spectrogram.totalDuration) {
-          // Scroll forward, keeping cursor at left 10%
-          const newStart = time - viewDuration * 0.1;
-          this.spectrogram.setView(newStart, newStart + viewDuration);
+        const canScrollRight = this.spectrogram.viewEnd < this.spectrogram.totalDuration - 1e-6;
+        if (time > threshold && canScrollRight) {
+          // Scroll forward, keeping cursor at left 10%, but clamp to end of file
+          let newStart = time - viewDuration * 0.1;
+          let newEnd = newStart + viewDuration;
+          if (newEnd > this.spectrogram.totalDuration) {
+            newEnd = this.spectrogram.totalDuration;
+            newStart = Math.max(0, newEnd - viewDuration);
+          }
+          this.spectrogram.setView(newStart, newEnd);
           this.spectrogram.computeVisible();
         }
       }
@@ -358,23 +397,17 @@ class App {
 
     this.btnZoomSel.addEventListener('click', () => this._zoomToSelection());
 
-    // Go to time
-    this.btnGoTo.addEventListener('click', () => this._goToTime());
-    this.timeInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this._goToTime();
-    });
-    this.gotoMode.addEventListener('change', () => this._updateGoToPlaceholder());
+    // Go to time: double-click POS / WALL cells in info strip to jump
+    this._setupEditableTimeCell(this.posCell, 'position', () => this._formatTimePrecise(this.engine.getCurrentTime()));
+    this._setupEditableTimeCell(this.wallTimeGroup, 'wall', () => this.wallTimeDisplay.textContent);
 
-    // Volume
-    this.volumeSlider.addEventListener('input', (e) => {
-      this.engine.setVolume(parseFloat(e.target.value));
-    });
-
-    // Audio gain (amplification)
+    // Audio gain (amplification or attenuation)
     this.audioGainSlider.addEventListener('input', (e) => {
       const db = parseFloat(e.target.value);
       this.engine.setGainDB(db);
       this.spectrogram.inputGainDB = db;
+      const valEl = document.getElementById('audio-gain-value');
+      if (valEl) valEl.textContent = `${db} dB`;
     });
 
     // Spectrogram gain (visual) - instant re-render, no FFT recompute
@@ -676,8 +709,13 @@ class App {
           break;
         case 'KeyG':
           e.preventDefault();
-          this.timeInput.focus();
-          this.timeInput.select();
+          // Open inline editor: wall clock cell if session has timecode, else position
+          {
+            const hasWall = this.session?.sessionStartTime !== null &&
+                            this.session?.sessionStartTime !== undefined;
+            const cell = hasWall ? this.wallTimeGroup : this.posCell;
+            cell.dispatchEvent(new MouseEvent('dblclick'));
+          }
           break;
         case 'Equal':
         case 'NumpadAdd':
@@ -838,6 +876,7 @@ class App {
 
   async _openFolder() {
     try {
+      if (!await this._confirmDiscardEdits()) return;
       const folderPath = await window.electronAPI.openFolderDialog();
       if (!folderPath) return;
 
@@ -854,6 +893,7 @@ class App {
 
   async _openFiles() {
     try {
+      if (!await this._confirmDiscardEdits()) return;
       const filePaths = await window.electronAPI.openFileDialog();
       if (!filePaths) return;
 
@@ -972,9 +1012,6 @@ class App {
     // Populate date picker if multi-date session
     this._populateDatePicker();
 
-    // Configure Go To mode and placeholder
-    this._updateGoToPlaceholder();
-
     this._setStatus(this._readyStatusMessage());
     this._updateTimeDisplays(0);
 
@@ -986,6 +1023,40 @@ class App {
 
     // Try to auto-load session.frm.txt first, then fall back to annotations.json
     await this._autoloadSessionData();
+
+    // Enable normalize (and other edit buttons) now that a session is loaded
+    this._updateNormalizeButtonState();
+
+    // Detect leftover working copies from a previous crash
+    await this._detectWorkingCopies();
+  }
+
+  async _detectWorkingCopies() {
+    if (!this.session || this.session.files.length === 0) return;
+    // Skip detection if we already have tracked working copies (e.g., during reload)
+    if (this._workingCopies.size > 0) return;
+    const filePaths = this.session.files.map(f => f.filePath);
+    const found = await window.electronAPI.detectWorkingCopies(filePaths);
+    const entries = Object.entries(found);
+    if (entries.length === 0) return;
+
+    const names = entries.map(([p]) => p.split(/[/\\]/).pop()).join(', ');
+    const resume = confirm(
+      `Found unsaved edits for: ${names}\n\n` +
+      'Resume editing from where you left off?\n' +
+      'Click Cancel to discard and use the original files.'
+    );
+    if (resume) {
+      for (const [orig, edit] of entries) {
+        this._workingCopies.set(orig, edit);
+      }
+      this._updateEditBadge();
+      await this._reloadSessionWithWorkingCopies();
+    } else {
+      for (const [, edit] of entries) {
+        await window.electronAPI.discardWorkingCopy(edit);
+      }
+    }
   }
 
   _buildFileList() {
@@ -1018,14 +1089,17 @@ class App {
     }
   }
 
-  _goToTime() {
-    const timeStr = this.timeInput.value.trim();
+  _goToTime(rawTimeStr, mode) {
+    const timeStr = (rawTimeStr || '').trim();
     if (!timeStr) return;
-    const mode = this.gotoMode.value; // 'wall' or 'position'
 
-    let targetSeconds = BWFParser.parseTimeString(timeStr);
-    if (targetSeconds === null) {
-      // Also try flexible format (M:SS, plain seconds)
+    // Position mode: parse as M:SS(.cc), H:MM:SS(.cc), or plain seconds.
+    // Wall-clock mode: try HH:MM(:SS) first (seconds-from-midnight), then flexible.
+    let targetSeconds;
+    if (mode === 'wall') {
+      targetSeconds = BWFParser.parseTimeString(timeStr);
+      if (targetSeconds === null) targetSeconds = this._parseFlexibleTime(timeStr);
+    } else {
       targetSeconds = this._parseFlexibleTime(timeStr);
     }
     if (targetSeconds === null) {
@@ -1191,12 +1265,15 @@ class App {
       const dt = (now - lastTime) / 1000;
       lastTime = now;
 
-      if (this.engine.isPlaying) {
+      const isLive = this._liveCapture && this._liveCapture.isCapturing;
+      const active = this.engine.isPlaying || isLive;
+
+      if (active) {
         wasPlaying = true;
         const bigRows = this._bigVURows;
 
         if (bigRows.length > 0 && this._bigVUVisible) {
-          const channels = this.engine.getChannelLevels();
+          const channels = isLive ? this._liveLevels : this.engine.getChannelLevels();
           const updateText = (now - lastTextUpdate) > 150;
           if (updateText) lastTextUpdate = now;
 
@@ -2884,32 +2961,53 @@ class App {
     this.spectrogram.splitChannels = null;
   }
 
-  // ── Go To mode ──────────────────────────────────────────────────────
+  // ── Inline time editor (POS / WALL cells) ──────────────────────────
 
-  _updateGoToPlaceholder() {
-    const mode = this.gotoMode.value;
-    const hasWallClock = this.session?.sessionStartTime !== null && this.session?.sessionStartTime !== undefined;
-
-    if (mode === 'wall' && hasWallClock) {
-      const startStr = BWFParser.secondsToTimeString(this.session.sessionStartTime);
-      // Show start time as placeholder hint
-      this.timeInput.placeholder = startStr.slice(0, 5); // e.g. "22:35"
-      this.timeInput.title = `Wall clock time (${startStr} onwards)`;
-    } else {
-      // Position mode, or no wall clock available
-      if (mode === 'wall' && !hasWallClock) {
-        this.gotoMode.value = 'position'; // Auto-switch if no timecode
+  _setupEditableTimeCell(cellEl, mode, getCurrentText) {
+    if (!cellEl) return;
+    cellEl.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      if (cellEl._editing) return;
+      // Guard: WALL cell only makes sense if session has timecode
+      if (mode === 'wall') {
+        const hasWall = this.session?.sessionStartTime !== null &&
+                        this.session?.sessionStartTime !== undefined;
+        if (!hasWall) return;
       }
-      this.timeInput.placeholder = 'M:SS';
-      this.timeInput.title = 'File position (M:SS or seconds)';
-    }
+      cellEl._editing = true;
 
-    // Hide wall clock option if session has no timecode
-    const wallOption = this.gotoMode.querySelector('option[value="wall"]');
-    if (wallOption) {
-      wallOption.disabled = !hasWallClock;
-      if (!hasWallClock) this.gotoMode.value = 'position';
-    }
+      // Remember children to restore, then swap to input
+      const origChildren = [...cellEl.childNodes];
+      const label = cellEl.querySelector('.info-label');
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'info-edit-input';
+      input.value = getCurrentText();
+      input.placeholder = mode === 'wall' ? 'HH:MM:SS' : 'M:SS';
+
+      cellEl.innerHTML = '';
+      if (label) cellEl.appendChild(label);
+      cellEl.appendChild(input);
+      input.focus();
+      input.select();
+
+      const cleanup = () => {
+        cellEl.innerHTML = '';
+        for (const node of origChildren) cellEl.appendChild(node);
+        cellEl._editing = false;
+      };
+
+      input.addEventListener('keydown', (ke) => {
+        if (ke.key === 'Enter') {
+          const val = input.value;
+          cleanup();
+          this._goToTime(val, mode);
+        } else if (ke.key === 'Escape') {
+          cleanup();
+        }
+      });
+      input.addEventListener('blur', () => cleanup());
+    });
   }
 
   // ── Date picker for multi-date sessions ─────────────────────────────
@@ -2917,7 +3015,6 @@ class App {
   _populateDatePicker() {
     if (!this.session || this.session.files.length === 0) {
       this.dateInput.style.display = 'none';
-      this.dateLabel.style.display = 'none';
       return;
     }
 
@@ -2943,12 +3040,10 @@ class App {
 
     if (dates.size <= 1) {
       this.dateInput.style.display = 'none';
-      this.dateLabel.style.display = 'none';
       return;
     }
 
     // Show date picker
-    this.dateLabel.style.display = '';
     this.dateInput.style.display = '';
     this.dateInput.innerHTML = '';
 
@@ -3692,6 +3787,15 @@ class App {
 
       await this._liveCapture.start(deviceId || sel.value || null);
 
+      // Hook up VU meter to live capture (mono)
+      this._liveLevels = [{ peak: -100, rms: -100 }];
+      this._liveCapture.onLevelUpdate = (peak, rms) => {
+        this._liveLevels[0].peak = peak > 0 ? 20 * Math.log10(peak) : -100;
+        this._liveLevels[0].rms = rms > 0 ? 20 * Math.log10(rms) : -100;
+      };
+      this._buildBigVUMeter(1);
+      this._startVUMeter();
+
       // Hide welcome overlay
       const welcome = document.getElementById('welcome');
       if (welcome) welcome.style.display = 'none';
@@ -3726,12 +3830,12 @@ class App {
           'btn-export-selection', 'btn-export-slowed', 'btn-export-png',
           'btn-zoom-in', 'btn-zoom-out', 'btn-zoom-fit', 'btn-zoom-sel',
           'btn-trim-selection', 'btn-untrim', 'btn-annotations', 'btn-session-meta',
-          'goto-mode', 'time-input', 'btn-goto', 'date-input', 'date-label']) {
+          'pos-cell', 'wall-time-group']) {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
       }
       // Hide toolbar groups that are file-only (separators, labels)
-      document.querySelectorAll('.toolbar-primary .toolbar-separator, .toolbar-primary .time-nav, .toolbar-primary label[for="output-samplerate"]').forEach(
+      document.querySelectorAll('.toolbar-primary .toolbar-separator, .toolbar-primary label[for="output-samplerate"]').forEach(
         el => el.style.display = 'none'
       );
 
@@ -3779,12 +3883,12 @@ class App {
         'btn-export-png',
         'btn-zoom-in', 'btn-zoom-out', 'btn-zoom-fit', 'btn-zoom-sel',
         'btn-annotations', 'btn-session-meta',
-        'goto-mode', 'time-input', 'btn-goto']) {
+        'pos-cell', 'wall-time-group']) {
       const el = document.getElementById(id);
       if (el) el.style.display = '';
     }
     // Restore toolbar groups
-    document.querySelectorAll('.toolbar-primary .toolbar-separator, .toolbar-primary .time-nav, .toolbar-primary label[for="output-samplerate"]').forEach(
+    document.querySelectorAll('.toolbar-primary .toolbar-separator, .toolbar-primary label[for="output-samplerate"]').forEach(
       el => el.style.display = ''
     );
 
@@ -3822,6 +3926,7 @@ class App {
 
     if (this._liveCapture.isRecording) {
       this._liveRecordingBlob = this._liveCapture.stopRecording();
+      this.spectrogram.stopRecordingRegion();
       btn.classList.remove('recording');
       btn.id = 'btn-live-record';
       btn.innerHTML = '&#x23FA; Rec';
@@ -3831,6 +3936,7 @@ class App {
       }
     } else {
       this._liveCapture.startRecording();
+      this.spectrogram.startRecordingRegion();
       btn.classList.add('recording');
       btn.innerHTML = '&#x23F9; Stop Rec';
       document.getElementById('btn-live-save').style.display = 'none';
@@ -3921,10 +4027,15 @@ class App {
       }
     });
 
-    // Normalize button
+    // Normalize button: acts on browser selection, or falls back to loaded file
     this._browserNormalizeBtn.addEventListener('click', () => {
-      if (this._browserSelectedFile) {
-        this._browserNormalizeFile(this._browserSelectedFile);
+      const target = this._browserSelectedFile ||
+        (this.session?.files?.length === 1 ? this.session.files[0].filePath : null) ||
+        this._getOriginalPaths()[0];
+      if (target) {
+        this._browserNormalizeFile(target);
+      } else {
+        this._setStatus('Normalize: load a file first');
       }
     });
 
@@ -4075,7 +4186,7 @@ class App {
     list.innerHTML = '';
     this._browserSelectedRow = null;
     this._browserRenameBtn.disabled = true;
-    this._browserNormalizeBtn.disabled = true;
+    this._updateNormalizeButtonState();
 
     // Folders first
     for (const folder of this._browserFolders) {
@@ -4136,7 +4247,6 @@ class App {
         row.classList.add('active');
         this._browserSelectedRow = row;
         this._browserRenameBtn.disabled = false;
-        this._browserNormalizeBtn.disabled = false;
       }
 
       list.appendChild(row);
@@ -4151,7 +4261,7 @@ class App {
     this._browserSelectedFile = file.path;
     this._browserSelectedRow = row;
     this._browserRenameBtn.disabled = false;
-    this._browserNormalizeBtn.disabled = false;
+    this._updateNormalizeButtonState();
 
     // Load the file while keeping browser sidebar open for easy file-hopping
     try {
@@ -4281,31 +4391,187 @@ class App {
 
   async _browserNormalizeFile(filePath) {
     const fileName = filePath.split(/[/\\]/).pop();
-    const ok = confirm(
-      `Normalize "${fileName}" to \u20133 dBFS?\n\n` +
-      `This will modify the file permanently and cannot be undone.\n` +
-      `Make sure you have a backup before proceeding.`
-    );
-    if (!ok) return;
+    const loaded = this._isFileLoaded(filePath);
+
+    if (!loaded) {
+      const ok = confirm(
+        `Normalize "${fileName}" to \u20133 dBFS?\n\n` +
+        `This will modify the file permanently and cannot be undone.\n` +
+        `Make sure you have a backup before proceeding.`
+      );
+      if (!ok) return;
+    }
+
     this._browserNormalizeBtn.disabled = true;
     this._setStatus(`Normalizing ${fileName}...`);
     try {
-      const result = await window.electronAPI.normalizeWav(filePath, -3);
-      if (result.skipped) {
-        this._setStatus(`${fileName}: already at target level (peak ${result.peakDb.toFixed(1)} dBFS)`);
+      if (loaded) {
+        let editPath = this._workingCopies.get(filePath);
+        if (!editPath) {
+          this._setStatus(`Creating working copy of ${fileName}...`);
+          editPath = await window.electronAPI.createWorkingCopy(filePath);
+          this._workingCopies.set(filePath, editPath);
+        }
+        const result = await window.electronAPI.normalizeWav(editPath, -3);
+        if (result.skipped) {
+          await window.electronAPI.discardWorkingCopy(editPath);
+          this._workingCopies.delete(filePath);
+          this._setStatus(`${fileName}: already at target level (peak ${result.peakDb.toFixed(1)} dBFS)`);
+        } else {
+          this._setStatus(`${fileName}: normalized ${result.gainDb > 0 ? '+' : ''}${result.gainDb.toFixed(1)} dB (peak was ${result.peakDb.toFixed(1)} dBFS, now ${result.newPeakDb.toFixed(1)} dBFS)`);
+          this._updateEditBadge();
+          await this._reloadSessionWithWorkingCopies();
+        }
       } else {
-        this._setStatus(`${fileName}: normalized ${result.gainDb > 0 ? '+' : ''}${result.gainDb.toFixed(1)} dB (peak was ${result.peakDb.toFixed(1)} dBFS, now ${result.newPeakDb.toFixed(1)} dBFS)`);
-      }
-      // If this file is currently loaded, reload it
-      if (this.session && this.session.files.length > 0 && this.session.files[0].filePath === filePath) {
-        this.session = new Session();
-        await this.session.loadFile(filePath);
-        await this._initSession();
+        const result = await window.electronAPI.normalizeWav(filePath, -3);
+        if (result.skipped) {
+          this._setStatus(`${fileName}: already at target level (peak ${result.peakDb.toFixed(1)} dBFS)`);
+        } else {
+          this._setStatus(`${fileName}: normalized ${result.gainDb > 0 ? '+' : ''}${result.gainDb.toFixed(1)} dB (peak was ${result.peakDb.toFixed(1)} dBFS, now ${result.newPeakDb.toFixed(1)} dBFS)`);
+        }
       }
     } catch (err) {
       this._setStatus(`Normalize failed: ${err.message}`);
     }
-    this._browserNormalizeBtn.disabled = false;
+    this._updateNormalizeButtonState();
+  }
+
+  _updateNormalizeButtonState() {
+    if (!this._browserNormalizeBtn) return;
+    const hasSession = this.session && this.session.files.length > 0;
+    const hasBrowserSel = !!this._browserSelectedFile;
+    this._browserNormalizeBtn.disabled = !(hasSession || hasBrowserSel);
+  }
+
+  _isFileLoaded(filePath) {
+    if (!this.session) return false;
+    return this.session.files.some(f => f.filePath === filePath ||
+      this._workingCopies.get(filePath) === f.filePath);
+  }
+
+  async _reloadSessionWithWorkingCopies() {
+    if (!this.session) return;
+    const originalPaths = this.session.files.map(f => {
+      for (const [orig, edit] of this._workingCopies) {
+        if (edit === f.filePath) return orig;
+      }
+      return f.filePath;
+    });
+    const effectivePaths = originalPaths.map(p => this._workingCopies.get(p) || p);
+
+    const currentTime = this.engine.getCurrentTime();
+    const wasPlaying = this.engine.isPlaying;
+    if (wasPlaying) this.engine.pause();
+
+    this.session = new Session();
+    if (effectivePaths.length === 1) {
+      await this.session.loadFile(effectivePaths[0]);
+    } else {
+      await this.session.loadFiles(effectivePaths);
+    }
+    await this._initSession();
+    this.engine.seek(currentTime);
+    if (wasPlaying) this.engine.play();
+  }
+
+  _getOriginalPaths() {
+    if (!this.session) return [];
+    return this.session.files.map(f => {
+      for (const [orig, edit] of this._workingCopies) {
+        if (edit === f.filePath) return orig;
+      }
+      return f.filePath;
+    });
+  }
+
+  async _saveWorkingCopies() {
+    if (this._workingCopies.size === 0) return;
+    const allOriginals = this._getOriginalPaths();
+    const entries = [...this._workingCopies.entries()];
+    for (const [originalPath, editPath] of entries) {
+      this._setStatus(`Saving ${originalPath.split(/[/\\]/).pop()}...`);
+      await window.electronAPI.saveWorkingCopy(editPath, originalPath);
+      this._workingCopies.delete(originalPath);
+    }
+    this._updateEditBadge();
+    await this._reloadFromPaths(allOriginals);
+    this._setStatus('Changes saved');
+  }
+
+  async _discardWorkingCopies() {
+    if (this._workingCopies.size === 0) return;
+    const allOriginals = this._getOriginalPaths();
+    const entries = [...this._workingCopies.entries()];
+    for (const [originalPath, editPath] of entries) {
+      await window.electronAPI.discardWorkingCopy(editPath);
+      this._workingCopies.delete(originalPath);
+    }
+    this._updateEditBadge();
+    await this._reloadFromPaths(allOriginals);
+    this._setStatus('Changes discarded');
+  }
+
+  async _reloadFromPaths(filePaths) {
+    const currentTime = this.engine.getCurrentTime();
+    const wasPlaying = this.engine.isPlaying;
+    if (wasPlaying) this.engine.pause();
+
+    this.session = new Session();
+    if (filePaths.length === 1) {
+      await this.session.loadFile(filePaths[0]);
+    } else {
+      await this.session.loadFiles(filePaths);
+    }
+    await this._initSession();
+    this.engine.seek(currentTime);
+    if (wasPlaying) this.engine.play();
+  }
+
+  _updateEditBadge() {
+    const badge = document.getElementById('edit-badge');
+    const saveBtn = document.getElementById('btn-save-edits');
+    const discardBtn = document.getElementById('btn-discard-edits');
+    if (!badge) return;
+    const hasEdits = this._workingCopies.size > 0;
+    badge.style.display = hasEdits ? '' : 'none';
+    if (saveBtn) saveBtn.style.display = hasEdits ? '' : 'none';
+    if (discardBtn) discardBtn.style.display = hasEdits ? '' : 'none';
+  }
+
+  async _confirmDiscardEdits() {
+    if (this._workingCopies.size === 0) return true;
+    const ok = confirm('You have unsaved edits. Discard them and open a new session?');
+    if (ok) await this._discardWorkingCopies();
+    return ok;
+  }
+
+  _setupEditControls() {
+    const saveBtn = document.getElementById('btn-save-edits');
+    const discardBtn = document.getElementById('btn-discard-edits');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        if (this._workingCopies.size === 0) return;
+        const ok = confirm(
+          'Save changes to the original file(s)?\n\n' +
+          'This will overwrite the originals and cannot be undone.'
+        );
+        if (ok) await this._saveWorkingCopies();
+      });
+    }
+    if (discardBtn) {
+      discardBtn.addEventListener('click', async () => {
+        if (this._workingCopies.size === 0) return;
+        const ok = confirm('Discard all unsaved edits and revert to original files?');
+        if (ok) await this._discardWorkingCopies();
+      });
+    }
+
+    window.addEventListener('beforeunload', (e) => {
+      if (this._workingCopies.size > 0) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
   }
 
   _browserGoUp() {

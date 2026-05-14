@@ -20,9 +20,8 @@
       <button id="btn-live-save" class="btn-save" title="Save recording as WAV" style="display:none">Save WAV</button>
     </div>
 
-    <!-- File I/O group (Open + Browse + Export together) -->
+    <!-- File I/O group (Open + Export together) -->
     <div class="toolbar-group">
-      <button id="btn-browse" title="Browse and organize WAV files">Browse</button>
       <button id="btn-open-folder" class="primary" title="Open a folder of WAV files">Open Folder</button>
       <button id="btn-open-file" title="Open individual WAV file(s)">Open File(s)</button>
       <button id="btn-export-selection" class="btn-save" title="Export selection as WAV" style="display:none">&#x2913; WAV</button>
@@ -64,20 +63,6 @@
 
     <div class="toolbar-separator"></div>
 
-    <!-- Go To group -->
-    <div class="time-nav">
-      <label for="date-input" id="date-label" style="display:none;">Date:</label>
-      <select id="date-input" style="display:none;" title="Recording date"></select>
-      <select id="goto-mode" title="Time reference">
-        <option value="wall">Wall clock</option>
-        <option value="position">Position</option>
-      </select>
-      <input type="text" id="time-input" placeholder="HH:MM:SS" title="Enter time and press Enter or Go">
-      <button id="btn-goto">Go</button>
-    </div>
-
-    <div class="toolbar-separator"></div>
-
     <!-- Selection controls (hidden until selection) -->
     <div class="toolbar-group selection-actions" id="selection-actions" style="display: none;">
       <div class="control-item">
@@ -106,8 +91,6 @@
       <button id="btn-annotate-selection" class="annotations-btn">Annotate</button>
     </div>
 
-    <div class="toolbar-separator"></div>
-
     <!-- Live controls (visible during live mode) -->
     <div class="toolbar-group live-controls" id="live-controls" style="display: none;">
       <select id="select-input-device" title="Audio input device"></select>
@@ -125,26 +108,18 @@
     </div>
 
     <span class="toolbar-spacer"></span>
-
-    <!-- Right-aligned group: sidebar buttons + theme + help -->
-    <div class="toolbar-group">
-      <button id="btn-annotations" class="annotations-btn">Annotations</button>
-      <button id="btn-session-meta" class="annotations-btn" title="Edit iXML / session metadata">Metadata</button>
-      <button id="btn-spectrum" class="annotations-btn" title="Spectrum analyser">&#x223F; Spectrum</button>
-      <button id="btn-theme" title="Toggle light/dark theme">&#9789;</button>
-      <button id="btn-shortcuts" title="Keyboard shortcuts" style="min-width: 28px; padding: 2px 6px; font-weight: bold;">?</button>
-    </div>
   </div>
 
   <!-- Info strip: compact status bar with fixed-width values -->
   <div class="info-strip">
-    <span class="info-cell" title="Playback position">
+    <span class="info-cell info-cell-editable" id="pos-cell" title="Playback position — double-click to jump">
       <span class="info-label">POS</span>
       <span class="info-val mono-fixed" id="current-time">0:00.00</span>
     </span>
-    <span class="info-cell wall-time-block" id="wall-time-group">
+    <span class="info-cell info-cell-editable wall-time-block" id="wall-time-group" title="Wall clock time — double-click to jump">
       <span class="info-label">WALL</span>
       <span class="info-val wall-val" id="wall-time">--:--:--</span>
+      <select id="date-input" style="display:none;" title="Recording date"></select>
     </span>
     <span class="info-cell" title="Total duration">
       <span class="info-label">DUR</span>
@@ -160,7 +135,7 @@
       <span class="info-val dim" id="playback-format">--</span>
     </span>
     <span class="info-cell">
-      <span class="info-label">TC</span>
+      <span class="info-label">TC offset</span>
       <select id="tc-offset" title="Timecode offset correction (e.g., fix UTC+2 recording to UTC)">
         <option value="0">0h</option>
         <option value="-12">-12h</option>
@@ -193,16 +168,32 @@
       <span id="file-info">No session loaded</span>
       <span class="file-info-hint" id="file-info-hint"></span>
     </span>
+    <span class="info-cell edit-controls" id="edit-badge" style="display:none" title="File has unsaved edits">
+      <span class="edit-indicator">&#x25CF; Edited</span>
+      <button id="btn-save-edits" class="edit-btn edit-btn-save" style="display:none" title="Save changes to original file">Save</button>
+      <button id="btn-discard-edits" class="edit-btn edit-btn-discard" style="display:none" title="Discard edits, revert to original">Discard</button>
+    </span>
   </div>
 
-  <!-- Main content area: browser / spectrogram + sidebar -->
+  <!-- Main content area: left strip / browser / spectrogram / sidebar / right strip -->
   <div class="main-content">
+    <!-- Left vertical strip: Browse, Normalize -->
+    <div class="side-strip side-strip-left">
+      <button id="btn-browse" class="side-strip-btn" title="Browse and organize WAV files">
+        <span class="side-strip-icon">&#x229E;</span>
+        <span class="side-strip-label">Browse</span>
+      </button>
+      <button id="browser-normalize" class="side-strip-btn" title="Normalize file to -3 dBFS (loaded file, or selected in browser)" disabled>
+        <span class="side-strip-icon">&#x2195;</span>
+        <span class="side-strip-label">Normalize</span>
+      </button>
+    </div>
+
     <!-- File browser sidebar (left, collapsible) -->
     <div class="browser-panel" id="browser-panel">
       <div class="browser-toolbar">
         <button id="browser-up" class="browser-nav-btn" title="Go to parent folder">&#x2191; Up</button>
         <button id="browser-rename" class="browser-nav-btn" title="Rename selected file (F2)" disabled>Rename</button>
-        <button id="browser-normalize" class="browser-nav-btn" title="Normalize selected file to -3 dBFS" disabled>Normalize</button>
         <div class="browser-breadcrumb" id="browser-breadcrumb"></div>
         <span style="flex:1"></span>
         <div class="browser-columns-menu" id="browser-columns-menu">
@@ -264,7 +255,7 @@
           <kbd>Drag</kbd> Select time range &nbsp;
           <kbd>Right-drag</kbd> Pan view &nbsp;
           <kbd>Esc</kbd> Clear selection<br>
-          <kbd>G</kbd> Focus time input &nbsp;
+          <kbd>G</kbd> Jump to time &nbsp;
           <kbd>&uarr;</kbd><kbd>&darr;</kbd> Adjust spectrogram gain
         </div>
         <p style="margin-top: 16px; font-size: 10px; opacity: 0.4;">
@@ -407,26 +398,42 @@
         <div id="spectrum-lines-list" class="spectrum-lines-list"></div>
       </div>
     </div>
+
+    <!-- Right vertical strip: Annotations / Metadata / Spectrum -->
+    <div class="side-strip side-strip-right">
+      <button id="btn-annotations" class="side-strip-btn" title="Annotations">
+        <span class="side-strip-icon">&#x2630;</span>
+        <span class="side-strip-label">Notes</span>
+      </button>
+      <button id="btn-session-meta" class="side-strip-btn" title="Edit iXML / session metadata">
+        <span class="side-strip-icon">&#x2139;</span>
+        <span class="side-strip-label">Meta</span>
+      </button>
+      <button id="btn-spectrum" class="side-strip-btn" title="Spectrum analyser">
+        <span class="side-strip-icon">&#x223F;</span>
+        <span class="side-strip-label">Spec</span>
+      </button>
+      <button id="btn-vu" class="side-strip-btn" title="Toggle VU meter">
+        <span class="side-strip-icon">&#x25AE;</span>
+        <span class="side-strip-label">VU</span>
+      </button>
+    </div>
   </div>
 
   <!-- Waveform overview / minimap -->
   <canvas id="overview-canvas" height="30"></canvas>
+
+  <!-- Per-channel VU Meter (shown/hidden by toggle, positioned under spectrogram) -->
+  <div id="vu-meter-big" class="vu-meter-big"></div>
 
   <!-- Bottom bar: spectrogram settings (scrollable) -->
   <div class="bottom-bar">
     <div class="controls-section">
       <span class="section-label">Audio</span>
       <div class="control-item gain-control">
-        <label for="audio-gain" title="Pre-playback amplification — boosts quiet recordings">Gain</label>
-        <input type="range" id="audio-gain" min="0" max="60" value="0" step="1">
+        <label for="audio-gain" title="Playback gain — boost quiet recordings or reduce to recover peaks in 32-bit float files">Gain</label>
+        <input type="range" id="audio-gain" min="-60" max="60" value="0" step="1">
         <span id="audio-gain-value" class="gain-value">0 dB</span>
-      </div>
-      <div class="control-item">
-        <label for="volume" title="Playback volume">Vol</label>
-        <input type="range" id="volume" min="0" max="1" step="0.01" value="1">
-      </div>
-      <div class="control-item">
-        <button id="btn-vu" class="toolbar-btn" title="Toggle VU meter">VU Meter</button>
       </div>
       <div class="control-item">
         <label for="audio-output">Output</label>
@@ -519,10 +526,12 @@
         <input type="checkbox" id="log-freq">
       </div>
     </div>
+    <div class="bottom-bar-spacer"></div>
+    <div class="bottom-bar-actions">
+      <button id="btn-theme" class="bottom-bar-btn" title="Toggle light/dark theme">&#9789;</button>
+      <button id="btn-shortcuts" class="bottom-bar-btn" title="Keyboard shortcuts">?</button>
+    </div>
   </div>
-
-  <!-- Per-channel VU Meter (shown/hidden by toggle) -->
-  <div id="vu-meter-big" class="vu-meter-big"></div>
 
   <!-- Status bar -->
   <div class="status-bar">
@@ -590,7 +599,7 @@
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">S</td><td>Zoom to selection</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">T</td><td>Trim to selection</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">U</td><td>Untrim (restore full session)</td></tr>
-        <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">G</td><td>Go to time input</td></tr>
+        <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">G</td><td>Edit position / wall clock to jump</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">B</td><td>Toggle file browser</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">F2</td><td>Rename selected file</td></tr>
         <tr><td style="padding:3px 12px 3px 0; color:var(--highlight);">Esc</td><td>Clear selection</td></tr>

@@ -278,15 +278,14 @@ function readSampleFloat(srcBuf, offset, srcBits, isFloat) {
 /**
  * Convert source PCM buffer to 16-bit PCM with optional decimation.
  * Handles 16-bit, 24-bit, 32-bit integer, and 32-bit float sources.
- * When decFactor > 1, applies a moving-average (boxcar) anti-alias filter
- * over D consecutive samples before decimating, preventing ultrasonic
- * frequencies from folding into the audible range.
+ * When decFactor > 1, applies a 3-pass moving-average anti-alias filter
+ * before decimating. Three passes of a boxcar converge toward a Gaussian
+ * shape, providing ~36 dB stopband rejection vs ~13 dB for a single pass.
  */
 function convert16bit(srcBuf, numSamples, channels, srcBits, srcFormat, decFactor = 1) {
   const outSamples = Math.floor(numSamples / decFactor);
   const outBuf = Buffer.alloc(outSamples * channels * 2);
   const srcBytesPerSample = srcBits / 8;
-  const srcBlockAlign = channels * srcBytesPerSample;
   const isFloat = (srcFormat === 3);
 
   if (decFactor <= 1) {
@@ -301,21 +300,47 @@ function convert16bit(srcBuf, numSamples, channels, srcBits, srcFormat, decFacto
       }
     }
   } else {
-    // Decimation with anti-alias filter: average D consecutive samples per channel
     const D = decFactor;
-    const invD = 1 / D;
-    for (let o = 0; o < outSamples; o++) {
-      const baseIdx = o * D;
+    const PASSES = 3;
+
+    // Decode all source samples to float, per channel
+    const chData = new Array(channels);
+    for (let ch = 0; ch < channels; ch++) {
+      chData[ch] = new Float32Array(numSamples);
+    }
+    for (let i = 0; i < numSamples; i++) {
       for (let ch = 0; ch < channels; ch++) {
-        let sum = 0;
-        const lastSample = Math.min(baseIdx + D, numSamples);
-        for (let k = baseIdx; k < lastSample; k++) {
-          const srcOff = (k * channels + ch) * srcBytesPerSample;
-          if (srcOff + srcBytesPerSample > srcBuf.length) break;
-          sum += readSampleFloat(srcBuf, srcOff, srcBits, isFloat);
+        const srcOff = (i * channels + ch) * srcBytesPerSample;
+        if (srcOff + srcBytesPerSample <= srcBuf.length) {
+          chData[ch][i] = readSampleFloat(srcBuf, srcOff, srcBits, isFloat);
         }
-        const avg = sum * invD;
-        const sample16 = Math.max(-32768, Math.min(32767, Math.round(avg * 32767)));
+      }
+    }
+
+    // Apply N passes of moving average (in-place) per channel.
+    // Uses a ring buffer to avoid overwrite issues.
+    for (let ch = 0; ch < channels; ch++) {
+      const buf = chData[ch];
+      for (let pass = 0; pass < PASSES; pass++) {
+        let sum = 0;
+        const ring = new Float32Array(D);
+        let ri = 0;
+        for (let i = 0; i < numSamples; i++) {
+          const val = buf[i];
+          sum += val - ring[ri];
+          ring[ri] = val;
+          ri = (ri + 1) % D;
+          buf[i] = sum / Math.min(i + 1, D);
+        }
+      }
+    }
+
+    // Decimate: pick every D-th sample from the filtered signal
+    for (let o = 0; o < outSamples; o++) {
+      const srcIdx = o * D;
+      for (let ch = 0; ch < channels; ch++) {
+        const val = chData[ch][srcIdx];
+        const sample16 = Math.max(-32768, Math.min(32767, Math.round(val * 32767)));
         outBuf.writeInt16LE(sample16, (o * channels + ch) * 2);
       }
     }
@@ -1159,6 +1184,38 @@ ipcMain.handle('write-ixml-to-folder', async (event, folderPath, ixmlString) => 
     } catch (err) {
       results.push({ filePath, success: false, error: err.message });
     }
+  }
+  return results;
+});
+
+// ── Working-copy (non-destructive edit) IPC handlers ──────────────────────
+
+ipcMain.handle('create-working-copy', async (event, filePath) => {
+  const editPath = filePath.replace(/\.(wav|wave|bwf)$/i, '.edit.wav');
+  closeCachedFd(filePath);
+  await fs.promises.copyFile(filePath, editPath);
+  return editPath;
+});
+
+ipcMain.handle('save-working-copy', async (event, editPath, originalPath) => {
+  closeCachedFd(originalPath);
+  closeCachedFd(editPath);
+  await fs.promises.rename(editPath, originalPath);
+});
+
+ipcMain.handle('discard-working-copy', async (event, editPath) => {
+  closeCachedFd(editPath);
+  try { await fs.promises.unlink(editPath); } catch(e) {}
+});
+
+ipcMain.handle('detect-working-copies', async (event, filePaths) => {
+  const results = {};
+  for (const fp of filePaths) {
+    const editPath = fp.replace(/\.(wav|wave|bwf)$/i, '.edit.wav');
+    try {
+      await fs.promises.access(editPath);
+      results[fp] = editPath;
+    } catch(e) {}
   }
   return results;
 });
