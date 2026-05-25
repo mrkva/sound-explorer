@@ -95,40 +95,28 @@ function startAudioServer() {
       // Parse Range header
       const rangeHeader = req.headers.range;
       let start = 0;
-      // For non-range requests on huge files, only serve the header + first chunk
-      // to avoid trying to stream 43GB in one response
-      let end = rangeHeader ? totalSize - 1 : Math.min(totalSize - 1, 1024 * 1024);
+      let end = Math.min(totalSize - 1, 16 * 1024 * 1024);
 
       if (rangeHeader) {
         const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
         if (match) {
           start = parseInt(match[1], 10);
-          end = match[2] ? parseInt(match[2], 10) : Math.min(start + 2 * 1024 * 1024, totalSize - 1);
+          end = match[2] ? parseInt(match[2], 10) : Math.min(start + 16 * 1024 * 1024, totalSize - 1);
           end = Math.min(end, totalSize - 1);
         }
       }
 
       const chunkSize = end - start + 1;
 
-      // Always respond with 206 Partial Content for range-capable seeking
-      if (rangeHeader) {
-        res.writeHead(206, {
-          'Content-Type': 'audio/wav',
-          'Content-Length': chunkSize,
-          'Content-Range': `bytes ${start}-${end}/${totalSize}`,
-          'Accept-Ranges': 'bytes',
-          'Access-Control-Allow-Origin': '*'
-        });
-      } else {
-        // Initial request - report full size but only send a chunk
-        // This tells the browser the total size for seeking
-        res.writeHead(200, {
-          'Content-Type': 'audio/wav',
-          'Content-Length': totalSize,
-          'Accept-Ranges': 'bytes',
-          'Access-Control-Allow-Origin': '*'
-        });
-      }
+      // Always use 206 Partial Content so the browser knows the total size
+      // and actual chunk size (avoids Content-Length mismatches)
+      res.writeHead(206, {
+        'Content-Type': 'audio/wav',
+        'Content-Length': chunkSize,
+        'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*'
+      });
 
       // Serve bytes from virtual file (header + stitched data)
       try {
@@ -210,8 +198,9 @@ async function serveBytes(res, wavHeader, start, end) {
     const srcByteOffset = startSrcSample * srcBlockAlign;
     const srcByteLen = srcSamplesToRead * srcBlockAlign;
 
-    // Read in chunks (max ~2MB source, aligned to source block size)
-    const MAX_SRC_READ = Math.floor((2 * 1024 * 1024) / srcBlockAlign) * srcBlockAlign;
+    // Read in chunks (max ~2MB source, aligned to decimation group size)
+    const decBlockAlign = srcBlockAlign * D;
+    const MAX_SRC_READ = Math.floor((2 * 1024 * 1024) / decBlockAlign) * decBlockAlign;
     let srcRead = 0;
     let outProduced = 0;
 
@@ -710,14 +699,14 @@ ipcMain.handle('setup-audio-server', async (event, files, requestedOutputRate) =
   decimationFactor = Math.max(1, Math.round(ref.sampleRate / targetRate));
   outputSampleRate = Math.round(ref.sampleRate / decimationFactor);
 
-  // Calculate total output samples across all files
+  // Calculate total output samples across all files (per-file to match serveBytes)
   const srcBlockAlign = ref.channels * (ref.bitsPerSample / 8);
-  const totalSrcBytes = files.reduce((sum, f) => sum + f.dataSize, 0);
-  const totalSrcSamples = Math.floor(totalSrcBytes / srcBlockAlign);
-  const totalOutSamples = Math.floor(totalSrcSamples / decimationFactor);
-
-  // Output is always 16-bit for browser compatibility
-  const outBlockAlign = ref.channels * 2; // 16-bit
+  const outBlockAlign = ref.channels * 2; // 16-bit output
+  let totalOutSamples = 0;
+  for (const f of files) {
+    const fileSrcSamples = Math.floor(f.dataSize / srcBlockAlign);
+    totalOutSamples += Math.floor(fileSrcSamples / decimationFactor);
+  }
   totalDataBytes = totalOutSamples * outBlockAlign;
 
   console.log(`Audio server: ${files.length} files, ${ref.sampleRate}Hz, ${ref.bitsPerSample}-bit ${ref.format === 3 ? 'float' : 'PCM'}, ${ref.channels}ch`);
