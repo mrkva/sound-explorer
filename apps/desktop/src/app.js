@@ -665,7 +665,7 @@ class App {
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
         if (e.key === 'Escape') e.target.blur();
         return;
       }
@@ -2302,6 +2302,13 @@ class App {
         this._frmData = autoPopulateFromSession(this.session);
       }
       this._populateFRMForm(this._frmData);
+      // Fill recorder model from BWF originator when iXML/FRM didn't provide one,
+      // before _applyDefaults() which would fill from stale localStorage instead
+      const modelField = document.getElementById('frm-eq-model');
+      if (modelField && !modelField.value.trim()) {
+        const bextOriginator = this.session.files[0]?.bext?.originator;
+        if (bextOriginator) modelField.value = bextOriginator;
+      }
       this._applyDefaults();
       this._populateLocationPresets();
       let statusText = 'Auto-populated from BWF metadata';
@@ -2912,7 +2919,6 @@ class App {
 
   _populateChannelSelector(numChannels) {
     this.channelSelect.innerHTML = '';
-    const channelLabels = ['L', 'R', 'C', 'LFE', 'Ls', 'Rs', 'Lb', 'Rb'];
 
     // Always offer mono mix
     const mixOpt = document.createElement('option');
@@ -2921,12 +2927,11 @@ class App {
     this.channelSelect.appendChild(mixOpt);
 
     if (numChannels > 1) {
-      // Individual channels
+      // Individual channels — plain numeric labels
       for (let i = 0; i < numChannels; i++) {
         const opt = document.createElement('option');
         opt.value = i.toString();
-        const label = i < channelLabels.length ? channelLabels[i] : `${i + 1}`;
-        opt.textContent = `${i + 1} (${label})`;
+        opt.textContent = `Ch ${i + 1}`;
         this.channelSelect.appendChild(opt);
       }
 
@@ -2938,13 +2943,10 @@ class App {
 
       for (let i = 0; i < numChannels; i++) {
         for (let j = i + 1; j < numChannels; j++) {
-          // For stereo, just show L|R; for multichannel, show all pairs
           if (numChannels === 2 || j === i + 1) {
             const opt = document.createElement('option');
             opt.value = `split:${i},${j}`;
-            const labelI = i < channelLabels.length ? channelLabels[i] : `${i + 1}`;
-            const labelJ = j < channelLabels.length ? channelLabels[j] : `${j + 1}`;
-            opt.textContent = `${labelI} | ${labelJ}`;
+            opt.textContent = `${i + 1} | ${j + 1}`;
             this.channelSelect.appendChild(opt);
           }
         }
