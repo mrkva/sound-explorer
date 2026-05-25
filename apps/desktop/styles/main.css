@@ -393,15 +393,14 @@ button.danger {
   outline: none;
 }
 
-/* BWF burn-in row */
-.frm-bext-time-row {
+/* Form row with inline button */
+.frm-row-with-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
 }
-.frm-bext-time-row label { flex: 1; display: flex; align-items: center; gap: 4px; }
-.frm-bext-time-row .edit-btn { flex-shrink: 0; }
+.frm-row-with-btn label { flex: 1; }
+.frm-row-with-btn .edit-btn { flex-shrink: 0; }
 
 /* Edit badge and save/discard controls */
 .edit-controls {

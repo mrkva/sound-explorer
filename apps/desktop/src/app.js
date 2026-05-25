@@ -3144,11 +3144,6 @@ class App {
     document.getElementById('frm-dt-end').value = dt.end || '';
     document.getElementById('frm-dt-tz').value = dt.timezone || '';
 
-    // Populate BWF fields from session's first file bext
-    const bext = this.session?.files[0]?.bext;
-    document.getElementById('frm-bext-date').value = bext?.originationDate || '';
-    document.getElementById('frm-bext-time').value = bext?.originationTime || '';
-
     document.getElementById('frm-loc-name').value = loc.name || '';
     document.getElementById('frm-loc-region').value = loc.region || '';
     // Combine lat/lon into single GPS string
@@ -3403,12 +3398,19 @@ class App {
       this._setStatus('No session loaded');
       return;
     }
-    const date = document.getElementById('frm-bext-date').value.trim();
-    const time = document.getElementById('frm-bext-time').value.trim();
-    if (!date.match(/^\d{4}-\d{2}-\d{2}$/) || !time.match(/^\d{2}:\d{2}:\d{2}$/)) {
-      this._setStatus('Enter date as YYYY-MM-DD and time as HH:MM:SS');
+    const startVal = document.getElementById('frm-dt-start').value.trim();
+    if (!startVal) {
+      this._setStatus('Enter a start date/time first');
       return;
     }
+    // Parse ISO datetime or "YYYY-MM-DD HH:MM:SS" into date + time
+    const m = startVal.match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/);
+    if (!m) {
+      this._setStatus('Start must contain YYYY-MM-DDTHH:MM:SS');
+      return;
+    }
+    const date = m[1];
+    const time = m[2];
     const paths = this.session.files.map(f => f.filePath);
     if (!confirm(`Write BWF date/time ${date} ${time} to ${paths.length} file${paths.length > 1 ? 's' : ''}?`)) return;
 
