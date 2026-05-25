@@ -3087,6 +3087,9 @@ class App {
       this._deleteLocationPreset();
     });
 
+    // BWF burn-in
+    document.getElementById('btn-bext-burn').addEventListener('click', () => this._burnBextTime());
+
     // Tag autocomplete
     this._setupTagAutocomplete();
   }
@@ -3140,6 +3143,11 @@ class App {
     document.getElementById('frm-dt-start').value = dt.start || '';
     document.getElementById('frm-dt-end').value = dt.end || '';
     document.getElementById('frm-dt-tz').value = dt.timezone || '';
+
+    // Populate BWF fields from session's first file bext
+    const bext = this.session?.files[0]?.bext;
+    document.getElementById('frm-bext-date').value = bext?.originationDate || '';
+    document.getElementById('frm-bext-time').value = bext?.originationTime || '';
 
     document.getElementById('frm-loc-name').value = loc.name || '';
     document.getElementById('frm-loc-region').value = loc.region || '';
@@ -3388,6 +3396,35 @@ class App {
     this._saveDefaults();
     document.getElementById('frm-status').textContent = 'Saved .frm.txt';
     this._setStatus(`Saved session metadata to ${frmPath.split(/[/\\]/).pop()}`);
+  }
+
+  async _burnBextTime() {
+    if (!this.session) {
+      this._setStatus('No session loaded');
+      return;
+    }
+    const date = document.getElementById('frm-bext-date').value.trim();
+    const time = document.getElementById('frm-bext-time').value.trim();
+    if (!date.match(/^\d{4}-\d{2}-\d{2}$/) || !time.match(/^\d{2}:\d{2}:\d{2}$/)) {
+      this._setStatus('Enter date as YYYY-MM-DD and time as HH:MM:SS');
+      return;
+    }
+    const paths = this.session.files.map(f => f.filePath);
+    if (!confirm(`Write BWF date/time ${date} ${time} to ${paths.length} file${paths.length > 1 ? 's' : ''}?`)) return;
+
+    let ok = 0;
+    for (const f of this.session.files) {
+      try {
+        await window.electronAPI.writeBextTime(f.filePath, date, time);
+        f.bext = f.bext || {};
+        f.bext.originationDate = date;
+        f.bext.originationTime = time;
+        ok++;
+      } catch (err) {
+        console.error(`Failed to write bext to ${f.filePath}:`, err);
+      }
+    }
+    this._setStatus(`BWF date/time written to ${ok}/${paths.length} file${paths.length > 1 ? 's' : ''}. Reload session to update wall clock.`);
   }
 
   async _loadFRMFile(folderPath) {

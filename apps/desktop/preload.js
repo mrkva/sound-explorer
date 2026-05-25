@@ -33,6 +33,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   discardWorkingCopy: (editPath) => ipcRenderer.invoke('discard-working-copy', editPath),
   detectWorkingCopies: (filePaths) => ipcRenderer.invoke('detect-working-copies', filePaths),
 
+  // BWF bext metadata
+  writeBextTime: (filePath, date, time) => ipcRenderer.invoke('write-bext-time', filePath, date, time),
+
   // iXML metadata
   readIXML: (filePath) => ipcRenderer.invoke('read-ixml', filePath),
   writeIXML: (filePath, ixmlString) => ipcRenderer.invoke('write-ixml', filePath, ixmlString),

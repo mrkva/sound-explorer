@@ -933,6 +933,67 @@ async function writeIXMLToFile(filePath, ixmlString) {
   return { success: true, ixmlSize: ixmlChunkSize };
 }
 
+// Write origination date/time (and timeReference) into an existing bext chunk
+ipcMain.handle('write-bext-time', async (event, filePath, date, time) => {
+  const fd = await fs.promises.open(filePath, 'r+');
+  try {
+    const headerSize = Math.min(1024 * 1024, (await fd.stat()).size);
+    const buf = Buffer.alloc(headerSize);
+    await fd.read(buf, 0, headerSize, 0);
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+
+    if (readStr(view, 0, 4) !== 'RIFF' || readStr(view, 8, 4) !== 'WAVE') {
+      throw new Error('Not a WAV file');
+    }
+
+    // Find bext chunk and fmt chunk (need sample rate for timeReference)
+    let bextOffset = -1;
+    let sampleRate = 0;
+    let offset = 12;
+    while (offset + 8 <= buf.byteLength) {
+      const chunkId = readStr(view, offset, 4);
+      const chunkSize = view.getUint32(offset + 4, true);
+      const chunkData = offset + 8;
+      if (chunkId === 'fmt ') {
+        sampleRate = view.getUint32(chunkData + 4, true);
+      } else if (chunkId === 'bext') {
+        bextOffset = chunkData;
+      }
+      offset = chunkData + chunkSize;
+      if (offset % 2 !== 0) offset++;
+    }
+
+    if (bextOffset < 0) throw new Error('No bext chunk found in file');
+
+    // Write origination date (10 bytes at bext+320)
+    const dateBuf = Buffer.alloc(10, 0);
+    dateBuf.write(date.slice(0, 10), 'ascii');
+    await fd.write(dateBuf, 0, 10, bextOffset + 320);
+
+    // Write origination time (8 bytes at bext+330)
+    const timeBuf = Buffer.alloc(8, 0);
+    timeBuf.write(time.slice(0, 8), 'ascii');
+    await fd.write(timeBuf, 0, 8, bextOffset + 330);
+
+    // Update timeReference (8 bytes at bext+338) — samples since midnight
+    if (sampleRate > 0) {
+      const parts = time.split(':');
+      const secs = (parseInt(parts[0]) || 0) * 3600 +
+                   (parseInt(parts[1]) || 0) * 60 +
+                   (parseInt(parts[2]) || 0);
+      const timeRef = Math.round(secs * sampleRate);
+      const trBuf = Buffer.alloc(8);
+      trBuf.writeUInt32LE(timeRef & 0xFFFFFFFF, 0);
+      trBuf.writeUInt32LE(Math.floor(timeRef / 0x100000000), 4);
+      await fd.write(trBuf, 0, 8, bextOffset + 338);
+    }
+
+    return { success: true };
+  } finally {
+    await fd.close();
+  }
+});
+
 ipcMain.handle('write-ixml', async (event, filePath, ixmlString) => {
   return await writeIXMLToFile(filePath, ixmlString);
 });
