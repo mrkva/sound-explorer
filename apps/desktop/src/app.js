@@ -2311,14 +2311,12 @@ class App {
         }
       }
       this._populateFRMForm(this._frmData);
-      // Fill recorder model from BWF originator when iXML/FRM didn't provide one,
-      // before _applyDefaults() which would fill from stale localStorage instead
+      // Fill recorder model from BWF originator when iXML/FRM didn't provide one
       const modelField = document.getElementById('frm-eq-model');
       if (modelField && !modelField.value.trim()) {
         const bextOriginator = this.session.files[0]?.bext?.originator;
         if (bextOriginator) modelField.value = bextOriginator;
       }
-      this._applyDefaults();
       this._populateLocationPresets();
       let statusText = 'Auto-populated from BWF metadata';
       if (this._ixmlSource === 'ixml') statusText = 'Loaded from iXML chunk';
