@@ -2299,6 +2299,17 @@ class App {
       if (!this._frmData) {
         this._frmData = autoPopulateFromSession(this.session);
       }
+      // Fill datetime from BWF when the metadata source didn't provide it
+      if (!this._frmData.datetime) this._frmData.datetime = {};
+      if (!this._frmData.datetime.start && this.session.sessionStartTime !== null && this.session.sessionDate) {
+        const d = this.session.sessionDate.replace(/:/g, '-');
+        const fmt = (s) => { if (s >= 86400) s -= 86400; if (s < 0) s += 86400;
+          return `${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}:${String(Math.floor(s%60)).padStart(2,'0')}`; };
+        this._frmData.datetime.start = `${d}T${fmt(this.session.sessionStartTime)}`;
+        if (!this._frmData.datetime.end && this.session.sessionEndTime !== null) {
+          this._frmData.datetime.end = `${d}T${fmt(this.session.sessionEndTime)}`;
+        }
+      }
       this._populateFRMForm(this._frmData);
       // Fill recorder model from BWF originator when iXML/FRM didn't provide one,
       // before _applyDefaults() which would fill from stale localStorage instead
