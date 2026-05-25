@@ -1166,15 +1166,13 @@ class App {
     container.innerHTML = '';
     this._bigVURows = [];
 
-    const labels = ['L', 'R', 'C', 'LFE', 'LS', 'RS'];
-
     for (let i = 0; i < numChannels; i++) {
       const row = document.createElement('div');
       row.className = 'vu-channel-row';
 
       const label = document.createElement('span');
       label.className = 'vu-channel-label';
-      label.textContent = numChannels === 1 ? 'M' : (labels[i] || `${i + 1}`);
+      label.textContent = numChannels === 1 ? 'M' : `${i + 1}`;
       row.appendChild(label);
 
       const track = document.createElement('div');
