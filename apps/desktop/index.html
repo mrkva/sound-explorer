@@ -304,14 +304,12 @@
 
           <details class="frm-section" open>
             <summary>Time</summary>
-            <label>Start <input type="text" id="frm-dt-start" placeholder="2026-04-04T05:12:00+02:00"></label>
+            <div class="frm-row-with-btn">
+              <label>Start <input type="text" id="frm-dt-start" placeholder="2026-04-04T05:12:00+02:00"></label>
+              <button type="button" id="btn-bext-burn" class="edit-btn" title="Write start date/time into WAV file BWF header">&#x2192; WAV</button>
+            </div>
             <label>End <input type="text" id="frm-dt-end" placeholder="2026-04-04T07:30:00+02:00"></label>
             <label>Timezone <input type="text" id="frm-dt-tz" placeholder="Europe/Bratislava"></label>
-            <div class="frm-bext-time-row">
-              <label>BWF start <input type="text" id="frm-bext-date" placeholder="YYYY-MM-DD" style="width:90px">
-              <input type="text" id="frm-bext-time" placeholder="HH:MM:SS" style="width:70px"></label>
-              <button type="button" id="btn-bext-burn" class="edit-btn" title="Write date/time into WAV file BWF header">Burn in</button>
-            </div>
           </details>
 
           <details class="frm-section" open>
