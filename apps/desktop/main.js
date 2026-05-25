@@ -876,7 +876,7 @@ ipcMain.handle('read-ixml', async (event, filePath) => {
  * Reads the file, strips existing iXML, appends new one, updates RIFF size.
  * Writes to a temp file first, then atomically renames to prevent corruption.
  */
-async function writeIXMLToFile(filePath, ixmlString) {
+async function writeIXMLToFile(filePath, ixmlString, bextDate, bextTime, bextSampleRate) {
   const ixmlBuf = Buffer.from(ixmlString, 'utf-8');
 
   const data = await fs.promises.readFile(filePath);
@@ -896,7 +896,26 @@ async function writeIXMLToFile(filePath, ixmlString) {
     if (!/^[\x20-\x7E]{4}$/.test(chunkId) || chunkSize >= 0xFFFFFFF0) break;
 
     if (chunkId !== 'iXML' && chunkId !== 'IXML') {
-      chunks.push(data.subarray(offset, offset + totalChunk));
+      // Update bext origination date/time in-place if requested
+      if (chunkId === 'bext' && bextDate && bextTime) {
+        const bextBuf = Buffer.from(data.subarray(offset, offset + totalChunk));
+        bextBuf.fill(0, 8 + 320, 8 + 330);
+        bextBuf.write(bextDate.slice(0, 10), 8 + 320, 'ascii');
+        bextBuf.fill(0, 8 + 330, 8 + 338);
+        bextBuf.write(bextTime.slice(0, 8), 8 + 330, 'ascii');
+        if (bextSampleRate > 0) {
+          const parts = bextTime.split(':');
+          const secs = (parseInt(parts[0]) || 0) * 3600 +
+                       (parseInt(parts[1]) || 0) * 60 +
+                       (parseInt(parts[2]) || 0);
+          const timeRef = Math.round(secs * bextSampleRate);
+          bextBuf.writeUInt32LE(timeRef & 0xFFFFFFFF, 8 + 338);
+          bextBuf.writeUInt32LE(Math.floor(timeRef / 0x100000000), 8 + 342);
+        }
+        chunks.push(bextBuf);
+      } else {
+        chunks.push(data.subarray(offset, offset + totalChunk));
+      }
     }
     offset += totalChunk;
   }
@@ -922,7 +941,11 @@ async function writeIXMLToFile(filePath, ixmlString) {
   out.writeUInt32LE(Math.min(totalSize - 8, 0xFFFFFFFF), pos); pos += 4;
   out.write('WAVE', pos); pos += 4;
 
+  // Track new data chunk offset
+  let newDataOffset = 0;
   for (const chunk of chunks) {
+    const cid = chunk.toString('ascii', 0, 4);
+    if (cid === 'data') newDataOffset = pos + 8;
     chunk.copy(out, pos);
     pos += chunk.length;
   }
@@ -930,72 +953,18 @@ async function writeIXMLToFile(filePath, ixmlString) {
 
   await fs.promises.writeFile(tmpPath, out);
   await fs.promises.rename(tmpPath, filePath);
-  return { success: true, ixmlSize: ixmlChunkSize };
+  return { success: true, ixmlSize: ixmlChunkSize, dataOffset: newDataOffset };
 }
 
-// Write origination date/time (and timeReference) into an existing bext chunk
-ipcMain.handle('write-bext-time', async (event, filePath, date, time) => {
-  const fd = await fs.promises.open(filePath, 'r+');
-  try {
-    const headerSize = Math.min(1024 * 1024, (await fd.stat()).size);
-    const buf = Buffer.alloc(headerSize);
-    await fd.read(buf, 0, headerSize, 0);
-    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-
-    if (readStr(view, 0, 4) !== 'RIFF' || readStr(view, 8, 4) !== 'WAVE') {
-      throw new Error('Not a WAV file');
-    }
-
-    // Find bext chunk and fmt chunk (need sample rate for timeReference)
-    let bextOffset = -1;
-    let sampleRate = 0;
-    let offset = 12;
-    while (offset + 8 <= buf.byteLength) {
-      const chunkId = readStr(view, offset, 4);
-      const chunkSize = view.getUint32(offset + 4, true);
-      const chunkData = offset + 8;
-      if (chunkId === 'fmt ') {
-        sampleRate = view.getUint32(chunkData + 4, true);
-      } else if (chunkId === 'bext') {
-        bextOffset = chunkData;
-      }
-      offset = chunkData + chunkSize;
-      if (offset % 2 !== 0) offset++;
-    }
-
-    if (bextOffset < 0) throw new Error('No bext chunk found in file');
-
-    // Write origination date (10 bytes at bext+320)
-    const dateBuf = Buffer.alloc(10, 0);
-    dateBuf.write(date.slice(0, 10), 'ascii');
-    await fd.write(dateBuf, 0, 10, bextOffset + 320);
-
-    // Write origination time (8 bytes at bext+330)
-    const timeBuf = Buffer.alloc(8, 0);
-    timeBuf.write(time.slice(0, 8), 'ascii');
-    await fd.write(timeBuf, 0, 8, bextOffset + 330);
-
-    // Update timeReference (8 bytes at bext+338) — samples since midnight
-    if (sampleRate > 0) {
-      const parts = time.split(':');
-      const secs = (parseInt(parts[0]) || 0) * 3600 +
-                   (parseInt(parts[1]) || 0) * 60 +
-                   (parseInt(parts[2]) || 0);
-      const timeRef = Math.round(secs * sampleRate);
-      const trBuf = Buffer.alloc(8);
-      trBuf.writeUInt32LE(timeRef & 0xFFFFFFFF, 0);
-      trBuf.writeUInt32LE(Math.floor(timeRef / 0x100000000), 4);
-      await fd.write(trBuf, 0, 8, bextOffset + 338);
-    }
-
-    return { success: true };
-  } finally {
-    await fd.close();
+ipcMain.handle('write-ixml', async (event, filePath, ixmlString, bextDate, bextTime) => {
+  const sampleRate = sessionFiles.find(f => f.filePath === filePath)?.sampleRate || sessionSampleRate || 0;
+  const result = await writeIXMLToFile(filePath, ixmlString, bextDate, bextTime, sampleRate);
+  // Update cached dataOffset so audio server reads from the correct position
+  if (result.dataOffset) {
+    const sf = sessionFiles.find(f => f.filePath === filePath);
+    if (sf) sf.dataOffset = result.dataOffset;
   }
-});
-
-ipcMain.handle('write-ixml', async (event, filePath, ixmlString) => {
-  return await writeIXMLToFile(filePath, ixmlString);
+  return result;
 });
 
 /**
@@ -1219,7 +1188,7 @@ ipcMain.handle('rename-file', async (event, oldPath, newName) => {
 /**
  * Write iXML to all WAV files in a folder.
  */
-ipcMain.handle('write-ixml-to-folder', async (event, folderPath, ixmlString) => {
+ipcMain.handle('write-ixml-to-folder', async (event, folderPath, ixmlString, bextDate, bextTime) => {
   const entries = await fs.promises.readdir(folderPath);
   const wavFiles = entries
     .filter(f => /\.(wav|wave|bwf)$/i.test(f))
@@ -1229,7 +1198,13 @@ ipcMain.handle('write-ixml-to-folder', async (event, folderPath, ixmlString) => 
   const results = [];
   for (const filePath of wavFiles) {
     try {
-      await writeIXMLToFile(filePath, ixmlString);
+      const sampleRate = sessionFiles.find(f => f.filePath === filePath)?.sampleRate || sessionSampleRate || 0;
+      const result = await writeIXMLToFile(filePath, ixmlString, bextDate, bextTime, sampleRate);
+      // Update cached dataOffset
+      if (result.dataOffset) {
+        const sf = sessionFiles.find(f => f.filePath === filePath);
+        if (sf) sf.dataOffset = result.dataOffset;
+      }
       results.push({ filePath, success: true });
     } catch (err) {
       results.push({ filePath, success: false, error: err.message });

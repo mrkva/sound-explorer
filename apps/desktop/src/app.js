@@ -1027,6 +1027,12 @@ class App {
     // Enable normalize (and other edit buttons) now that a session is loaded
     this._updateNormalizeButtonState();
 
+    // Re-populate metadata tab if it's currently visible
+    const activeTab = this.annotationsSidebar.querySelector('.sidebar-tab.active');
+    if (activeTab?.dataset.tab === 'metadata') {
+      this._switchSidebarTab('metadata');
+    }
+
     // Detect leftover working copies from a previous crash
     await this._detectWorkingCopies();
   }
@@ -2299,7 +2305,7 @@ class App {
       if (!this._frmData) {
         this._frmData = autoPopulateFromSession(this.session);
       }
-      // Fill datetime from BWF when the metadata source didn't provide it
+      // Fill gaps from BWF data when the metadata source didn't provide them
       if (!this._frmData.datetime) this._frmData.datetime = {};
       if (!this._frmData.datetime.start && this.session.sessionStartTime !== null && this.session.sessionDate) {
         const d = this.session.sessionDate.replace(/:/g, '-');
@@ -2310,13 +2316,21 @@ class App {
           this._frmData.datetime.end = `${d}T${fmt(this.session.sessionEndTime)}`;
         }
       }
-      this._populateFRMForm(this._frmData);
-      // Fill recorder model from BWF originator when iXML/FRM didn't provide one
-      const modelField = document.getElementById('frm-eq-model');
-      if (modelField && !modelField.value.trim()) {
-        const bextOriginator = this.session.files[0]?.bext?.originator;
-        if (bextOriginator) modelField.value = bextOriginator;
+      // Create channel stubs if metadata source didn't provide them
+      if (!this._frmData.channels || Object.keys(this._frmData.channels).length === 0) {
+        this._frmData.channels = {};
+        for (let ch = 1; ch <= this.session.channels; ch++) {
+          this._frmData.channels[ch] = { label: '', source: '' };
+        }
       }
+      // Fill recorder model from BWF originator
+      if (!this._frmData.equipment) this._frmData.equipment = {};
+      if (!this._frmData.equipment.recorder) this._frmData.equipment.recorder = {};
+      if (!this._frmData.equipment.recorder.model) {
+        const bextOriginator = this.session.files[0]?.bext?.originator;
+        if (bextOriginator) this._frmData.equipment.recorder.model = bextOriginator;
+      }
+      this._populateFRMForm(this._frmData);
       this._populateLocationPresets();
       let statusText = 'Auto-populated from BWF metadata';
       if (this._ixmlSource === 'ixml') statusText = 'Loaded from iXML chunk';
@@ -3096,9 +3110,6 @@ class App {
       this._deleteLocationPreset();
     });
 
-    // BWF burn-in
-    document.getElementById('btn-bext-burn').addEventListener('click', () => this._burnBextTime());
-
     // Tag autocomplete
     this._setupTagAutocomplete();
   }
@@ -3397,45 +3408,9 @@ class App {
     this._frmData = data;
     this._frmLoaded = true;
     this._ixmlSource = 'frm';
-    this._saveDefaults();
+    this._persistTags();
     document.getElementById('frm-status').textContent = 'Saved .frm.txt';
     this._setStatus(`Saved session metadata to ${frmPath.split(/[/\\]/).pop()}`);
-  }
-
-  async _burnBextTime() {
-    if (!this.session) {
-      this._setStatus('No session loaded');
-      return;
-    }
-    const startVal = document.getElementById('frm-dt-start').value.trim();
-    if (!startVal) {
-      this._setStatus('Enter a start date/time first');
-      return;
-    }
-    // Parse ISO datetime or "YYYY-MM-DD HH:MM:SS" into date + time
-    const m = startVal.match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/);
-    if (!m) {
-      this._setStatus('Start must contain YYYY-MM-DDTHH:MM:SS');
-      return;
-    }
-    const date = m[1];
-    const time = m[2];
-    const paths = this.session.files.map(f => f.filePath);
-    if (!confirm(`Write BWF date/time ${date} ${time} to ${paths.length} file${paths.length > 1 ? 's' : ''}?`)) return;
-
-    let ok = 0;
-    for (const f of this.session.files) {
-      try {
-        await window.electronAPI.writeBextTime(f.filePath, date, time);
-        f.bext = f.bext || {};
-        f.bext.originationDate = date;
-        f.bext.originationTime = time;
-        ok++;
-      } catch (err) {
-        console.error(`Failed to write bext to ${f.filePath}:`, err);
-      }
-    }
-    this._setStatus(`BWF date/time written to ${ok}/${paths.length} file${paths.length > 1 ? 's' : ''}. Reload session to update wall clock.`);
   }
 
   async _loadFRMFile(folderPath) {
@@ -3541,8 +3516,15 @@ class App {
     return true;
   }
 
+  _parseBextFromStart() {
+    const startVal = document.getElementById('frm-dt-start').value.trim();
+    const m = startVal.match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/);
+    return m ? { date: m[1], time: m[2] } : null;
+  }
+
   /**
    * Build iXML from the current form data and save to all WAV files in the session folder.
+   * Also updates bext origination date/time from the Start field.
    */
   async _saveIXMLToFolder() {
     if (!this._sessionFolderPath) {
@@ -3553,16 +3535,18 @@ class App {
     const formData = this._readFRMForm();
     const ixmlMeta = formDataToIXML(formData, this.session, this.annotations);
     const xml = buildIXML(ixmlMeta);
+    const bext = this._parseBextFromStart();
 
     this._setStatus('Writing iXML to WAV files...');
     try {
-      const results = await window.electronAPI.writeIXMLToFolder(this._sessionFolderPath, xml);
+      const results = await window.electronAPI.writeIXMLToFolder(
+        this._sessionFolderPath, xml, bext?.date, bext?.time);
       const ok = results.filter(r => r.success).length;
       const fail = results.filter(r => !r.success).length;
       this._frmData = formData;
       this._frmLoaded = true;
       this._ixmlSource = 'ixml';
-      this._saveDefaults();
+      this._persistTags();
       document.getElementById('frm-status').textContent = 'Saved to WAV files';
       this._setStatus(`iXML written to ${ok} WAV file${ok !== 1 ? 's' : ''}${fail > 0 ? ` (${fail} failed)` : ''}`);
     } catch (err) {
@@ -3572,6 +3556,7 @@ class App {
 
   /**
    * Build iXML and save to the currently open WAV file (first file in session).
+   * Also updates bext origination date/time from the Start field.
    */
   async _saveIXMLToFile() {
     if (!this.session || this.session.files.length === 0) {
@@ -3583,52 +3568,20 @@ class App {
     const formData = this._readFRMForm();
     const ixmlMeta = formDataToIXML(formData, this.session, this.annotations);
     const xml = buildIXML(ixmlMeta);
+    const bext = this._parseBextFromStart();
 
     try {
-      await window.electronAPI.writeIXML(filePath, xml);
+      await window.electronAPI.writeIXML(filePath, xml, bext?.date, bext?.time);
       this._frmData = formData;
       this._frmLoaded = true;
       this._ixmlSource = 'ixml';
-      this._saveDefaults();
+      this._persistTags();
       const fname = filePath.split(/[/\\]/).pop();
       document.getElementById('frm-status').textContent = `Saved to ${fname}`;
       this._setStatus(`iXML written to ${fname}`);
     } catch (err) {
       this._setStatus(`Error writing iXML: ${err.message}`);
     }
-  }
-
-  // ── Sticky defaults (localStorage) ───────────────────────────────────
-
-  _loadDefaults() {
-    try {
-      return JSON.parse(localStorage.getItem('fre-defaults') || '{}');
-    } catch { return {}; }
-  }
-
-  _saveDefaults() {
-    const d = this._loadDefaults();
-    const v = (id) => document.getElementById(id).value.trim();
-    if (v('frm-recordist')) d.recordist = v('frm-recordist');
-    if (v('frm-license')) d.license = v('frm-license');
-    if (v('frm-dt-tz')) d.timezone = v('frm-dt-tz');
-    if (v('frm-eq-model')) d.recorder_model = v('frm-eq-model');
-    localStorage.setItem('fre-defaults', JSON.stringify(d));
-
-    // Also persist tags
-    this._persistTags();
-  }
-
-  _applyDefaults() {
-    const d = this._loadDefaults();
-    const fill = (id, val) => {
-      const el = document.getElementById(id);
-      if (el && !el.value.trim() && val) el.value = val;
-    };
-    fill('frm-recordist', d.recordist);
-    fill('frm-license', d.license);
-    fill('frm-dt-tz', d.timezone);
-    fill('frm-eq-model', d.recorder_model);
   }
 
   // ── Location presets (localStorage) ──────────────────────────────────
