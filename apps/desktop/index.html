@@ -66,6 +66,13 @@
     <!-- Selection controls (hidden until selection) -->
     <div class="toolbar-group selection-actions" id="selection-actions" style="display: none;">
       <div class="control-item">
+        <label for="selection-time-base">Range</label>
+        <select id="selection-time-base" title="Read From/To as a position in the session, or as wall-clock time of day">
+          <option value="file">File</option>
+          <option value="wall">Wall</option>
+        </select>
+      </div>
+      <div class="control-item">
         <label>From</label>
         <input type="text" id="selection-start" class="selection-time-input" placeholder="0:00.00" title="Selection start (click to edit)">
       </div>

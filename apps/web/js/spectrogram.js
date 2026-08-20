@@ -582,22 +582,76 @@ export class SpectrogramRenderer {
 
   // --- Loading ---
 
+  /**
+   * Order files by when they were actually recorded.
+   *
+   * BWF only records a time of day (timeReference is samples since midnight),
+   * so a session running past midnight comes out rotated by a plain sort: a
+   * file starting at 22:52 sorts after one starting at 01:58 even though it
+   * was recorded first. The true order is always some rotation of the
+   * time-of-day order, so cut the list at its largest discontinuity — the
+   * stretch of the day the recorder was idle. A session that does not cross
+   * midnight already has its largest gap at the wrap, so it is left alone.
+   *
+   * Origination date is deliberately not used: some recorders stamp it when
+   * the file is closed, which is a whole file late and on the wrong day for
+   * the file that spans midnight.
+   */
+  static sortChronologically(wavInfos) {
+    const files = wavInfos.slice();
+    const startOf = f => (f.bext ? f.bext.timeReference / f.sampleRate : null);
+
+    if (files.length < 2 || files.some(f => startOf(f) === null)) {
+      files.sort((a, b) => (a.fileName || '').localeCompare(b.fileName || ''));
+      return files;
+    }
+
+    files.sort((a, b) => startOf(a) - startOf(b));
+
+    const n = files.length;
+    let cut = 0;
+    let widest = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const prev = files[(i - 1 + n) % n];
+      let gap = startOf(files[i]) - (startOf(prev) + prev.duration);
+      if (i === 0) gap += 86400; // wrap-around from the last file back to the first
+      if (gap > widest) { widest = gap; cut = i; }
+    }
+
+    return cut > 0 ? files.slice(cut).concat(files.slice(0, cut)) : files;
+  }
+
   setFiles(wavInfos) {
-    // Sort by BWF start time if available
-    this.files = wavInfos.sort((a, b) => {
-      const ta = a.bext ? a.bext.timeReference : 0;
-      const tb = b.bext ? b.bext.timeReference : 0;
-      return ta - tb;
-    });
+    this.files = SpectrogramRenderer.sortChronologically(wavInfos);
 
     // Use first file as reference for sample rate etc
     this.wavInfo = this.files[0];
     this.totalSamples = 0;
 
-    // Build unified timeline — for now each file appended
+    // Build unified timeline — each file appended, tracking where its wall
+    // clock sits so a session recorded across midnight stays unambiguous.
+    let prev = null;
+    this.gaps = [];
     for (const f of this.files) {
       f._timelineOffset = this.totalSamples;
+      f._wallClockStart = f.bext ? f.bext.timeReference / f.sampleRate : null;
+      f._dayOffset = prev ? prev._dayOffset : 0;
+      if (prev && prev._wallClockStart !== null && f._wallClockStart !== null) {
+        if (f._wallClockStart < prev._wallClockStart) f._dayOffset++;
+        // A real-world gap means a wall-clock span holds less audio than it looks
+        const prevEnd = prev._wallClockStart + prev.duration + prev._dayOffset * 86400;
+        const delta = f._wallClockStart + f._dayOffset * 86400 - prevEnd;
+        if (Math.abs(delta) > 0.5) {
+          this.gaps.push({
+            afterFile: prev.fileName,
+            beforeFile: f.fileName,
+            sampleInTimeline: this.totalSamples,
+            seconds: delta
+          });
+        }
+      }
       this.totalSamples += f.totalSamples;
+      prev = f;
     }
 
     this.totalDuration = this.totalSamples / this.wavInfo.sampleRate;

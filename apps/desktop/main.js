@@ -533,14 +533,30 @@ async function writeWavFromSegments(segments, outputPath, sampleRate, bextMeta) 
 
   const bextSize = bextChunk ? bextChunk.length : 0;
   const fmtSize = 16;
-  const headerSize = 12 + (8 + fmtSize) + bextSize + 8;
+  // Plain RIFF can only describe files up to 4 GB. Past that we must emit RF64
+  // (EBU Tech 3306), which carries the real 64-bit sizes in a ds64 chunk.
+  const DS64_SIZE = 28;               // riffSize + dataSize + sampleCount + tableLength
+  const plainHeaderSize = 12 + (8 + fmtSize) + bextSize + 8;
+  const isRF64 = (plainHeaderSize - 8 + totalDataBytes) > 0xFFFFFFFF;
+  const headerSize = plainHeaderSize + (isRF64 ? 8 + DS64_SIZE : 0);
+  const riffSize = headerSize - 8 + totalDataBytes;
 
   const header = Buffer.alloc(headerSize);
   let pos = 0;
 
-  header.write('RIFF', pos); pos += 4;
-  header.writeUInt32LE(Math.min(headerSize - 8 + totalDataBytes, 0xFFFFFFFF), pos); pos += 4;
+  header.write(isRF64 ? 'RF64' : 'RIFF', pos); pos += 4;
+  header.writeUInt32LE(isRF64 ? 0xFFFFFFFF : riffSize, pos); pos += 4;
   header.write('WAVE', pos); pos += 4;
+
+  // ds64 must be the first chunk after WAVE
+  if (isRF64) {
+    header.write('ds64', pos); pos += 4;
+    header.writeUInt32LE(DS64_SIZE, pos); pos += 4;
+    writeUInt64LE(header, riffSize, pos); pos += 8;
+    writeUInt64LE(header, totalDataBytes, pos); pos += 8;
+    writeUInt64LE(header, Math.floor(totalDataBytes / blockAlign), pos); pos += 8;
+    header.writeUInt32LE(0, pos); pos += 4; // no chunk size table
+  }
 
   header.write('fmt ', pos); pos += 4;
   header.writeUInt32LE(fmtSize, pos); pos += 4;
@@ -557,7 +573,12 @@ async function writeWavFromSegments(segments, outputPath, sampleRate, bextMeta) 
   }
 
   header.write('data', pos); pos += 4;
-  header.writeUInt32LE(Math.min(totalDataBytes, 0xFFFFFFFF), pos); pos += 4;
+  header.writeUInt32LE(isRF64 ? 0xFFFFFFFF : totalDataBytes, pos); pos += 4;
+
+  // Per-segment accounting so a source file that comes up short is reported
+  // instead of silently shortening the export.
+  const segmentReport = [];
+  let writtenDataBytes = 0;
 
   const outFd = await fs.promises.open(outputPath, 'w');
   try {
@@ -568,28 +589,78 @@ async function writeWavFromSegments(segments, outputPath, sampleRate, bextMeta) 
     const CHUNK_SIZE = 4 * 1024 * 1024;
     const readBuf = Buffer.allocUnsafe(CHUNK_SIZE);
     for (const seg of segments) {
+      const expected = seg.endByte - seg.startByte;
+      let copied = 0;
       const srcFd = await fs.promises.open(seg.filePath, 'r');
       try {
-        let remaining = seg.endByte - seg.startByte;
+        let remaining = expected;
         let srcPos = seg.dataOffset + seg.startByte;
         while (remaining > 0) {
           const toRead = Math.min(CHUNK_SIZE, remaining);
           const { bytesRead } = await srcFd.read(readBuf, 0, toRead, srcPos);
-          if (bytesRead === 0) break;
+          if (bytesRead === 0) break; // hit EOF early — recorded below
           await outFd.write(readBuf, 0, bytesRead, writePos);
           writePos += bytesRead;
           srcPos += bytesRead;
           remaining -= bytesRead;
+          copied += bytesRead;
         }
       } finally {
         await srcFd.close();
+      }
+      writtenDataBytes += copied;
+      segmentReport.push({
+        filePath: seg.filePath,
+        fileName: path.basename(seg.filePath),
+        expectedBytes: expected,
+        copiedBytes: copied,
+        short: copied < expected
+      });
+    }
+
+    // If any source came up short the sizes in the header are now wrong.
+    // Rewrite them to match what actually landed on disk.
+    if (writtenDataBytes !== totalDataBytes) {
+      const realRiff = headerSize - 8 + writtenDataBytes;
+      const fixed = Buffer.alloc(4);
+      if (isRF64) {
+        const ds64 = Buffer.alloc(24);
+        writeUInt64LE(ds64, realRiff, 0);
+        writeUInt64LE(ds64, writtenDataBytes, 8);
+        writeUInt64LE(ds64, Math.floor(writtenDataBytes / blockAlign), 16);
+        await outFd.write(ds64, 0, ds64.length, 20); // after 'RF64'+size+'WAVE'+'ds64'+size
+      } else {
+        fixed.writeUInt32LE(realRiff, 0);
+        await outFd.write(fixed, 0, 4, 4);
+        fixed.writeUInt32LE(writtenDataBytes, 0);
+        await outFd.write(fixed, 0, 4, headerSize - 4);
       }
     }
   } finally {
     await outFd.close();
   }
 
-  return { success: true, outputPath, totalDataBytes };
+  const shortSegments = segmentReport.filter(s => s.short);
+  if (shortSegments.length > 0) {
+    console.warn('Export short reads:', shortSegments);
+  }
+
+  return {
+    success: true,
+    outputPath,
+    totalDataBytes: writtenDataBytes,
+    expectedDataBytes: totalDataBytes,
+    durationSeconds: writtenDataBytes / (blockAlign * sampleRate),
+    rf64: isRF64,
+    segments: segmentReport,
+    shortSegments
+  };
+}
+
+/** Write a 64-bit little-endian unsigned int (values stay within 2^53 here). */
+function writeUInt64LE(buf, value, offset) {
+  buf.writeUInt32LE(value % 0x100000000, offset);
+  buf.writeUInt32LE(Math.floor(value / 0x100000000), offset + 4);
 }
 
 ipcMain.handle('export-wav-segment', async (event, segments, outputPath, bextMeta) => {
@@ -729,7 +800,8 @@ async function readWavHeader(filePath) {
 
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
 
-  if (readStr(view, 0, 4) !== 'RIFF' || readStr(view, 8, 4) !== 'WAVE') {
+  const riffTag = readStr(view, 0, 4);
+  if ((riffTag !== 'RIFF' && riffTag !== 'RF64') || readStr(view, 8, 4) !== 'WAVE') {
     throw new Error('Not a WAV file');
   }
 
@@ -740,6 +812,7 @@ async function readWavHeader(filePath) {
     timecodeReference: 0, startTimeOfDay: null
   };
 
+  let rf64DataSize = null;
   let offset = 12;
   while (offset + 8 <= buf.byteLength) {
     const chunkId = readStr(view, offset, 4);
@@ -760,9 +833,13 @@ async function readWavHeader(filePath) {
         result.format = subFormat; // 1=PCM, 3=IEEE float
         console.log(`WAVE_FORMAT_EXTENSIBLE: subformat=${subFormat}, container=${result.bitsPerSample}-bit, validBits=${validBits}`);
       }
+    } else if (chunkId === 'ds64') {
+      // RF64: the real 64-bit data size lives here, the data chunk says -1
+      rf64DataSize = view.getUint32(chunkData + 8, true) +
+                     view.getUint32(chunkData + 12, true) * 0x100000000;
     } else if (chunkId === 'data') {
       result.dataOffset = chunkData;
-      result.dataSize = chunkSize;
+      result.dataSize = rf64DataSize !== null ? rf64DataSize : chunkSize;
       // For files >4GB the data chunk size may be wrong (uint32 wraps),
       // or may be 0xFFFFFFFF sentinel. Estimate from file size.
       if (result.dataSize === 0 || result.dataSize === 0xFFFFFFFF || result.dataSize > stat.size - chunkData) {
@@ -784,8 +861,19 @@ async function readWavHeader(filePath) {
       };
     }
 
-    offset = chunkData + chunkSize;
+    offset = chunkData + (chunkId === 'data' && rf64DataSize !== null ? rf64DataSize : chunkSize);
     if (offset % 2 !== 0) offset++;
+  }
+
+  // The scan above only sees the first 1 MB. A file with more metadata than
+  // that before its data chunk would otherwise report zero samples and vanish
+  // from a multi-file session, so fall back to seeking through the chunks.
+  if (result.dataOffset === 0 && stat.size > headerSize) {
+    const found = await findDataChunkBySeek(filePath, stat.size);
+    if (found) {
+      result.dataOffset = found.dataOffset;
+      result.dataSize = found.dataSize;
+    }
   }
 
   // Compute start time of day
@@ -800,6 +888,39 @@ async function readWavHeader(filePath) {
   }
 
   return result;
+}
+
+/**
+ * Locate the data chunk by walking chunk headers with seeks, for files whose
+ * metadata pushes the data chunk past the buffered header read.
+ */
+async function findDataChunkBySeek(filePath, fileSize) {
+  const fd = await fs.promises.open(filePath, 'r');
+  try {
+    const chunkHeader = Buffer.alloc(8);
+    let offset = 12;
+    while (offset + 8 <= fileSize) {
+      const { bytesRead } = await fd.read(chunkHeader, 0, 8, offset);
+      if (bytesRead < 8) break;
+      const chunkId = chunkHeader.toString('ascii', 0, 4);
+      const chunkSize = chunkHeader.readUInt32LE(4);
+      if (!/^[\x20-\x7E]{4}$/.test(chunkId)) break;
+      if (chunkId === 'data') {
+        const dataOffset = offset + 8;
+        const maxSize = fileSize - dataOffset;
+        return {
+          dataOffset,
+          dataSize: (chunkSize === 0 || chunkSize === 0xFFFFFFFF || chunkSize > maxSize)
+            ? maxSize : chunkSize
+        };
+      }
+      offset = offset + 8 + chunkSize;
+      if (offset % 2 !== 0) offset++;
+    }
+    return null;
+  } finally {
+    await fd.close();
+  }
 }
 
 function readStr(view, offset, len) {

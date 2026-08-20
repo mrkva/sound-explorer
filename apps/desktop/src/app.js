@@ -92,6 +92,7 @@ class App {
     this.selectionStartInput = document.getElementById('selection-start');
     this.selectionEndInput = document.getElementById('selection-end');
     this.selectionDurationPreset = document.getElementById('selection-duration-preset');
+    this.selectionTimeBase = document.getElementById('selection-time-base');
 
     // Audio output device and sample rate
     this.audioOutputSelect = document.getElementById('audio-output');
@@ -547,16 +548,51 @@ class App {
       }
     });
 
-    // Precise selection time inputs
+    // Precise selection time inputs. In Wall mode the values are times of day
+    // (HH:MM:SS) and get mapped back onto the session timeline.
     const applySelectionTime = () => {
       const startStr = this.selectionStartInput.value.trim();
       const endStr = this.selectionEndInput.value.trim();
-      const startSec = this._parseFlexibleTime(startStr);
-      const endSec = this._parseFlexibleTime(endStr);
-      if (startSec !== null && endSec !== null && endSec > startSec) {
-        this._applySelection(startSec, endSec);
+      if (!startStr || !endStr) return;
+
+      let startSec, endSec;
+      if (this.selectionTimeBase.value === 'wall') {
+        startSec = this._wallInputToSessionTime(startStr);
+        endSec = this._wallInputToSessionTime(endStr);
+      } else {
+        startSec = this._parseFlexibleTime(startStr);
+        endSec = this._parseFlexibleTime(endStr);
       }
+
+      if (startSec === null || endSec === null) {
+        this._setStatus('Invalid time format');
+        return;
+      }
+      if (endSec <= startSec) {
+        this._setStatus('Range end must be after the start');
+        return;
+      }
+      if (!this._applySelection(startSec, endSec)) {
+        this._setStatus('That range falls outside the loaded recordings');
+        return;
+      }
+      this._reportRangeCoverage(this._pendingSelection.start, this._pendingSelection.end);
     };
+
+    this.selectionTimeBase.addEventListener('change', () => {
+      if (this.selectionTimeBase.value === 'wall' &&
+          (!this.session || this.session.sessionStartTime === null)) {
+        this.selectionTimeBase.value = 'file';
+        this._setStatus('No wall-clock timestamps in these files');
+        return;
+      }
+      if (this._pendingSelection) {
+        this._populateSelectionInputs(this._pendingSelection.start, this._pendingSelection.end);
+      } else {
+        this.selectionStartInput.value = '';
+        this.selectionEndInput.value = '';
+      }
+    });
 
     this.selectionStartInput.addEventListener('keydown', (e) => {
       e.stopPropagation();
@@ -1018,6 +1054,16 @@ class App {
     // Show file-dependent toolbar buttons
     document.getElementById('btn-export-png').style.display = '';
 
+    // From/To range entry is available without dragging a selection first
+    this.selectionActions.style.display = 'flex';
+    this.selectionStartInput.value = '';
+    this.selectionEndInput.value = '';
+    this.selectionInfo.textContent = '';
+    const wallAvailable = session.sessionStartTime !== null;
+    this.selectionTimeBase.querySelector('option[value="wall"]').disabled = !wallAvailable;
+    if (!wallAvailable) this.selectionTimeBase.value = 'file';
+    this._reportSessionIntegrity(session);
+
     // Compute waveform overview in background
     this.spectrogram.computeOverview();
 
@@ -1381,11 +1427,76 @@ class App {
     return null;
   }
 
-  _applySelection(start, end) {
+  /**
+   * Fill the From/To fields for a timeline range, in whichever base is active.
+   */
+  _populateSelectionInputs(start, end) {
+    if (this.selectionTimeBase.value === 'wall') {
+      this.selectionStartInput.value = this._formatWallPrecise(start);
+      this.selectionEndInput.value = this._formatWallPrecise(end);
+    } else {
+      this.selectionStartInput.value = this._formatTimePrecise(start);
+      this.selectionEndInput.value = this._formatTimePrecise(end);
+    }
+  }
+
+  /**
+   * Timeline seconds -> displayed wall-clock string (TC offset applied).
+   */
+  _formatWallPrecise(timeInSession) {
+    const wall = this.session?.toWallClock(timeInSession);
+    if (wall === null || wall === undefined) return '';
+    let s = wall + (this._tcOffsetHours || 0) * 3600;
+    s = ((s % 86400) + 86400) % 86400;
+    const totalCs = Math.round(s * 100);
+    const cs = totalCs % 100;
+    const totalSec = Math.floor(totalCs / 100);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const sec = totalSec % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:` +
+           `${String(sec).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+  }
+
+  /**
+   * Wall-clock string typed by the user -> position on the session timeline.
+   * Returns null if the session has no timestamps or the string is unparseable.
+   */
+  _wallInputToSessionTime(str) {
+    if (!this.session || this.session.sessionStartTime === null) return null;
+    const parts = str.trim().split(':');
+    // HH:MM:SS(.cc) keeps sub-second precision; HH:MM is whole minutes
+    let wall = parts.length === 3 ? this._parseFlexibleTime(str)
+             : parts.length === 2 ? BWFParser.parseTimeString(str)
+             : null;
+    if (wall === null) return null;
+    // Displayed wall clock includes the TC offset, so undo it before mapping
+    wall -= (this._tcOffsetHours || 0) * 3600;
+    return this.session.fromWallClock(wall);
+  }
+
+  /**
+   * A wall-clock range only contains as much audio as the files actually hold.
+   * Tell the user when gaps between recordings make the export shorter.
+   */
+  _reportRangeCoverage(start, end) {
     if (!this.session) return;
+    const gapSec = this.session.gapSecondsWithin(start, end);
+    if (gapSec > 0.5) {
+      this._setStatus(
+        `Range set — ${this._formatTimePrecise(end - start)} of audio, ` +
+        `but ${this._formatTime(gapSec)} is missing between recordings in this span`
+      );
+    } else {
+      this._setStatus(`Range set — ${this._formatTimePrecise(end - start)}`);
+    }
+  }
+
+  _applySelection(start, end) {
+    if (!this.session) return false;
     start = Math.max(0, start);
     end = Math.min(this.session.totalDuration, end);
-    if (end <= start) return;
+    if (end <= start) return false;
 
     this.spectrogram.selectionStart = start;
     this.spectrogram.selectionEnd = end;
@@ -1396,6 +1507,7 @@ class App {
     const padding = Math.max(2, dur * 0.2);
     this.spectrogram.setView(start - padding, end + padding);
     this.spectrogram.computeVisible();
+    return true;
   }
 
   // ── Annotations ──────────────────────────────────────────────────────
@@ -1412,8 +1524,7 @@ class App {
     this._updateExportSlowedButton();
 
     // Populate precise time inputs
-    this.selectionStartInput.value = this._formatTimePrecise(start);
-    this.selectionEndInput.value = this._formatTimePrecise(end);
+    this._populateSelectionInputs(start, end);
 
     // Set up loop playback on the selection
     this.engine.setLoop(start, end);
@@ -1427,7 +1538,11 @@ class App {
 
   _onSelectionCleared() {
     this._pendingSelection = null;
-    this.selectionActions.style.display = 'none';
+    // Keep the From/To fields available so a range can still be typed in
+    this.selectionActions.style.display = this.session ? 'flex' : 'none';
+    this.selectionInfo.textContent = '';
+    this.selectionStartInput.value = '';
+    this.selectionEndInput.value = '';
     document.getElementById('btn-export-selection').style.display = 'none';
     document.getElementById('btn-trim-selection').style.display = 'none';
     document.getElementById('btn-export-slowed').style.display = 'none';
@@ -1457,6 +1572,12 @@ class App {
 
     const duration = endTime - startTime;
     info += `<div>Duration: ${this._formatTimePrecise(duration)}</div>`;
+
+    const gapSec = this.session?.gapSecondsWithin(startTime, endTime) || 0;
+    if (gapSec > 0.5) {
+      info += `<div class="wall-clock-label">\u26A0 ${this._formatTime(gapSec)} missing between recordings ` +
+              `\u2014 wall-clock span is ${this._formatTimePrecise(duration + gapSec)}</div>`;
+    }
 
     this.annotationTimeInfo.innerHTML = info;
     this.annotationDialog.style.display = 'block';
@@ -1499,8 +1620,8 @@ class App {
     let wallClockStartISO = null;
     let wallClockEndISO = null;
     if (this.session?.sessionStartTime !== null) {
-      const wallStart = this.session.toWallClock(start);
-      const wallEnd = this.session.toWallClock(end);
+      const wallStart = this.session.toWallClockContinuous(start);
+      const wallEnd = this.session.toWallClockContinuous(end);
       const date = this.session.sessionDate || '2000-01-01';
       if (wallStart !== null && wallEnd !== null) {
         wallClockStartISO = this._wallClockToISO(date, wallStart);
@@ -1529,24 +1650,24 @@ class App {
   }
 
   _wallClockToISO(dateStr, wallSeconds) {
-    // dateStr is "YYYY-MM-DD" or "YYYY:MM:DD", wallSeconds is seconds from midnight
-    // Apply timecode offset correction
+    // dateStr is "YYYY-MM-DD" or "YYYY:MM:DD" for the session's first day.
+    // wallSeconds is seconds from that midnight and may exceed 86400 for a
+    // recording that runs into following days.
     wallSeconds += (this._tcOffsetHours || 0) * 3600;
-    const d = dateStr.replace(/:/g, '-');
-    let s = wallSeconds;
-    let dayOffset = 0;
-    if (s >= 86400) { s -= 86400; dayOffset = 1; }
+    const dayOffset = Math.floor(wallSeconds / 86400);
+    const s = wallSeconds - dayOffset * 86400;
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
     const sec = Math.floor(s % 60);
-    // Simple day increment for midnight crossing
-    if (dayOffset > 0) {
-      const parts = d.split('-');
-      const dt = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]) + dayOffset);
-      const ds = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-      return `${ds}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+
+    let d = dateStr.replace(/:/g, '-');
+    if (dayOffset !== 0) {
+      const [y, mo, day] = d.split('-').map(Number);
+      const dt = new Date(y, mo - 1, day + dayOffset);
+      d = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
     }
-    return `${d}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    return `${d}T${time}`;
   }
 
   _updateAnnotationsList() {
@@ -1830,6 +1951,23 @@ class App {
   }
 
   /**
+   * Summarise an export: how long it actually came out, plus any source file
+   * that could not supply its full range (which would silently shorten it).
+   */
+  _exportResultMessage(label, result, outputPath) {
+    const sizeMB = (result.totalDataBytes / (1024 * 1024)).toFixed(1);
+    const name = outputPath.split(/[/\\]/).pop();
+    let msg = `Exported "${label}" \u2014 ${this._formatTimePrecise(result.durationSeconds)}, ` +
+              `${sizeMB} MB${result.rf64 ? ' (RF64)' : ''} to ${name}`;
+    if (result.shortSegments?.length > 0) {
+      const names = result.shortSegments.map(seg => seg.fileName).join(', ');
+      msg = '\u26A0 ' + msg + ` \u2014 short read from ${names}; the export is incomplete`;
+      console.warn('Short reads during export:', result.shortSegments);
+    }
+    return msg;
+  }
+
+  /**
    * Trim: crop the loaded session to the current selection.
    * Navigation, zoom-fit, and export are constrained to the trim region.
    * Original files are never modified. Use Untrim to restore full view.
@@ -1910,8 +2048,8 @@ class App {
     let wallClockStartISO = null;
     let wallClockEndISO = null;
     if (this.session.sessionStartTime !== null) {
-      const wallStart = this.session.toWallClock(start);
-      const wallEnd = this.session.toWallClock(end);
+      const wallStart = this.session.toWallClockContinuous(start);
+      const wallEnd = this.session.toWallClockContinuous(end);
       const date = this.session.sessionDate || '2000-01-01';
       if (wallStart !== null && wallEnd !== null) {
         wallClockStartISO = this._wallClockToISO(date, wallStart);
@@ -1938,8 +2076,8 @@ class App {
     const ann = { note, segments, wallClockStartISO: null, wallClockEndISO: null };
 
     if (this.session.sessionStartTime !== null) {
-      const wallStart = this.session.toWallClock(start);
-      const wallEnd = this.session.toWallClock(end);
+      const wallStart = this.session.toWallClockContinuous(start);
+      const wallEnd = this.session.toWallClockContinuous(end);
       const date = this.session.sessionDate || '2000-01-01';
       if (wallStart !== null && wallEnd !== null) {
         ann.wallClockStartISO = this._wallClockToISO(date, wallStart);
@@ -1969,8 +2107,10 @@ class App {
       const result = await window.electronAPI.exportWavResampled(
         exportSegments, outputPath, targetSampleRate, bextMeta
       );
-      const sizeMB = (result.totalDataBytes / (1024 * 1024)).toFixed(1);
-      this._setStatus(`Exported ${speedLabel} (${sizeMB} MB, ${targetSampleRate} Hz) to ${outputPath.split(/[/\\]/).pop()}`);
+      this._setStatus(
+        this._exportResultMessage(`${ann.note} @ ${speedLabel}`, result, outputPath) +
+        ` (${targetSampleRate} Hz)`
+      );
     } catch (err) {
       this._setStatus(`Export error: ${err.message}`);
       console.error('Export slowed error:', err);
@@ -1985,7 +2125,8 @@ class App {
     const startTime = ann.segments[0]?.startInFile || 0;
     const file = session.files.find(f => f.filePath === ann.segments[0]?.filePath);
     const sessionStart = file ? file.timeStart + startTime : startTime;
-    const wallSec = session.toWallClock(sessionStart);
+    // Continuous clock, so a session running past midnight dates correctly
+    const wallSec = session.toWallClockContinuous(sessionStart);
     if (wallSec === null) return null;
 
     const adjusted = wallSec + (this._tcOffsetHours || 0) * 3600;
@@ -1994,8 +2135,9 @@ class App {
     const daySeconds = ((adjusted % 86400) + 86400) % 86400;
     const timeReference = Math.round(daySeconds * session.sampleRate);
 
-    // OriginationDate and OriginationTime
-    const date = session.sessionDate?.replace(/:/g, '-') || '2000-01-01';
+    // OriginationDate: the session's first day advanced by any midnight crossed
+    const isoStart = this._wallClockToISO(session.sessionDate || '2000-01-01', wallSec);
+    const date = isoStart.slice(0, 10);
     const totalSec = ((adjusted % 86400) + 86400) % 86400;
     const hh = String(Math.floor(totalSec / 3600)).padStart(2, '0');
     const mm = String(Math.floor((totalSec % 3600) / 60)).padStart(2, '0');
@@ -2034,8 +2176,7 @@ class App {
       const exportSegments = this._buildExportSegments(ann);
       const bextMeta = this._buildBextMetadata(ann);
       const result = await window.electronAPI.exportWavSegment(exportSegments, outputPath, bextMeta);
-      const sizeMB = (result.totalDataBytes / (1024 * 1024)).toFixed(1);
-      this._setStatus(`Exported "${ann.note}" (${sizeMB} MB) to ${outputPath.split(/[/\\]/).pop()}`);
+      this._setStatus(this._exportResultMessage(ann.note, result, outputPath));
     } catch (err) {
       this._setStatus(`Export error: ${err.message}`);
       console.error('Export error:', err);
@@ -2193,6 +2334,44 @@ class App {
       return `Ready \u2014 ${s.files.length} file${s.files.length > 1 ? 's' : ''}, ${startStr}\u2013${endStr}. Type a time to navigate.`;
     }
     return 'Ready';
+  }
+
+  /**
+   * Warn about anything that makes the timeline hold less audio than the
+   * folder suggests: files dropped for a mismatched format, or wall-clock
+   * gaps between consecutive recordings.
+   */
+  _reportSessionIntegrity(session) {
+    const problems = [];
+
+    if (session.skippedFiles.length > 0) {
+      const names = session.skippedFiles.map(f => f.fileName).join(', ');
+      problems.push(`${session.skippedFiles.length} file(s) skipped \u2014 format mismatch: ${names}`);
+      for (const f of session.skippedFiles) console.warn(`Skipped ${f.fileName}: ${f.reason}`);
+    }
+
+    const missing = session.gaps.filter(g => g.seconds > 0);
+    if (missing.length > 0) {
+      const total = missing.reduce((sum, g) => sum + g.seconds, 0);
+      problems.push(
+        `${missing.length} gap(s) between recordings, ${this._formatTime(total)} of wall-clock time missing`
+      );
+      for (const g of missing) {
+        console.warn(
+          `Gap of ${g.seconds.toFixed(2)}s between ${g.afterFile} and ${g.beforeFile} ` +
+          `(at ${BWFParser.secondsToTimeString(g.wallClockAt)})`
+        );
+      }
+    }
+
+    const overlaps = session.gaps.filter(g => g.seconds < 0);
+    if (overlaps.length > 0) {
+      problems.push(`${overlaps.length} overlapping file(s) \u2014 wall clock runs backwards`);
+    }
+
+    if (problems.length > 0) {
+      this._setStatus('\u26A0 ' + problems.join('  |  ') + ' \u2014 see console for detail');
+    }
   }
 
   _setStatus(text) {

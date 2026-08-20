@@ -123,6 +123,10 @@
 
       <!-- Selection controls (hidden until selection) -->
       <div id="selection-controls" style="display:none">
+        <select id="select-time-base" class="select select-small" title="Read From/To as a position in the session, or as wall-clock time of day">
+          <option value="file">File</option>
+          <option value="wall">Wall</option>
+        </select>
         <label class="toolbar-label">From:</label>
         <input id="input-sel-from" type="text" class="input input-time" value="">
         <label class="toolbar-label">To:</label>

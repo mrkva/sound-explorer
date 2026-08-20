@@ -5,7 +5,7 @@
  */
 
 // Keep in sync with js/version.js
-const CACHE_VERSION = '0.8.5';
+const CACHE_VERSION = '0.9.0';
 const CACHE_NAME = 'sound-explorer-v' + CACHE_VERSION;
 
 const APP_SHELL = [

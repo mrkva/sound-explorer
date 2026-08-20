@@ -267,6 +267,16 @@ class App {
     });
 
     // Selection controls
+    document.getElementById('select-time-base').addEventListener('change', (e) => {
+      if (e.target.value === 'wall' && !this._hasWallClock()) {
+        e.target.value = 'file';
+        this._setStatus('No wall-clock timestamps in these files');
+        return;
+      }
+      if (this.spectrogram?.selectionStart !== null && this.spectrogram?.selectionStart !== undefined) {
+        this._updateSelectionUI(this.spectrogram.selectionStart, this.spectrogram.selectionEnd);
+      }
+    });
     document.getElementById('input-sel-from').addEventListener('change', (e) => this._onSelectionInput());
     document.getElementById('input-sel-to').addEventListener('change', (e) => this._onSelectionInput());
     document.getElementById('select-duration-preset').addEventListener('change', (e) => this._onDurationPreset(e.target.value));
@@ -652,6 +662,9 @@ class App {
       // Wait for spectrogram to fully render before allowing playback
       this._showComputing(true);
       await this.spectrogram.setFiles(wavInfos);
+      // setFiles reorders chronologically into its own array — adopt that order
+      // so wavInfos[0] is the session's first file, not the picker's.
+      this.wavInfos = this.spectrogram.files;
       this._showComputing(false);
 
       // Compute waveform overview in background
@@ -678,13 +691,47 @@ class App {
       this._updateWallClockFn();
       this._updateUI();
 
-      this._setStatus(`Loaded ${files.length} file(s)`);
+      this._reportSessionIntegrity(files.length);
       this._showCanvasHint();
     } catch (err) {
       this._setStatus(`Error: ${err.message}`);
       console.error(err);
       this._updateUI();
     }
+  }
+
+  /**
+   * Report anything that makes the timeline hold less audio than the files
+   * suggest: wall-clock gaps between recordings, or overlapping files.
+   */
+  _reportSessionIntegrity(fileCount) {
+    const gaps = this.spectrogram?.gaps || [];
+    const missing = gaps.filter(g => g.seconds > 0);
+    const overlaps = gaps.filter(g => g.seconds < 0);
+    const problems = [];
+
+    if (missing.length > 0) {
+      const total = missing.reduce((sum, g) => sum + g.seconds, 0);
+      problems.push(`${missing.length} gap(s) between recordings, ${this._formatTime(total)} missing`);
+      for (const g of missing) {
+        console.warn(`Gap of ${g.seconds.toFixed(2)}s between ${g.afterFile} and ${g.beforeFile}`);
+      }
+    }
+    if (overlaps.length > 0) {
+      problems.push(`${overlaps.length} overlapping file(s) — wall clock runs backwards`);
+    }
+
+    // Wall-clock range entry only makes sense with timestamps present
+    const baseSel = document.getElementById('select-time-base');
+    if (baseSel) {
+      const wallAvailable = this._hasWallClock();
+      baseSel.querySelector('option[value="wall"]').disabled = !wallAvailable;
+      if (!wallAvailable) baseSel.value = 'file';
+    }
+
+    this._setStatus(problems.length > 0
+      ? `\u26A0 Loaded ${fileCount} file(s) — ` + problems.join('  |  ')
+      : `Loaded ${fileCount} file(s)`);
   }
 
   _populateSpeedSelector() {
@@ -835,14 +882,17 @@ class App {
     const info = this.wavInfos[0];
     const prev = this.spectrogram.wallClockFn;
     if (info?.bext) {
-      const startSec = info.bext.timeReference / info.sampleRate;
+      // Read the clock from whichever file the position falls in, so the axis
+      // stays correct across files and past midnight.
       this.spectrogram.wallClockFn = (positionSec) => {
-        const totalSec = startSec + positionSec;
-        const h = Math.floor(totalSec / 3600);
-        const m = Math.floor((totalSec % 3600) / 60);
-        const s = totalSec % 60;
-        const sWhole = Math.floor(s);
-        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sWhole).padStart(2, '0')}`;
+        const wall = this._wallClockAtSample(Math.round(positionSec * info.sampleRate));
+        const totalSec = wall === null
+          ? info.bext.timeReference / info.sampleRate + positionSec
+          : wall;
+        const t = ((totalSec % 86400) + 86400) % 86400;
+        return `${String(Math.floor(t / 3600)).padStart(2, '0')}:` +
+               `${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}:` +
+               `${String(Math.floor(t % 60)).padStart(2, '0')}`;
       };
     } else {
       this.spectrogram.wallClockFn = null;
@@ -868,8 +918,13 @@ class App {
     const fromSec = startSample / sr;
     const toSec = endSample / sr;
 
-    document.getElementById('input-sel-from').value = this._formatTime(fromSec);
-    document.getElementById('input-sel-to').value = this._formatTime(toSec);
+    if (this._selectionTimeBase() === 'wall') {
+      document.getElementById('input-sel-from').value = this._formatWallPrecise(startSample);
+      document.getElementById('input-sel-to').value = this._formatWallPrecise(endSample);
+    } else {
+      document.getElementById('input-sel-from').value = this._formatTime(fromSec);
+      document.getElementById('input-sel-to').value = this._formatTime(toSec);
+    }
     document.getElementById('label-sel-duration').textContent =
       `(${this._formatTime(toSec - fromSec)})`;
   }
@@ -877,17 +932,41 @@ class App {
   _onSelectionInput() {
     const fromStr = document.getElementById('input-sel-from').value;
     const toStr = document.getElementById('input-sel-to').value;
-    const from = this._parseTime(fromStr);
-    const to = this._parseTime(toStr);
+    if (!fromStr.trim() || !toStr.trim()) return;
 
-    if (from !== null && to !== null) {
-      const sr = this.wavInfos[0].sampleRate;
-      this.spectrogram.selectionStart = Math.floor(from * sr);
-      this.spectrogram.selectionEnd = Math.floor(to * sr);
-      this.spectrogram.render();
-      document.getElementById('label-sel-duration').textContent =
-        `(${this._formatTime(to - from)})`;
+    const sr = this.wavInfos[0].sampleRate;
+    let fromSample, toSample;
+
+    if (this._selectionTimeBase() === 'wall') {
+      fromSample = this._wallInputToSample(fromStr);
+      toSample = this._wallInputToSample(toStr);
+    } else {
+      const from = this._parseTime(fromStr);
+      const to = this._parseTime(toStr);
+      fromSample = from === null ? null : Math.floor(from * sr);
+      toSample = to === null ? null : Math.floor(to * sr);
     }
+
+    if (fromSample === null || toSample === null) {
+      this._setStatus('Invalid time format');
+      return;
+    }
+    if (toSample <= fromSample) {
+      this._setStatus('Range end must be after the start');
+      return;
+    }
+
+    this.spectrogram.selectionStart = fromSample;
+    this.spectrogram.selectionEnd = toSample;
+    this.spectrogram.render();
+    document.getElementById('label-sel-duration').textContent =
+      `(${this._formatTime((toSample - fromSample) / sr)})`;
+
+    const gapSec = this._gapSecondsWithin(fromSample, toSample);
+    this._setStatus(gapSec > 0.5
+      ? `Range set — ${this._formatTime((toSample - fromSample) / sr)} of audio, but ` +
+        `${this._formatTime(gapSec)} is missing between recordings in this span`
+      : `Range set — ${this._formatTime((toSample - fromSample) / sr)}`);
   }
 
   _onDurationPreset(val) {
@@ -968,6 +1047,118 @@ class App {
 
   // --- Export ---
 
+  /**
+   * Split a timeline sample range into one read per source file, so a
+   * selection spanning several recordings exports joined instead of coming
+   * from the first file only.
+   */
+  _segmentsForRange(startSample, endSample) {
+    const segments = [];
+    for (const f of (this.spectrogram?.files || [])) {
+      const fileEnd = f._timelineOffset + f.totalSamples;
+      if (startSample >= fileEnd || endSample <= f._timelineOffset) continue;
+      const from = Math.max(startSample, f._timelineOffset);
+      const to = Math.min(endSample, fileEnd);
+      segments.push({
+        wavInfo: f,
+        startSample: from - f._timelineOffset,
+        numSamples: to - from
+      });
+    }
+    return segments;
+  }
+
+  /**
+   * Wall clock at a timeline sample, as seconds from midnight of the session's
+   * FIRST day — running past 86400 for a recording that crosses midnight, so
+   * calendar dates come out right.
+   */
+  _wallClockAtSample(sample) {
+    const files = this.spectrogram?.files || [];
+    for (let i = files.length - 1; i >= 0; i--) {
+      const f = files[i];
+      if (sample >= f._timelineOffset) {
+        if (f._wallClockStart === null || f._wallClockStart === undefined) return null;
+        return f._wallClockStart + (sample - f._timelineOffset) / f.sampleRate +
+               (f._dayOffset || 0) * 86400;
+      }
+    }
+    return null;
+  }
+
+  _hasWallClock() {
+    const first = this.spectrogram?.files?.[0];
+    return !!first && first._wallClockStart !== null && first._wallClockStart !== undefined;
+  }
+
+  _selectionTimeBase() {
+    const sel = document.getElementById('select-time-base');
+    return sel && sel.value === 'wall' && this._hasWallClock() ? 'wall' : 'file';
+  }
+
+  /** Timeline sample -> HH:MM:SS.cc time of day. */
+  _formatWallPrecise(sample) {
+    const wall = this._wallClockAtSample(sample);
+    if (wall === null) return '';
+    const s = ((wall % 86400) + 86400) % 86400;
+    const totalCs = Math.round(s * 100);
+    const cs = totalCs % 100;
+    const t = Math.floor(totalCs / 100);
+    return `${String(Math.floor(t / 3600)).padStart(2, '0')}:` +
+           `${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}:` +
+           `${String(t % 60).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+  }
+
+  /** HH:MM(:SS.cc) time of day typed by the user -> timeline sample. */
+  _wallInputToSample(str) {
+    const files = this.spectrogram?.files || [];
+    const first = files[0];
+    if (!this._hasWallClock()) return null;
+
+    const parts = str.trim().split(':');
+    let wall = null;
+    if (parts.length === 3) {
+      wall = parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseFloat(parts[2]);
+    } else if (parts.length === 2) {
+      wall = parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60;
+    }
+    if (wall === null || isNaN(wall)) return null;
+
+    // Roll the time of day onto the session's continuous clock, so a session
+    // running past midnight resolves to the right day.
+    const sessionStart = first._wallClockStart;
+    let target = wall;
+    let rolled = false;
+    while (target < sessionStart) { target += 86400; rolled = true; }
+
+    for (const f of files) {
+      const fileStart = f._wallClockStart + (f._dayOffset || 0) * 86400;
+      if (target >= fileStart && target < fileStart + f.duration) {
+        return f._timelineOffset + Math.round((target - fileStart) * f.sampleRate);
+      }
+    }
+    // Inside a gap between recordings: snap forward to the next real audio
+    for (const f of files) {
+      if (f._wallClockStart + (f._dayOffset || 0) * 86400 > target) return f._timelineOffset;
+    }
+
+    const last = files[files.length - 1];
+    const sessionEnd = last._wallClockStart + (last._dayOffset || 0) * 86400 + last.duration;
+    if (rolled && (sessionStart + 86400 - target) < (target - sessionEnd)) return 0;
+    return this.spectrogram.totalSamples;
+  }
+
+  /** Wall-clock seconds missing between recordings inside a sample range. */
+  _gapSecondsWithin(startSample, endSample) {
+    let total = 0;
+    for (const g of (this.spectrogram?.gaps || [])) {
+      if (g.seconds > 0 && g.sampleInTimeline > startSample && g.sampleInTimeline < endSample) {
+        total += g.seconds;
+      }
+    }
+    return total;
+  }
+
   _getExportRange() {
     const sp = this.spectrogram;
     let start, end;
@@ -984,16 +1175,21 @@ class App {
     return { startSample: start, endSample: end, numSamples: end - start };
   }
 
-  _buildBextInfo(info, startSample, outputSampleRate) {
+  _buildBextInfo(startSample, outputSampleRate) {
+    const info = this.wavInfos[0];
     if (!info.bext) return null;
-    const startTotalSec = (info.bext.timeReference + startSample) / info.sampleRate;
+    // Wall clock at this point on the timeline, not file 0's start plus an
+    // offset — the range may begin in any of the session's files.
+    const startTotalSec = this._wallClockAtSample(startSample) ??
+                          (info.bext.timeReference / info.sampleRate);
+    const daySeconds = ((startTotalSec % 86400) + 86400) % 86400;
     return {
       description: info.bext.description,
       originator: info.bext.originator,
       originatorReference: info.bext.originatorReference,
-      originationDate: info.bext.originationDate,
+      originationDate: this._formatWallClockISO(info.bext.originationDate, startTotalSec).slice(0, 10),
       originationTime: this._formatHMS(startTotalSec),
-      timeReference: Math.round(startTotalSec * outputSampleRate),
+      timeReference: Math.round(daySeconds * outputSampleRate),
     };
   }
 
@@ -1004,13 +1200,15 @@ class App {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
 
-  _buildExportFilename(info, startSample, endSample, suffix = '') {
-    if (info.bext) {
-      const startSec = (info.bext.timeReference + startSample) / info.sampleRate;
-      const endSec = (info.bext.timeReference + endSample) / info.sampleRate;
-      const startStr = this._formatWallClockISO(info.bext.originationDate, startSec);
-      const endStr = this._formatWallClockISO(info.bext.originationDate, endSec);
-      return `${startStr}--${endStr}${suffix}.wav`;
+  _buildExportFilename(startSample, endSample, suffix = '') {
+    const info = this.wavInfos[0];
+    const startSec = this._wallClockAtSample(startSample);
+    const endSec = this._wallClockAtSample(endSample - 1);
+    if (info.bext && startSec !== null && endSec !== null) {
+      const date = info.bext.originationDate;
+      const startStr = this._formatWallClockISO(date, startSec);
+      const endStr = this._formatWallClockISO(date, endSec);
+      return `${startStr}--${endStr}${suffix}.wav`.replace(/[<>:"/\\|?*]/g, '_').replace(/^_/, '');
     }
     return `export_${this._formatTime(startSample / info.sampleRate).replace(/:/g, '-')}${suffix}.wav`;
   }
@@ -1025,14 +1223,8 @@ class App {
   }
 
   async _exportWav() {
-    this._setStatus('Exporting WAV...');
-    const info = this.wavInfos[0];
-    const { startSample, endSample, numSamples } = this._getExportRange();
-    const bextInfo = this._buildBextInfo(info, startSample, info.sampleRate);
-    const blob = await WavParser.buildWavBlob(info, startSample, numSamples, bextInfo);
-    const filename = this._buildExportFilename(info, startSample, endSample);
-    this._triggerDownload(blob, filename);
-    this._setStatus(`Exported: ${filename}`);
+    const { startSample, endSample } = this._getExportRange();
+    await this._exportRange(startSample, endSample, this.wavInfos[0].sampleRate, '');
   }
 
   _updateExportSpeedButton(rate) {
@@ -1049,15 +1241,54 @@ class App {
   async _exportWavAtSpeed() {
     const rate = this.audio.playbackRate;
     if (rate === 1) return;
-    const info = this.wavInfos[0];
-    const targetSR = Math.round(info.sampleRate * rate);
-    this._setStatus(`Exporting WAV at ${targetSR}Hz (${rate}x)...`);
-    const { startSample, endSample, numSamples } = this._getExportRange();
-    const bextInfo = this._buildBextInfo(info, startSample, targetSR);
-    const blob = await WavParser.buildWavBlob(info, startSample, numSamples, bextInfo, targetSR);
-    const filename = this._buildExportFilename(info, startSample, endSample, `_${rate}x`);
-    this._triggerDownload(blob, filename);
-    this._setStatus(`Exported: ${filename}`);
+    const targetSR = Math.round(this.wavInfos[0].sampleRate * rate);
+    const { startSample, endSample } = this._getExportRange();
+    await this._exportRange(startSample, endSample, targetSR, `_${rate}x`);
+  }
+
+  /**
+   * Export a timeline range, joining every source file it covers.
+   */
+  async _exportRange(startSample, endSample, outputSampleRate, suffix) {
+    const segments = this._segmentsForRange(startSample, endSample);
+    if (segments.length === 0) {
+      this._setStatus('Nothing selected to export');
+      return;
+    }
+
+    const info = segments[0].wavInfo;
+    const totalSamples = endSample - startSample;
+    const dataBytes = totalSamples * info.blockAlign;
+
+    // A browser cannot reliably assemble a Blob of this size — the desktop
+    // app streams the same export straight to disk.
+    if (dataBytes > 0xFFFFFFFF) {
+      this._setStatus(
+        `Warning: this range is ${(dataBytes / 1e9).toFixed(1)} GB. ` +
+        'Browsers usually fail above 4 GB — use the desktop app for exports this long. Trying anyway...'
+      );
+    } else {
+      this._setStatus(`Exporting WAV${segments.length > 1 ? ` (joining ${segments.length} files)` : ''}...`);
+    }
+
+    try {
+      const bextInfo = this._buildBextInfo(startSample, outputSampleRate);
+      const blob = await WavParser.buildWavBlobFromSegments(segments, bextInfo, outputSampleRate);
+      const filename = this._buildExportFilename(startSample, endSample, suffix);
+      this._triggerDownload(blob, filename);
+
+      const gapSec = this._gapSecondsWithin(startSample, endSample);
+      const durStr = this._formatTime(totalSamples / info.sampleRate);
+      let msg = `Exported: ${filename} (${durStr}` +
+                `${segments.length > 1 ? `, ${segments.length} files joined` : ''})`;
+      if (gapSec > 0.5) {
+        msg += ` — note: ${this._formatTime(gapSec)} is missing between recordings in this span`;
+      }
+      this._setStatus(msg);
+    } catch (err) {
+      this._setStatus(`Export failed: ${err.message}`);
+      console.error(err);
+    }
   }
 
   /**
@@ -1214,8 +1445,21 @@ class App {
     }, 'image/png');
   }
 
+  /**
+   * @param {string} date - "YYYY-MM-DD" for the session's first day
+   * @param {number} totalSec - seconds from that midnight; may exceed 86400
+   *   for a recording that runs into following days
+   */
   _formatWallClockISO(date, totalSec) {
-    return `${date}T${this._formatHMS(totalSec)}`;
+    const dayOffset = Math.floor(totalSec / 86400);
+    let d = (date || '2000-01-01').replace(/:/g, '-');
+    if (dayOffset !== 0) {
+      const [y, mo, day] = d.split('-').map(Number);
+      const dt = new Date(y, mo - 1, day + dayOffset);
+      d = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-` +
+          `${String(dt.getDate()).padStart(2, '0')}`;
+    }
+    return `${d}T${this._formatHMS(totalSec)}`;
   }
 
   // --- Go To ---

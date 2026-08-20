@@ -30,9 +30,9 @@ export class BWFParser {
       startTimeOfDay: null     // Computed start time as seconds from midnight
     };
 
-    // Verify RIFF header
+    // Verify RIFF header (RF64 is the >4 GB variant, sizes live in ds64)
     const riffTag = this.readString(view, 0, 4);
-    if (riffTag !== 'RIFF') {
+    if (riffTag !== 'RIFF' && riffTag !== 'RF64') {
       throw new Error('Not a valid WAV file (missing RIFF header)');
     }
 
@@ -47,22 +47,32 @@ export class BWFParser {
     // 0xFFFFFFFF sentinel. Scan the entire header buffer instead.
     const bufSize = arrayBuffer.byteLength;
 
+    let rf64DataSize = null;
+
     while (offset + 8 <= bufSize) {
       const chunkId = this.readString(view, offset, 4);
       const chunkSize = view.getUint32(offset + 4, true);
       const chunkDataOffset = offset + 8;
 
-      // Validate chunk: ID should be printable ASCII, size should be reasonable
-      const isValidChunk = /^[\x20-\x7E]{4}$/.test(chunkId) && chunkSize < 0xFFFFFFF0;
+      // Validate chunk: ID should be printable ASCII, size should be reasonable.
+      // In RF64 the data chunk legitimately carries the 0xFFFFFFFF sentinel.
+      const sentinelData = (chunkId === 'data' && chunkSize === 0xFFFFFFFF);
+      const isValidChunk = /^[\x20-\x7E]{4}$/.test(chunkId) &&
+                           (chunkSize < 0xFFFFFFF0 || sentinelData);
       if (!isValidChunk) break; // Corrupt chunk header, stop scanning
 
       switch (chunkId) {
         case 'fmt ':
           this.parseFmtChunk(view, chunkDataOffset, chunkSize, result);
           break;
+        case 'ds64':
+          // RF64: real 64-bit riff/data sizes, the data chunk carries -1
+          rf64DataSize = view.getUint32(chunkDataOffset + 8, true) +
+                         view.getUint32(chunkDataOffset + 12, true) * 0x100000000;
+          break;
         case 'data':
           result.dataOffset = chunkDataOffset;
-          result.dataSize = chunkSize;
+          result.dataSize = rf64DataSize !== null ? rf64DataSize : chunkSize;
           break;
         case 'bext':
           this.parseBextChunk(view, chunkDataOffset, chunkSize, result);
@@ -76,7 +86,8 @@ export class BWFParser {
       // Move to next chunk (chunks are word-aligned)
       // For the data chunk, skip past it using the declared size
       // (which may be much larger than our buffer — that's OK, loop will end)
-      offset = chunkDataOffset + chunkSize;
+      offset = chunkDataOffset +
+        (chunkId === 'data' && rf64DataSize !== null ? rf64DataSize : chunkSize);
       if (offset % 2 !== 0) offset++;
     }
 

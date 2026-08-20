@@ -17,7 +17,7 @@ export class WavParser {
 
     // Validate RIFF header
     const riffTag = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
-    if (riffTag !== 'RIFF') {
+    if (riffTag !== 'RIFF' && riffTag !== 'RF64') {
       throw new Error('Not a valid WAV file (missing RIFF header)');
     }
 
@@ -43,59 +43,65 @@ export class WavParser {
       ixml: null,          // raw iXML string if present
     };
 
-    // Walk RIFF chunks starting at offset 12
+    // Walk RIFF chunks starting at offset 12.
+    // Read each chunk header and body as its own small slice — recorders often
+    // put the iXML chunk AFTER a multi-gigabyte data chunk, and buffering the
+    // file from byte 0 to reach it would pull the whole recording into memory.
     let offset = 12;
     let fmtFound = false;
     let dataFound = false;
+    let rf64DataSize = null; // set by a ds64 chunk in RF64 files
 
-    // We may need to read more of the file for large headers
-    let buf = headerBuf;
-    let bufView = view;
-
-    const ensureBytes = async (off, need) => {
-      if (off + need <= buf.byteLength) return;
-      const newSize = Math.min(file.size, off + need + 4096);
-      buf = await file.slice(0, newSize).arrayBuffer();
-      bufView = new DataView(buf);
+    const readAt = async (off, len) => {
+      const end = Math.min(file.size, off + len);
+      if (end <= off) return null;
+      return new DataView(await file.slice(off, end).arrayBuffer());
     };
 
-    while (offset < file.size - 8) {
-      await ensureBytes(offset, 8);
-      if (offset + 8 > buf.byteLength) break;
+    while (offset + 8 <= file.size) {
+      const head = await readAt(offset, 8);
+      if (!head || head.byteLength < 8) break;
 
       const chunkId = String.fromCharCode(
-        bufView.getUint8(offset), bufView.getUint8(offset + 1),
-        bufView.getUint8(offset + 2), bufView.getUint8(offset + 3)
+        head.getUint8(0), head.getUint8(1), head.getUint8(2), head.getUint8(3)
       );
-      const chunkSize = bufView.getUint32(offset + 4, true);
+      const chunkSize = head.getUint32(4, true);
 
       // Validate chunk ID is printable ASCII
       if (!/^[\x20-\x7E]{4}$/.test(chunkId)) break;
-      // Validate chunk size
-      if (chunkSize > 0xFFFFFFF0) break;
+      // Validate chunk size. In RF64 the data chunk carries a 0xFFFFFFFF
+      // sentinel and its real size comes from ds64.
+      if (chunkSize > 0xFFFFFFF0 && !(chunkId === 'data' && chunkSize === 0xFFFFFFFF)) break;
 
-      if (chunkId === 'fmt ') {
-        await ensureBytes(offset, 8 + chunkSize);
-        WavParser._parseFmt(bufView, offset + 8, chunkSize, result);
-        fmtFound = true;
+      if (chunkId === 'ds64') {
+        const v = await readAt(offset + 8, Math.min(chunkSize, 28));
+        if (v && v.byteLength >= 24) {
+          rf64DataSize = v.getUint32(8, true) + v.getUint32(12, true) * 0x100000000;
+        }
+      } else if (chunkId === 'fmt ') {
+        const v = await readAt(offset + 8, chunkSize);
+        if (v) { WavParser._parseFmt(v, 0, chunkSize, result); fmtFound = true; }
       } else if (chunkId === 'data') {
         result.dataOffset = offset + 8;
-        result.dataSize = chunkSize;
+        result.dataSize = rf64DataSize !== null ? rf64DataSize : chunkSize;
         dataFound = true;
       } else if (chunkId === 'bext') {
-        await ensureBytes(offset, 8 + Math.min(chunkSize, 700));
-        result.bext = WavParser._parseBext(bufView, offset + 8, chunkSize);
+        const v = await readAt(offset + 8, Math.min(chunkSize, 700));
+        if (v) result.bext = WavParser._parseBext(v, 0, chunkSize);
       } else if (chunkId === 'iXML' || chunkId === 'IXML') {
         const ixmlSize = Math.min(chunkSize, 262144); // cap at 256KB
-        await ensureBytes(offset, 8 + ixmlSize);
-        const decoder = new TextDecoder('utf-8');
-        const bytes = new Uint8Array(buf, offset + 8, ixmlSize);
-        result.ixml = decoder.decode(bytes);
+        const v = await readAt(offset + 8, ixmlSize);
+        if (v) {
+          result.ixml = new TextDecoder('utf-8').decode(
+            new Uint8Array(v.buffer, v.byteOffset, v.byteLength)
+          );
+        }
       }
 
       // Move to next chunk (chunks are word-aligned)
-      offset += 8 + chunkSize;
-      if (chunkSize % 2 !== 0) offset += 1;
+      const advance = (chunkId === 'data' && rf64DataSize !== null) ? rf64DataSize : chunkSize;
+      offset += 8 + advance;
+      if (advance % 2 !== 0) offset += 1;
 
       if (fmtFound && dataFound && result.bext !== null && result.ixml !== null) break;
     }
@@ -249,39 +255,87 @@ export class WavParser {
    * Build a WAV file Blob for export.
    */
   static async buildWavBlob(wavInfo, startSample, numSamples, bextInfo = null, overrideSampleRate = null) {
-    const { channels, bitsPerSample, format, blockAlign } = wavInfo;
-    const sampleRate = overrideSampleRate || wavInfo.sampleRate;
-    const bytesPerSample = bitsPerSample / 8;
-    const dataSize = numSamples * blockAlign;
+    return WavParser.buildWavBlobFromSegments(
+      [{ wavInfo, startSample, numSamples }], bextInfo, overrideSampleRate
+    );
+  }
 
-    // Read raw PCM data in chunks to avoid loading entire file into memory
+  /**
+   * Build a WAV Blob from one or more source ranges, concatenated in order.
+   * A selection that spans several recordings of a session produces one
+   * segment per file, so the export is joined rather than taken from the
+   * first file only.
+   *
+   * @param {Array<{wavInfo: object, startSample: number, numSamples: number}>} segments
+   * @param {object|null} bextInfo - BWF metadata for the exported file
+   * @param {number|null} overrideSampleRate - declare a different rate (speed shift)
+   * @returns {Blob}
+   */
+  static async buildWavBlobFromSegments(segments, bextInfo = null, overrideSampleRate = null) {
+    if (!segments.length) throw new Error('Nothing to export');
+
+    const ref = segments[0].wavInfo;
+    const { channels, bitsPerSample, format, blockAlign } = ref;
+    const sampleRate = overrideSampleRate || ref.sampleRate;
+
+    let totalSamples = 0;
+    for (const seg of segments) {
+      if (seg.wavInfo.blockAlign !== blockAlign || seg.wavInfo.channels !== channels ||
+          seg.wavInfo.bitsPerSample !== bitsPerSample) {
+        throw new Error(`Cannot join ${seg.wavInfo.fileName}: format differs from ${ref.fileName}`);
+      }
+      totalSamples += seg.numSamples;
+    }
+    const dataSize = totalSamples * blockAlign;
+
+    // Read raw PCM in chunks to avoid loading whole files into memory
     const maxChunkSamples = Math.floor(8 * 1024 * 1024 / blockAlign);
     const pcmParts = [];
-    for (let pos = startSample; pos < startSample + numSamples; pos += maxChunkSamples) {
-      const count = Math.min(maxChunkSamples, startSample + numSamples - pos);
-      pcmParts.push(await WavParser.readSamples(wavInfo, pos, count));
+    for (const seg of segments) {
+      const last = seg.startSample + seg.numSamples;
+      for (let pos = seg.startSample; pos < last; pos += maxChunkSamples) {
+        const count = Math.min(maxChunkSamples, last - pos);
+        pcmParts.push(await WavParser.readSamples(seg.wavInfo, pos, count));
+      }
     }
 
-    // Calculate sizes
     const bextChunkSize = bextInfo ? 8 + 602 : 0;
     const fmtChunkSize = 8 + 16;
     const dataChunkHeaderSize = 8;
-    const riffSize = 4 + fmtChunkSize + bextChunkSize + dataChunkHeaderSize + dataSize;
+    // Plain RIFF tops out at 4 GB; past that the sizes must be carried in a
+    // ds64 chunk (RF64, EBU Tech 3306) or they wrap and the file reads short.
+    const DS64_SIZE = 28;
+    const plainHeaderSize = 12 + fmtChunkSize + bextChunkSize + dataChunkHeaderSize;
+    const isRF64 = (plainHeaderSize - 8 + dataSize) > 0xFFFFFFFF;
+    const headerSize = plainHeaderSize + (isRF64 ? 8 + DS64_SIZE : 0);
+    const riffSize = headerSize - 8 + dataSize;
 
-    const totalSize = 8 + riffSize;
-    const header = new ArrayBuffer(totalSize - dataSize);
+    const header = new ArrayBuffer(headerSize);
     const hView = new DataView(header);
     let off = 0;
 
-    // RIFF header
     const writeStr = (str) => {
       for (let i = 0; i < str.length; i++) hView.setUint8(off + i, str.charCodeAt(i));
       off += str.length;
     };
+    const writeU64 = (value) => {
+      hView.setUint32(off, value % 4294967296, true); off += 4;
+      hView.setUint32(off, Math.floor(value / 4294967296), true); off += 4;
+    };
 
-    writeStr('RIFF');
-    hView.setUint32(off, riffSize, true); off += 4;
+    writeStr(isRF64 ? 'RF64' : 'RIFF');
+    hView.setUint32(off, isRF64 ? 0xFFFFFFFF : riffSize, true); off += 4;
     writeStr('WAVE');
+
+    // ds64 must be the first chunk after WAVE
+    if (isRF64) {
+      writeStr('ds64');
+      hView.setUint32(off, DS64_SIZE, true); off += 4;
+      writeU64(riffSize);
+      writeU64(dataSize);
+      writeU64(totalSamples);
+      hView.setUint32(off, 0, true); off += 4; // no chunk size table
+    }
 
     // fmt chunk
     writeStr('fmt ');
@@ -312,11 +366,7 @@ export class WavParser {
       writePaddedStr(bextInfo.originationTime || '', 8);
 
       // timeReference uint64 LE - use modulo/division NOT bitwise
-      const timeRef = bextInfo.timeReference || 0;
-      const timeLow = timeRef % 4294967296;
-      const timeHigh = Math.floor(timeRef / 4294967296);
-      hView.setUint32(off, timeLow, true); off += 4;
-      hView.setUint32(off, timeHigh, true); off += 4;
+      writeU64(bextInfo.timeReference || 0);
 
       hView.setUint16(off, 0, true); off += 2; // version
 
@@ -327,7 +377,7 @@ export class WavParser {
 
     // data chunk header
     writeStr('data');
-    hView.setUint32(off, dataSize, true); off += 4;
+    hView.setUint32(off, isRF64 ? 0xFFFFFFFF : dataSize, true); off += 4;
 
     return new Blob([header, ...pcmParts], { type: 'audio/wav' });
   }
